@@ -2,6 +2,8 @@
   <!-- WebView2Loader.dll はネットワークドライブから読めないため常にローカルへ出力 -->
   <PropertyGroup>
     <BaseOutputPath>$(LOCALAPPDATA)\MaiPushWinUI\</BaseOutputPath>
+    <!-- dotnet publish もローカルドライブへ出力（ネットワーク共有では WebView2 が起動不可） -->
+    <PublishDir>$(LOCALAPPDATA)\MaiPushWinUI\publish\</PublishDir>
   </PropertyGroup>
 
   <PropertyGroup>

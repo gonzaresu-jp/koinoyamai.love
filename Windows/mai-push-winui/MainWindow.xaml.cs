@@ -231,7 +231,8 @@ public sealed partial class MainWindow : Window
         try { await wv.EnsureCoreWebView2Async(); }
         catch (Exception ex)
         {
-            DispatcherQueue.TryEnqueue(() => SetTabTitle(tab, $"ERR:{ex.GetType().Name}"));
+            var msg = $"ERR:0x{(uint)ex.HResult:X8} {ex.Message}";
+            DispatcherQueue.TryEnqueue(() => SetTabTitle(tab, msg));
             return;
         }
 
