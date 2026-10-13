@@ -1,6 +1,30 @@
 <?php
 $updateLogs = [
     [
+        "date" => "2026-10-14",
+        "lines" => "41,435",
+        "details" => [
+            "fix" => [
+                "Android アプリ v1.7: カルーセルの横スワイプが途切れる問題を修正 — プルトゥリフレッシュが横スワイプを横取りしていたため、横方向のスワイプは奪わないように変更",
+                "Android アプリ v1.6: WebView 起動の高速化 — restoreState による即時復元、offscreenPreRaster の解除、JS 注入を1本化し、オフラインキャッシュを追加",
+                "Windows アプリ: WebView2 の起動失敗（ネットワークドライブ起動時の COMException）を修正 — 実行ファイルはローカルドライブからの起動を必須に（AGENTS.md §10）",
+                "Web: WebView2 版アプリで通知の購読トグルが機能しない問題を修正 — PushManager の shim を復活させ、Notification.permission の denied による throw を回避、非 http の endpoint への送信をガード",
+                "Windows アプリ: タブが2枚以上あるとき他のタブをクリックしても切り替わらない問題を修正 — OnTabItemDragPressed で即時に CapturePointer を呼んでいたため TabViewItem の PointerPressed が発火せず選択が変わらなかった。ポインターキャプチャをドラッグ閾値超過後（OnTabDragMoved 内）のみに移動して解消",
+                "Windows アプリ: 起動直後にタブストリップが降りたまま表示される問題を修正 — ホバーポーリングの開始を 600ms 遅延することで初期化完了前の誤検知を防止",
+                "Windows アプリ: ウィンドウドラッグゾーン（上端 30px）にカーソルが入るとストリップが降りてしまう問題を修正 — 表示トリガーをウィンドウ上端 ±5px の帯域のみに限定し、ドラッグゾーン進入は非トリガーに",
+            ],
+            "add" => [
+                "Android アプリ v1.5〜v1.7 の要点: 旧ネイティブUI化（Phase 1〜3）は取りやめ WebView 構成へ復元。接続先を koinoyamai.love へ切替（versionCode 8 / versionName 1.7）",
+                "Windows アプリ: SSE 経由のリアルタイムプッシュ通知を Windows トーストに変換、トレイ常駐・自動起動・カーソル・タブ並び替えを追加",
+                "Windows アプリ v1.8: タブストリップのスライドアニメーション（ease-out cubic・180ms）を追加 — DispatcherQueueTimer 16ms 駆動の独自イージングで表示・非表示を滑らかに",
+                "Windows アプリ v1.8: フローティングドラッグゴースト — タブを水平方向に閾値以上ドラッグするとタブを「持ち上げた」ように見えるゴーストが出現し、カーソルに追従して自由移動できる UX を追加",
+            ],
+            "change" => [
+                "Windows アプリ: タブストリップコンテナを 80px → 70px に縮小（ドラッグゾーン 40px → 30px）",
+            ],
+        ],
+    ],
+    [
         "date" => "2026-10-10",
         "details" => [
             "add" => [
