@@ -36,16 +36,28 @@ class MainActivity : AppCompatActivity() {
         private const val HOME_URL = "https://koinoyamai.love"
         private const val TAG = "MaiApp"
 
-        /** 通知・ウィジェットから渡ってきた URL のうち、WebView 内で開いてよいものか */
+        /**
+         * 通知・ウィジェットから渡ってきた URL を解析し、適切なタブへ遷移する。
+         *
+         * - 自サイトの /history → 履歴タブ（ネイティブ）
+         * - 自サイトの /events や /schedule → 予定タブ（ネイティブ）
+         * - 自サイトのその他（/wiki, /archive 等） → WebView タブ
+         * - 外部 URL → ブラウザへ委譲し、ホームを表示
+         */
         private fun resolveStartRoute(intent: Intent?): String {
             val targetUrl = intent?.getStringExtra("targetUrl")
             val uri = targetUrl?.let { runCatching { Uri.parse(it) }.getOrNull() }
             val scheme = uri?.scheme?.lowercase()
-            if (uri != null && (scheme == "http" || scheme == "https") && isOwnSite(uri)) {
-                return "web?url=${URLEncoder.encode(uri.toString(), "UTF-8")}"
+            if (uri == null || (scheme != "http" && scheme != "https")) return "home"
+            if (!isOwnSite(uri)) return "home" // 外部は openExternal で処理
+
+            val path = uri.path ?: "/"
+            return when {
+                path == "/" || path.isEmpty() -> "home"
+                path.startsWith("/history") -> "history"
+                path.startsWith("/events") || path.startsWith("/schedule") -> "schedule"
+                else -> "web?url=${URLEncoder.encode(uri.toString(), "UTF-8")}"
             }
-            // 外部リンクは openExternal で OS に委譲し、アプリ側はホームを表示
-            return "home"
         }
     }
 
@@ -159,5 +171,11 @@ class MainActivity : AppCompatActivity() {
         // 通知・ウィジェットから URL 指定で開かれた時だけ作り直す。
         // ランチャーから再表示しただけの時は今の画面を維持する（旧仕様を維持）
         if (intent?.getStringExtra("targetUrl") != null) recreate()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // WebView プールのクリア（コンテキストリーク防止）
+        com.yuzuki.mai_notification.ui.web.WebViewPool.clear()
     }
 }

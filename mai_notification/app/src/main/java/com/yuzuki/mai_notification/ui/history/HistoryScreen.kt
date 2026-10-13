@@ -1,5 +1,6 @@
 package com.yuzuki.mai_notification.ui.history
 
+import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -38,11 +40,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.yuzuki.mai_notification.data.ApiClient
+import com.yuzuki.mai_notification.data.CacheStore
 import com.yuzuki.mai_notification.data.SseClient
 import com.yuzuki.mai_notification.data.model.HistoryLog
 import com.yuzuki.mai_notification.ui.home.BoxLoading
@@ -57,31 +61,49 @@ private const val SSE_URL = "https://koinoyamai.love/api/events/stream"
 /**
  * 通知履歴（/api/history）。
  * 末尾到達で追加取得（hasMore）。SSE で通知追加を受けて自動更新。
- * カードをタップすると url を開く。
+ * オフライン時はキャッシュを表示。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen() {
+    val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     var logs by remember { mutableStateOf<List<HistoryLog>>(emptyList()) }
     var hasMore by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var offline by remember { mutableStateOf(false) }
     var loadedOnce by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
     val listState = rememberLazyListState()
 
     suspend fun load(offset: Int) {
+        // 初回はキャッシュを即表示
+        if (offset == 0 && logs.isEmpty()) {
+            CacheStore.loadHistory(context)?.let { cached ->
+                logs = cached
+                offline = true
+                loadedOnce = true
+            }
+        }
         loading = true
         runCatching { ApiClient.service.history(PAGE_SIZE, offset) }
             .onSuccess { resp ->
                 logs = if (offset == 0) resp.logs else logs + resp.logs
                 hasMore = resp.hasMore
                 error = null
+                offline = false
                 loadedOnce = true
+                // 先頭ページのみキャッシュに保存
+                if (offset == 0) CacheStore.saveHistory(context, resp.logs)
             }
             .onFailure { e ->
-                error = e.message ?: e.javaClass.simpleName
+                if (logs.isNotEmpty()) {
+                    offline = true
+                    error = null
+                } else {
+                    error = e.message ?: e.javaClass.simpleName
+                }
                 loadedOnce = true
             }
         loading = false
@@ -89,7 +111,7 @@ fun HistoryScreen() {
 
     LaunchedEffect(Unit) { if (!loadedOnce) load(0) }
 
-    // SSE: 通知追加を受けて先頭ページを再取得（差分ではなく全体リロード）
+    // SSE: 通知追加を受けて先頭ページを再取得
     LaunchedEffect(reload) {
         if (loadedOnce) load(0)
     }
@@ -129,6 +151,27 @@ fun HistoryScreen() {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                if (offline) {
+                    item {
+                        Row(
+                            Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.CloudOff,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.width(16.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "オフライン（キャッシュ表示）",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
                 items(logs, key = { it.id }) { log ->
                     HistoryCard(log) {
                         log.url?.takeIf { it.startsWith("http") }?.let { uriHandler.openUri(it) }
@@ -144,7 +187,7 @@ fun HistoryScreen() {
                         ) { CircularProgressIndicator(Modifier.size(28.dp)) }
                     }
                 }
-                if (!hasMore && !loading) {
+                if (!hasMore && !loading && !offline) {
                     item {
                         Text(
                             "これ以前はありません",

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
@@ -36,10 +37,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yuzuki.mai_notification.data.ApiClient
+import com.yuzuki.mai_notification.data.CacheStore
 import com.yuzuki.mai_notification.data.SseClient
 import com.yuzuki.mai_notification.data.model.EventItem
 import java.time.LocalDateTime
@@ -49,25 +52,32 @@ import java.time.format.DateTimeFormatter
 private const val SSE_URL = "https://koinoyamai.love/api/events/stream"
 
 /**
- * ホーム: 直近の配信予定（/api/events?from=now）。
- * SSE（/api/events/stream）で通知追加を受けて自動更新する。
- * 予定カードをタップすると該当ページ（YouTube 等）を開く。
+ * ホーム: 直近の配信予定（/api/events）。
+ * オフライン時はキャッシュを表示。SSE で通知追加を受けて自動更新する。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen() {
+    val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     var events by remember { mutableStateOf<List<EventItem>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    var offline by remember { mutableStateOf(false) }
     var reload by remember { mutableIntStateOf(0) }
 
     suspend fun load() {
+        // まずキャッシュを即表示（stale-while-revalidate）
+        if (events == null) {
+            CacheStore.loadEvents(context)?.let { cached ->
+                events = cached
+                offline = true // ネット成功で false に更新
+            }
+        }
         runCatching {
-            // 過去の予定を並べないため from=現在時刻 を指定
             ApiClient.service.events(limit = 30, offset = 0, platform = null)
         }.onSuccess { resp ->
             val now = OffsetDateTime.now()
-            events = resp.items
+            val filtered = resp.items
                 .filter { e ->
                     runCatching {
                         OffsetDateTime.parse(e.startTime?.replace(" ", "T") ?: "")
@@ -75,15 +85,22 @@ fun HomeScreen() {
                     }.getOrDefault(true)
                 }
                 .sortedBy { it.startTime }
+            events = filtered
+            CacheStore.saveEvents(context, filtered)
+            offline = false
             error = null
         }.onFailure { e ->
-            error = e.message ?: e.javaClass.simpleName
+            if (events != null) {
+                // キャッシュがあるならオフライン表示で継続
+                offline = true
+                error = null
+            } else {
+                error = e.message ?: e.javaClass.simpleName
+            }
         }
     }
 
     LaunchedEffect(reload) {
-        events = null
-        error = null
         load()
     }
 
@@ -125,6 +142,27 @@ fun HomeScreen() {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                if (offline) {
+                    item {
+                        Row(
+                            Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.CloudOff,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.width(16.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                "オフライン（キャッシュ表示）",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
                 items(events!!) { ev ->
                     EventCard(ev) {
                         ev.url?.takeIf { it.startsWith("http") }?.let { uriHandler.openUri(it) }

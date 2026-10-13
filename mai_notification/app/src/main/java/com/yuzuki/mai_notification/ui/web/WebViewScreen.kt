@@ -1,6 +1,7 @@
 package com.yuzuki.mai_notification.ui.web
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.view.ViewGroup
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,7 +32,7 @@ import com.yuzuki.mai_notification.UpdateChecker
  *
  * wiki / アーカイブ詳細 / logs / guide / download / 管理画面・OAuth ログインなど、
  * Phase 1 でネイティブ化しないページをここで表示する。
- * 旧 MainActivity のロジック（外部委譲・AUTH_HOSTS・CSS変数注入・menu observer）を引き継ぐ。
+ * WebViewPool 経由でインスタンスを再利用し、タブ切替で再ロードしない。
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @SuppressLint("SetJavaScriptEnabled")
@@ -49,6 +51,10 @@ fun WebViewScreen(startUrl: String) {
         MaiWebBridge(context) { open -> menuOpen = open }
     }
 
+    // プールから再利用できるものがあれば使う
+    val pooledKey = remember(startUrl) { startUrl }
+    val pooled = remember(startUrl) { WebViewPool.get(pooledKey) }
+
     PullToRefreshBox(
         isRefreshing = refreshing,
         onRefresh = { webView?.reload() },
@@ -57,6 +63,14 @@ fun WebViewScreen(startUrl: String) {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
+                    // プールに有効な WebView があれば再利用（再ロード不要）
+                    pooled?.also { existing ->
+                        (existing.parent as? ViewGroup)?.removeView(existing)
+                        webView = existing
+                        canGoBack = existing.canGoBack()
+                        return@AndroidView existing
+                    }
+
                     WebView(ctx).apply {
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -134,19 +148,21 @@ fun WebViewScreen(startUrl: String) {
                                     })();
                                     """.trimIndent(), null
                                 )
+                                // ページが変わったらプールのキーを更新
+                                url?.let { WebViewPool.put(it, view ?: return) }
                             }
                         }
                         webChromeClient = object : WebChromeClient() {
                             override fun onConsoleMessage(m: ConsoleMessage): Boolean = true
                         }
                         loadUrl(startUrl)
+                        WebViewPool.put(startUrl, this)
                         webView = this
                     }
                 },
                 update = { v -> canGoBack = v.canGoBack() },
-                onRelease = { v ->
-                    v.stopLoading()
-                    v.destroy()
+                onRelease = { _ ->
+                    // プールに残すため destroy しない。Activity 破棄時に clear() される。
                 }
             )
         }
