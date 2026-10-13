@@ -202,5 +202,15 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   ③ディスクリートGPUなし（iGPU UHD630）。NEOドライバ導入済み・OVでGPU認識もするが decode は
   **CPU比 -65〜-195%（全面的にCPUが勝つ）** → iGPU不採用。GPU有効化は新規購入のみ。
 
+## 10. WinUI アプリ（Windows/mai-push-winui）デプロイ注意
+
+- **実行ファイルはローカルドライブから起動すること（2回目の事故: 2026-10-13）**
+  - `Q:\` などのネットワーク共有（UNC パス含む）から起動すると `EnsureCoreWebView2Async` が
+    COMException で失敗し WebView2 が一切描画されない。
+  - ビルド出力: `$(LOCALAPPDATA)\MaiPushWinUI\` に固定済み（`BaseOutputPath` + `PublishDir`）。
+  - `dotnet publish` 後の正規パス: `%LOCALAPPDATA%\MaiPushWinUI\publish\まいちゃん通知.exe`
+  - **ネットワークドライブ上の publish/ ディレクトリからは起動しないこと**。
+
+最終更新: 2026-10-13（§10 WinUI ネットワーク起動禁止を追記）
 最終更新: 2026-10-10（§9 埋め込み停止中→稼働中に訂正 / CollabPoll 修正・md整理は別コミット）
 最終更新: 2026-10-03（チャット読み上げ追加 / TTS systemd化・int8＋ONNX高速化 / latent-sliceストリーミング・不採用レコード / AGENTS.md §9 追加）
