@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.MotionEvent
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.ConsoleMessage
@@ -28,6 +29,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.firebase.messaging.FirebaseMessaging
+import kotlin.math.abs
 
 class MainActivity : AppCompatActivity() {
 
@@ -99,7 +101,11 @@ class MainActivity : AppCompatActivity() {
         // （本来はページ全体のスクリーンショット用。backdrop-filter の描画には不要）。
 
         // PullToRefreshレイアウト作成
-        swipe = SwipeRefreshLayout(this)
+        // v1.7: 横方向優勢のスワイプを pull-to-refresh に横取りさせない。
+        // カルーセル（count-page 等の横スワイプ）は touch-action:pan-y + JS 変換のため
+        // WebView が親への intercept 禁止を出せず、指が下方向にブレた瞬間に
+        // SwipeRefreshLayout が奪って ACTION_CANCEL → スワイプ無反応になっていた。
+        swipe = DirectionAwareSwipeRefreshLayout(this)
         web = WebView(this)
         web.addJavascriptInterface(
             MaiWebBridge(this) { open -> menuOpen = open },
@@ -108,10 +114,8 @@ class MainActivity : AppCompatActivity() {
         swipe.addView(web)
         setContentView(swipe)
 
-        // 表示中の WebView の描画プロセスの優先度をフォアグラウンド/バックグラウンドで切替
-        // （Chrome同様、裏に回ったら優先度を下げてメモリを節約。前面では重要に保つ）
-        // 描画プロセスを前面では優先（whenInForeground=true で裏に回ったら自動的に WAIVED 降格＝
-        // Chrome と同様の挙動。従来からこの設定で既に最適化済み）
+        // 描画プロセスは前面を優先（whenInForeground=true で裏に回ったら自動的に WAIVED 降格＝
+        // Chrome と同様の挙動）
         applyRendererPriority()
 
         // アップデート確認（6時間に1回まで・失敗しても無視）。初回表示の邪魔をしないよう少し遅らせる
@@ -425,6 +429,49 @@ class MainActivity : AppCompatActivity() {
             }
             requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+}
+
+/**
+ * 横方向優勢のジェスチャを pull-to-refresh に横取りさせない SwipeRefreshLayout。
+ *
+ * カルーセル（.stats-carousel）は CSS touch-action: pan-y ＋ JS transform での横送りなので
+ * WebView はネイティブ横スクロールを起こさず、親へ requestDisallowInterceptTouchEvent を
+ * 出さない。その結果、指が少しでも下方向にブレると（touchSlop 超過）素の
+ * SwipeRefreshLayout が onTouchEvent を奪い、WebView に ACTION_CANCEL が飛んで
+ * carousel.js の touch トラックが途切れて「スワイプしても反応しない」が発生していた
+ * （ブラウザにはこの親 View がいないため常にスムーズ）。
+ *
+ * 横が優勢なら intercept を通さず、縦優勢（＝引き下げ）は従来どおり SRL に任せる。
+ */
+private class DirectionAwareSwipeRefreshLayout(context: Context) : SwipeRefreshLayout(context) {
+
+    private var downX = 0f
+    private var downY = 0f
+
+    // 一度 pull-to-refresh のドラッグが始まったら、方向判定で中断しない
+    private var refreshingDrag = false
+
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = ev.x
+                downY = ev.y
+                refreshingDrag = false
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                if (!refreshingDrag) {
+                    val dx = abs(ev.x - downX)
+                    val dy = abs(ev.y - downY)
+                    // 横方向が優勢＝横スワイプ。pull-to-refresh には渡さない
+                    if (dx > dy) return false
+                }
+            }
+        }
+        val intercepted = super.onInterceptTouchEvent(ev)
+        if (intercepted) refreshingDrag = true
+        return intercepted
     }
 }
 

@@ -125,6 +125,12 @@ carousel?.addEventListener('touchend', e => {
   update();
 });
 
+// ネイティブ側にジェスチャを奪われた時（WebView の親レイアウトが intercept した等）の
+// 状態リセット。無いと tracking が残ったまま次の指上げで誤判定する
+carousel?.addEventListener('touchcancel', () => {
+  tracking = false;
+});
+
 // ===== Mouse swipe =====
 
 let mouseDragging = false;

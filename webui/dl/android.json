@@ -1,6 +1,6 @@
 {
-  "versionCode": 7,
-  "versionName": "1.6",
-  "url": "https://koinoyamai.love/mai-notification.apk?v=7",
-  "notes": "WebView表示を高速化・軽量化しました（1.6）。2回目以降の起動が即表示、オフラインでもキャッシュから閲覧可能、バックグラウンド時のメモリ使用量を削減。"
+  "versionCode": 8,
+  "versionName": "1.7",
+  "url": "https://koinoyamai.love/mai-notification.apk?v=8",
+  "notes": "カウント等のカルーセル横スワイプが途切れる問題を修正（1.7）。プルトゥリフレッシュが横スワイプを横取りしていたため、横方向のスワイプは奪わないようにしました。"
 }
