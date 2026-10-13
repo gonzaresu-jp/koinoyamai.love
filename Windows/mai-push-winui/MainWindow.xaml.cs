@@ -4,6 +4,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Windows.AppNotifications;
@@ -30,6 +31,9 @@ public sealed partial class MainWindow : Window
 
     // SSE 通知の重複排除（複数タブで同一イベントが届くため最後に処理したIDを保持）
     private int _lastNotifId = 0;
+
+    // タブドラッグ中は上部ドラッグバーの HTCAPTION を抑制する
+    private bool _tabStripPointerPressed = false;
 
     private static readonly SolidColorBrush TabActive   = new(Color.FromArgb(0xFF, 0xFD, 0x2A, 0xB1));
     private static readonly SolidColorBrush TabInactive = new(Color.FromArgb(0xFF, 0x7D, 0x14, 0x57));
@@ -152,14 +156,26 @@ public sealed partial class MainWindow : Window
         if (msg == WM_NCHITTEST)
         {
             var result = CallWindowProc(_prevWndProc, hWnd, msg, wParam, lParam).ToInt32();
-            // 上辺リサイズゾーンだけをクライアントエリアに変換する。
-            // タブ/空白の HTCAPTION 判定は SetTitleBar + InputNonClientPointerSource に委ねる。
+            // 上辺リサイズゾーンはタブが重なるため無効化
             if (result is HTTOP or HTTOPLEFT or HTTOPRIGHT)
                 return (IntPtr)HTCLIENT;
+            if (result == HTCLIENT)
+            {
+                short sx = (short)(lParam.ToInt64() & 0xFFFF);
+                short sy = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
+                var cp = new POINT { X = sx, Y = sy };
+                ScreenToClient(hWnd, ref cp);
+                double dpi = GetDpiForWindow(_hwnd) / 96.0;
+                // タブストリップ上端の固定6px帯のみウィンドウドラッグ領域とする。
+                // タブドラッグ中（_tabStripPointerPressed）は抑制して連続移動を可能にする。
+                if (!_tabStripPointerPressed && cp.Y >= 0 && cp.Y < (int)(2 * dpi))
+                    return (IntPtr)HTCAPTION;
+            }
             return (IntPtr)result;
         }
-        if (msg == WM_SETCURSOR && IsPointerInTabStrip() && IsPointerOverInteractiveElement())
+        if (msg == WM_SETCURSOR && IsPointerInTabStrip())
         {
+            // CallWindowProc を通さず直接設定（WinUI に上書き機会を与えない）
             SetCursor(LoadCursor(IntPtr.Zero, IDC_HAND));
             return (IntPtr)1;
         }
@@ -174,57 +190,105 @@ public sealed partial class MainWindow : Window
         return pt.Y >= 0 && pt.Y < (int)(40 * dpi);
     }
 
-    // タブアイテムまたはボタンの上にいるときのみ true（空白ストリップ背景では false）
-    // FindElementsInHostCoordinates は座標系が不安定なため TransformToVisual で代替
-    private bool IsPointerOverInteractiveElement()
-    {
-        if (Tabs is not { IsLoaded: true }) return false;
-        if (!GetCursorPos(out var pt)) return false;
-        ScreenToClient(_hwnd, ref pt);
-        double dpi = GetDpiForWindow(_hwnd) / 96.0;
-        var logicalPt = new Windows.Foundation.Point(pt.X / dpi, pt.Y / dpi);
-        try
-        {
-            // 各 TabViewItem の視覚コンテナ（TabContainer Grid）のバウンドで判定
-            // tab.ActualWidth は ListView の内部コンテナ幅（ストリップ全幅）になる場合があるため
-            // TabContainer を使う。取得できなければ tab 自身で MaxWidth キャップを掛けて代替
-            foreach (var obj in Tabs.TabItems)
-            {
-                if (obj is not TabViewItem tab || !tab.IsLoaded) continue;
-                var container = FindChild<Grid>(tab, "TabContainer");
-                FrameworkElement visual = container is not null ? (FrameworkElement)container : tab;
-                double w = visual == tab
-                    ? Math.Min(tab.ActualWidth, tab.MaxWidth)
-                    : visual.ActualWidth;
-                var xform = visual.TransformToVisual(null);
-                var bounds = xform.TransformBounds(
-                    new Windows.Foundation.Rect(0, 0, w, visual.ActualHeight));
-                if (bounds.Contains(logicalPt)) return true;
-            }
-            // 左ヘッダー: スペーサー 8px + リロードボタン 40px = 48px
-            if (logicalPt.X < 48) return true;
-            // 追加 (+) ボタン（TabView テンプレート内 "AddButton"）
-            var addBtn = FindChild<Button>(Tabs, "AddButton");
-            if (addBtn?.IsLoaded == true)
-            {
-                var xform = addBtn.TransformToVisual(null);
-                var bounds = xform.TransformBounds(
-                    new Windows.Foundation.Rect(0, 0, addBtn.ActualWidth, addBtn.ActualHeight));
-                if (bounds.Contains(logicalPt)) return true;
-            }
-        }
-        catch { return false; }
-        return false;
-    }
-
 
     // ---- Tabs.Loaded ----
 
     private void Tabs_Loaded(object sender, RoutedEventArgs e)
     {
-        SetTitleBar(Tabs);
         UpdateCaptionPadding();
+        // handledEventsToo: true — 子要素が Handled にしても受け取る
+        Tabs.AddHandler(UIElement.PointerMovedEvent,
+            new PointerEventHandler(OnTabDragMoved), handledEventsToo: true);
+        Tabs.AddHandler(UIElement.PointerReleasedEvent,
+            new PointerEventHandler(OnTabDragReleased), handledEventsToo: true);
+        Tabs.AddHandler(UIElement.PointerCaptureLostEvent,
+            new PointerEventHandler((_, _) => EndTabDrag()), handledEventsToo: true);
         AddNewTab(AppUrl);
+    }
+
+    // ---- タブ並び替え（カスタムドラッグ）----
+
+    private TabViewItem? _dragTab;
+    private double _dragOriginX;
+    private bool _isDragging;
+    private const double DragThreshold = 6.0;
+
+    // タブ自身に貼り付けたハンドラ — 「どのタブか」を推測する必要がない
+    private void OnTabItemDragPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (sender is not TabViewItem tvi) return;
+        var pt = e.GetCurrentPoint(Tabs);
+        if (!pt.Properties.IsLeftButtonPressed) return;
+        _dragTab = tvi;
+        _dragOriginX = pt.Position.X;
+        _isDragging = false;
+        _tabStripPointerPressed = true;
+        Tabs.CapturePointer(e.Pointer);
+    }
+
+    private void OnTabDragMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (_dragTab is null) return;
+        double x = e.GetCurrentPoint(Tabs).Position.X;
+        if (!_isDragging && Math.Abs(x - _dragOriginX) < DragThreshold) return;
+        if (!_isDragging)
+        {
+            _isDragging = true;
+            _dragTab.Opacity = 0.5; // ドラッグ中の視覚フィードバック
+        }
+
+        int fromIdx = Tabs.TabItems.IndexOf(_dragTab);
+        if (fromIdx < 0) { EndTabDrag(); return; }
+        int toIdx = FindClosestTabIndex(x);
+        if (toIdx < 0 || toIdx == fromIdx) return;
+
+        Tabs.TabItems.RemoveAt(fromIdx);
+        Tabs.TabItems.Insert(toIdx, _dragTab);
+        Tabs.SelectedItem = _dragTab;
+    }
+
+    private void OnTabDragReleased(object sender, PointerRoutedEventArgs e) => EndTabDrag();
+
+    private void EndTabDrag()
+    {
+        try { Tabs.ReleasePointerCaptures(); } catch { }
+        if (_dragTab != null) _dragTab.Opacity = 1.0;
+        _dragTab = null;
+        _isDragging = false;
+        _tabStripPointerPressed = false;
+    }
+
+    // TabViewItem の左端 X を Tabs 相対論理座標で返す（ActualOffset 累積）
+    private double GetTabLeft(TabViewItem tab)
+    {
+        double x = 0;
+        DependencyObject? cur = tab;
+        while (cur != null && !ReferenceEquals(cur, Tabs))
+        {
+            if (cur is UIElement ui) x += ui.ActualOffset.X;
+            cur = VisualTreeHelper.GetParent(cur);
+        }
+        return x;
+    }
+
+    private int FindClosestTabIndex(double x)
+    {
+        int best = -1;
+        double bestDist = double.MaxValue;
+        for (int i = 0; i < Tabs.TabItems.Count; i++)
+        {
+            if (Tabs.TabItems[i] is not TabViewItem tab || !tab.IsLoaded) continue;
+            try
+            {
+                double left = GetTabLeft(tab);
+                double w = tab.ActualWidth;
+                if (x >= left && x < left + w) return i;
+                double d = Math.Abs(x - (left + w / 2));
+                if (d < bestDist) { bestDist = d; best = i; }
+            }
+            catch { }
+        }
+        return best;
     }
 
     // ---- V2: タブごとの WebView2 初期化 ----
@@ -362,6 +426,10 @@ public sealed partial class MainWindow : Window
             MaxWidth = 200,
             MinWidth = 80,
         };
+
+        // ドラッグ開始はタブ自身で受け取る（親で「どのタブか」を推測しなくて済む）
+        tab.AddHandler(UIElement.PointerPressedEvent,
+            new PointerEventHandler(OnTabItemDragPressed), handledEventsToo: true);
 
         tab.Loaded += (_, _) =>
         {

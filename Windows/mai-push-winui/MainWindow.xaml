@@ -21,8 +21,7 @@
             SelectionChanged="Tabs_SelectionChanged"
             KeyDown="Tabs_KeyDown"
             Loaded="Tabs_Loaded"
-            CanReorderTabs="True"
-            CanDragTabs="True"
+            CanReorderTabs="False"
             VerticalAlignment="Top">
 
             <local:HandTabView.TabStripHeader>
