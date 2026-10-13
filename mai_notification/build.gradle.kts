@@ -6,8 +6,6 @@ plugins {
 
     // Kotlin
     id("org.jetbrains.kotlin.android") version "2.0.21" apply false
-    // Jetpack Compose（Kotlin 2.0 以降はコンパイラプラグインが別途必要）
-    id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false
 
     // Google Services
     id("com.google.gms.google-services") version "4.4.2" apply false
