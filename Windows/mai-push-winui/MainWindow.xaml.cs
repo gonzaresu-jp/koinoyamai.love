@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Windows.AppNotifications;
 using System.Diagnostics;
@@ -32,8 +33,27 @@ public sealed partial class MainWindow : Window
     // SSE 通知の重複排除（複数タブで同一イベントが届くため最後に処理したIDを保持）
     private int _lastNotifId = 0;
 
-    // タブドラッグ中は上部ドラッグバーの HTCAPTION を抑制する
+    // タブストリップ寸法（ドラッグゾーン 40px + タブ 40px = 合計 80px）
+    // hidden: Y=-80、shown: Y=0
+    private const int TabStripTotal    = 70;
+    private const int TabStripDragZone = 30;
+
+    // タブドラッグ中は HTCAPTION を抑制する
     private bool _tabStripPointerPressed = false;
+    // AddButton 右端の物理ピクセル X（Chrome 方式: これより右がウィンドウドラッグ領域）
+    private int _tabAreaRight = 0;
+    // フローティングドラッグゴースト用
+    private double _dragGrabOffsetX;
+    private readonly TranslateTransform _dragGhostTransform = new();
+    // タブストリップの表示状態とスライドアニメーション用
+    private bool _tabStripVisible = false;
+    private readonly TranslateTransform _tabStripTransform = new() { Y = -TabStripTotal };
+    private DispatcherQueueTimer? _collapseTimer;
+    private DispatcherQueueTimer? _showTimer;
+    private DispatcherQueueTimer? _animTimer;
+    private double _animFromY, _animToY;
+    private long _animStartMs;
+    private const double AnimDurationMs = 180;
 
     private static readonly SolidColorBrush TabActive   = new(Color.FromArgb(0xFF, 0xFD, 0x2A, 0xB1));
     private static readonly SolidColorBrush TabInactive = new(Color.FromArgb(0xFF, 0x7D, 0x14, 0x57));
@@ -51,6 +71,7 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         StyleCaptionButtons();
         _appWindow.Changed += (_, _) => UpdateCaptionPadding();
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, UpdateDragRects);
 
         _appWindow.Closing += (_, e) =>
         {
@@ -60,6 +81,9 @@ public sealed partial class MainWindow : Window
 
         SetupTrayIcon();
         InstallWndProcSubclass();
+        TabStripContainer.RenderTransform = _tabStripTransform;
+        DragGhost.RenderTransform = _dragGhostTransform;
+        StartHoverPoller();
         _ = Task.Delay(3000).ContinueWith(_ => UpdateChecker.CheckAsync());
     }
 
@@ -81,22 +105,44 @@ public sealed partial class MainWindow : Window
     private void UpdateCaptionPadding()
     {
         var inset = _appWindow.TitleBar?.RightInset ?? 138;
-        DispatcherQueue.TryEnqueue(() => CaptionPadding.Width = inset);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            CaptionPadding.Width = inset;
+            UpdateDragRects();
+        });
+    }
+
+    // SetDragRectangles で Y=0-40px をドラッグ領域として明示登録
+    // WM_NCHITTEST に加えて InputNonClientPointerSource レベルでも確定させる
+    private void UpdateDragRects()
+    {
+        if (_appWindow.TitleBar is not { } tb) return;
+        uint rawDpi = GetDpiForWindow(_hwnd);
+        double dpi = rawDpi > 0 ? rawDpi / 96.0 : 1.0;
+        var size = _appWindow.ClientSize;
+        int dragH = (int)(TabStripDragZone * dpi);
+        int dragW = size.Width - tb.RightInset;
+        if (dragW > 0 && dragH > 0)
+            tb.SetDragRectangles([new RectInt32(0, 0, dragW, dragH)]);
     }
 
     // ---- Win32 WndProc（カーソル + 上辺リサイズボーダー排除）----
     // タイトルバー域では WM_SETCURSOR を WinUI が上書きできないため Win32 で制御する。
     // HTTOP/HTTOPLEFT/HTTOPRIGHT を HTCLIENT に変換してリサイズグリップをタブ域から排除。
 
-    private const int WM_NCHITTEST  = 0x0084;
-    private const int WM_SETCURSOR  = 0x0020;
-    private const int WM_SYSCOMMAND = 0x0112;
-    private const int SC_MINIMIZE   = 0xF020;
-    private const int HTCLIENT      = 1;
-    private const int HTCAPTION     = 2;
-    private const int HTTOP         = 12;
-    private const int HTTOPLEFT     = 13;
-    private const int HTTOPRIGHT    = 14;
+    private const int WM_NCHITTEST   = 0x0084;
+    private const int WM_SETCURSOR   = 0x0020;
+    private const int WM_SYSCOMMAND  = 0x0112;
+    private const int WM_NCMOUSEMOVE = 0x00A0;
+    private const int SC_MINIMIZE    = 0xF020;
+    private const int HTCLIENT       = 1;
+    private const int HTCAPTION      = 2;
+    private const int HTMINBUTTON    = 8;
+    private const int HTMAXBUTTON    = 9;
+    private const int HTTOP          = 12;
+    private const int HTTOPLEFT      = 13;
+    private const int HTTOPRIGHT     = 14;
+    private const int HTCLOSE        = 20;
     private static readonly IntPtr IDC_HAND = (IntPtr)32649; // OCR_HAND
 
     private delegate IntPtr WndProcDelegate(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
@@ -153,41 +199,201 @@ public sealed partial class MainWindow : Window
             DispatcherQueue.TryEnqueue(HideToTray);
             return IntPtr.Zero;
         }
+        if (msg == WM_NCMOUSEMOVE)
+        {
+            // キャプションボタン（×・□・─）ではストリップを操作しない
+            int ncHit = wParam.ToInt32();
+            if (ncHit is HTCLOSE or HTMINBUTTON or HTMAXBUTTON)
+            {
+                if (_tabStripVisible) DispatcherQueue.TryEnqueue(StartCollapseTimer);
+                goto fallback;
+            }
+            // lParam は画面座標 → クライアント座標に変換
+            short ncx = (short)(lParam.ToInt64() & 0xFFFF);
+            short ncy = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
+            var ncp = new POINT { X = ncx, Y = ncy };
+            ScreenToClient(hWnd, ref ncp);
+            uint rawDpiNc = GetDpiForWindow(_hwnd);
+            double dpiNc = rawDpiNc > 0 ? rawDpiNc / 96.0 : 1.0;
+            bool inStrip = ncp.Y >= -(int)(10 * dpiNc) && ncp.Y < (int)(TabStripTotal * dpiNc);
+            if (inStrip && !_tabStripVisible)
+                DispatcherQueue.TryEnqueue(ShowTabStrip);
+            else if (inStrip && _tabStripVisible)
+                DispatcherQueue.TryEnqueue(CancelCollapseTimer);
+            else if (!inStrip && _tabStripVisible)
+                DispatcherQueue.TryEnqueue(StartCollapseTimer);
+        }
         if (msg == WM_NCHITTEST)
         {
             var result = CallWindowProc(_prevWndProc, hWnd, msg, wParam, lParam).ToInt32();
-            // 上辺リサイズゾーンはタブが重なるため無効化
+
+            // キャプションボタン（×・□・─）は base 結果を最優先
+            if (result is HTCLOSE or HTMINBUTTON or HTMAXBUTTON)
+                return (IntPtr)result;
+
+            short sx = (short)(lParam.ToInt64() & 0xFFFF);
+            short sy = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
+            var cp = new POINT { X = sx, Y = sy };
+            ScreenToClient(hWnd, ref cp);
+            uint rawDpi = GetDpiForWindow(_hwnd);
+            double dpi = rawDpi > 0 ? rawDpi / 96.0 : 1.0;
+
+            // ドラッグゾーン（上 40px）: 常に HTCAPTION（リサイズ含め上書き）
+            if (cp.Y >= 0 && cp.Y < (int)(TabStripDragZone * dpi))
+                return (IntPtr)HTCAPTION;
+
+            // タブゾーン上辺のリサイズグリップを無効化
             if (result is HTTOP or HTTOPLEFT or HTTOPRIGHT)
                 return (IntPtr)HTCLIENT;
-            if (result == HTCLIENT)
+
+            // タブゾーン（40-80px）: 非表示時のみ HTCAPTION、表示時は HTCLIENT でタブに届ける
+            if (result == HTCLIENT && cp.Y < (int)(TabStripTotal * dpi))
             {
-                short sx = (short)(lParam.ToInt64() & 0xFFFF);
-                short sy = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
-                var cp = new POINT { X = sx, Y = sy };
-                ScreenToClient(hWnd, ref cp);
-                double dpi = GetDpiForWindow(_hwnd) / 96.0;
-                // タブストリップ上端の固定6px帯のみウィンドウドラッグ領域とする。
-                // タブドラッグ中（_tabStripPointerPressed）は抑制して連続移動を可能にする。
-                if (!_tabStripPointerPressed && cp.Y >= 0 && cp.Y < (int)(2 * dpi))
+                if (!_tabStripVisible)
                     return (IntPtr)HTCAPTION;
+                // 表示中は _tabAreaRight によるチェックなし（SetDragRectangles が上半分を担当）
             }
+
             return (IntPtr)result;
         }
-        if (msg == WM_SETCURSOR && IsPointerInTabStrip())
+        if (msg == WM_SETCURSOR && _tabStripVisible)
         {
-            // CallWindowProc を通さず直接設定（WinUI に上書き機会を与えない）
-            SetCursor(LoadCursor(IntPtr.Zero, IDC_HAND));
-            return (IntPtr)1;
+            if (!GetCursorPos(out var cur)) goto fallback;
+            ScreenToClient(_hwnd, ref cur);
+            uint rawDpi2 = GetDpiForWindow(_hwnd);
+            double dpi2 = rawDpi2 > 0 ? rawDpi2 / 96.0 : 1.0;
+            if (cur.Y >= (int)(TabStripDragZone * dpi2) && cur.Y < (int)(TabStripTotal * dpi2) && cur.X <= _tabAreaRight)
+            {
+                SetCursor(LoadCursor(IntPtr.Zero, IDC_HAND));
+                return (IntPtr)1;
+            }
         }
+        fallback:
         return CallWindowProc(_prevWndProc, hWnd, msg, wParam, lParam);
     }
 
-    private bool IsPointerInTabStrip()
+    // ---- タブストリップ ホバー検出（ポーリング）----
+
+    private void StartHoverPoller()
     {
-        if (!GetCursorPos(out var pt)) return false;
-        ScreenToClient(_hwnd, ref pt);
-        double dpi = GetDpiForWindow(_hwnd) / 96.0;
-        return pt.Y >= 0 && pt.Y < (int)(40 * dpi);
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(80);
+        timer.IsRepeating = true;
+        timer.Tick += (_, _) =>
+        {
+            if (!GetCursorPos(out var pt)) return;
+            ScreenToClient(_hwnd, ref pt);
+            uint rawDpiP = GetDpiForWindow(_hwnd);
+            double dpi = rawDpiP > 0 ? rawDpiP / 96.0 : 1.0;
+            int triggerTop    = -(int)(10 * dpi); // 上端より 10px 上まで検知
+            int triggerBottom =  (int)( 5 * dpi); // 上端から 5px 以内のみ表示トリガー（ドラッグゾーンでは出ない）
+            int stayBottom    =  (int)(TabStripTotal * dpi); // 表示中はストリップ全体で維持
+
+            bool inTrigger = pt.Y >= triggerTop && pt.Y < triggerBottom;
+            bool inStrip   = pt.Y >= triggerTop && pt.Y < stayBottom;
+
+            if (inTrigger && !_tabStripVisible) ShowTabStrip();
+            else if (!inStrip && _tabStripVisible) StartCollapseTimer();
+            else if (inStrip && _tabStripVisible) CancelCollapseTimer();
+        };
+        // 起動直後にカーソルがウィンドウ上部にいてもストリップが出ないよう遅延起動
+        _ = Task.Delay(600).ContinueWith(_ => DispatcherQueue.TryEnqueue(timer.Start));
+    }
+
+    // ---- タブストリップ スライドイン/アウト ----
+
+    private void AnimateTabStrip(double toY)
+    {
+        _animTimer?.Stop();
+        _animFromY = _tabStripTransform.Y;
+        _animToY = toY;
+        _animStartMs = Environment.TickCount64;
+
+        if (_animTimer == null)
+        {
+            _animTimer = DispatcherQueue.CreateTimer();
+            _animTimer.Interval = TimeSpan.FromMilliseconds(16);
+            _animTimer.IsRepeating = true;
+            _animTimer.Tick += (_, _) =>
+            {
+                double t = (double)(Environment.TickCount64 - _animStartMs) / AnimDurationMs;
+                if (t >= 1.0)
+                {
+                    _tabStripTransform.Y = _animToY;
+                    _animTimer?.Stop();
+                    return;
+                }
+                // ease-out cubic: 速く出てゆっくり止まる
+                double eased = 1.0 - Math.Pow(1.0 - t, 3.0);
+                _tabStripTransform.Y = _animFromY + (_animToY - _animFromY) * eased;
+            };
+        }
+        _animTimer.Start();
+    }
+
+    private void ShowTabStrip()
+    {
+        _collapseTimer?.Stop();
+        if (_tabStripVisible) return;
+        _tabStripVisible = true;
+        AnimateTabStrip(0);
+    }
+
+    private void CollapseTabStrip()
+    {
+        if (!_tabStripVisible) return;
+        _tabStripVisible = false;
+        AnimateTabStrip(-TabStripTotal);
+    }
+
+    private void StartCollapseTimer()
+    {
+        if (_tabStripPointerPressed) return;
+        _collapseTimer?.Stop();
+        _collapseTimer = DispatcherQueue.CreateTimer();
+        _collapseTimer.Interval = TimeSpan.FromMilliseconds(400);
+        _collapseTimer.IsRepeating = false;
+        _collapseTimer.Tick += (_, _) => CollapseTabStrip();
+        _collapseTimer.Start();
+    }
+
+    private void CancelCollapseTimer() => _collapseTimer?.Stop();
+
+    // ストリップ表示を遅延させる（素通りで出ないように）
+    private void StartShowTimer()
+    {
+        _showTimer?.Stop();
+        _showTimer = DispatcherQueue.CreateTimer();
+        _showTimer.Interval = TimeSpan.FromMilliseconds(250);
+        _showTimer.IsRepeating = false;
+        _showTimer.Tick += (_, _) => ShowTabStrip();
+        _showTimer.Start();
+    }
+
+    private void CancelShowTimer() => _showTimer?.Stop();
+
+    // AddButton 右端を物理ピクセルでキャッシュ（タブ追加・削除・選択変更後に呼ぶ）
+    private void UpdateTabAreaRight()
+    {
+        DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+        {
+            try
+            {
+                var addBtn = FindChild<Button>(Tabs, "AddButton");
+                if (addBtn?.IsLoaded != true) return;
+                double x = 0;
+                DependencyObject? cur = addBtn;
+                while (cur != null && !ReferenceEquals(cur, Tabs))
+                {
+                    if (cur is UIElement ui) x += ui.ActualOffset.X;
+                    cur = VisualTreeHelper.GetParent(cur);
+                }
+                x += addBtn.ActualWidth;
+                double dpi = GetDpiForWindow(_hwnd) / 96.0;
+                _tabAreaRight = (int)(x * dpi);
+            }
+            catch { }
+        });
     }
 
 
@@ -203,7 +409,21 @@ public sealed partial class MainWindow : Window
             new PointerEventHandler(OnTabDragReleased), handledEventsToo: true);
         Tabs.AddHandler(UIElement.PointerCaptureLostEvent,
             new PointerEventHandler((_, _) => EndTabDrag()), handledEventsToo: true);
+        Tabs.PointerEntered += (_, _) => CancelCollapseTimer();
+        Tabs.PointerExited += (_, _) =>
+        {
+            if (_tabStripPointerPressed) return;
+            // カーソルが strip の Y 範囲を出た時のみ折りたたむ（右空白への移動は除外）
+            if (GetCursorPos(out var pt))
+            {
+                ScreenToClient(_hwnd, ref pt);
+                double dpi = GetDpiForWindow(_hwnd) / 96.0;
+                if (pt.Y < (int)(TabStripTotal * dpi)) return; // まだストリップ内
+            }
+            StartCollapseTimer();
+        };
         AddNewTab(AppUrl);
+        UpdateTabAreaRight();
     }
 
     // ---- タブ並び替え（カスタムドラッグ）----
@@ -221,9 +441,12 @@ public sealed partial class MainWindow : Window
         if (!pt.Properties.IsLeftButtonPressed) return;
         _dragTab = tvi;
         _dragOriginX = pt.Position.X;
+        // タブ内のどこを掴んだか（ゴースト位置合わせ用）
+        _dragGrabOffsetX = e.GetCurrentPoint(tvi).Position.X;
         _isDragging = false;
         _tabStripPointerPressed = true;
-        Tabs.CapturePointer(e.Pointer);
+        // キャプチャはドラッグ閾値超過後に行う（ここで CapturePointer すると
+        // 次のタブクリックが Tabs に吸われてタブ切り替えが効かなくなる）
     }
 
     private void OnTabDragMoved(object sender, PointerRoutedEventArgs e)
@@ -234,9 +457,26 @@ public sealed partial class MainWindow : Window
         if (!_isDragging)
         {
             _isDragging = true;
-            _dragTab.Opacity = 0.5; // ドラッグ中の視覚フィードバック
+            // ゴーストを初期化してオリジナルを非表示
+            DragGhostText.Text = (_dragTab.Header as TextBlock)?.Text ?? "";
+            DragGhost.Width = Math.Max(60, _dragTab.ActualWidth);
+            DragGhost.Height = _dragTab.ActualHeight;
+            _dragGhostTransform.Y = TabStripDragZone - 4; // タブ行より 4px 浮かせる
+            DragGhost.Visibility = Visibility.Visible;
+            _dragTab.Opacity = 0; // オリジナルを透明化（位置プレースホルダーとして残す）
+            Tabs.CapturePointer(e.Pointer);
         }
 
+        // ゴーストをカーソルに追従させる
+        if (GetCursorPos(out var cur))
+        {
+            ScreenToClient(_hwnd, ref cur);
+            uint rawDpi = GetDpiForWindow(_hwnd);
+            double dpi = rawDpi > 0 ? rawDpi / 96.0 : 1.0;
+            _dragGhostTransform.X = cur.X / dpi - _dragGrabOffsetX;
+        }
+
+        // カーソル位置が最も近いタブ位置と異なれば並び替え
         int fromIdx = Tabs.TabItems.IndexOf(_dragTab);
         if (fromIdx < 0) { EndTabDrag(); return; }
         int toIdx = FindClosestTabIndex(x);
@@ -252,10 +492,18 @@ public sealed partial class MainWindow : Window
     private void EndTabDrag()
     {
         try { Tabs.ReleasePointerCaptures(); } catch { }
+        DragGhost.Visibility = Visibility.Collapsed;
         if (_dragTab != null) _dragTab.Opacity = 1.0;
         _dragTab = null;
         _isDragging = false;
         _tabStripPointerPressed = false;
+        // ドラッグ終了後にカーソルが strip 外にあれば折りたたみタイマーを起動
+        if (GetCursorPos(out var pt))
+        {
+            ScreenToClient(_hwnd, ref pt);
+            double dpi = GetDpiForWindow(_hwnd) / 96.0;
+            if (pt.Y >= (int)(TabStripTotal * dpi)) StartCollapseTimer();
+        }
     }
 
     // TabViewItem の左端 X を Tabs 相対論理座標で返す（ActualOffset 累積）
@@ -461,6 +709,7 @@ public sealed partial class MainWindow : Window
 
         Tabs.TabItems.Add(tab);
         Tabs.SelectedItem = tab;
+        UpdateTabAreaRight();
     }
 
     private void UpdateTabColors()
@@ -511,6 +760,7 @@ public sealed partial class MainWindow : Window
         Tabs.TabItems.Remove(tab);
         if (Tabs.TabItems.Count == 0)
             AddNewTab(AppUrl);
+        UpdateTabAreaRight();
     }
 
     private void ReloadActive()
@@ -543,6 +793,7 @@ public sealed partial class MainWindow : Window
             active.Visibility = Visibility.Visible;
 
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, UpdateTabColors);
+        UpdateTabAreaRight();
     }
 
     private void Tabs_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)

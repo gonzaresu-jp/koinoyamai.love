@@ -6,52 +6,73 @@
     Title="まいちゃん通知">
 
     <Grid Background="#1a1a2e">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="40"/>
-            <RowDefinition Height="*"/>
-        </Grid.RowDefinitions>
 
-        <local:HandTabView
-            Grid.Row="0"
-            x:Name="Tabs"
-            TabWidthMode="SizeToContent"
-            AddTabButtonClick="Tabs_AddTabButtonClick"
-            TabCloseRequested="Tabs_TabCloseRequested"
-            TabDroppedOutside="Tabs_TabDroppedOutside"
-            SelectionChanged="Tabs_SelectionChanged"
-            KeyDown="Tabs_KeyDown"
-            Loaded="Tabs_Loaded"
-            CanReorderTabs="False"
-            VerticalAlignment="Top">
+        <!-- コンテンツはウィンドウ全体を占める（タブは上からオーバーレイ） -->
+        <Grid x:Name="ContentGrid"/>
 
-            <local:HandTabView.TabStripHeader>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Border Width="8" IsHitTestVisible="False"/>
-                    <Button Click="ReloadButton_Click"
-                            Width="40" Height="40"
-                            Padding="0"
-                            ToolTipService.ToolTip="再読み込み">
-                        <Button.Resources>
-                            <SolidColorBrush x:Key="ButtonBackground"             Color="Transparent"/>
-                            <SolidColorBrush x:Key="ButtonBackgroundPointerOver"  Color="#c42589"/>
-                            <SolidColorBrush x:Key="ButtonBackgroundPressed"      Color="#9a1a6c"/>
-                            <SolidColorBrush x:Key="ButtonForeground"             Color="White"/>
-                            <SolidColorBrush x:Key="ButtonForegroundPointerOver"  Color="White"/>
-                            <SolidColorBrush x:Key="ButtonForegroundPressed"      Color="White"/>
-                            <SolidColorBrush x:Key="ButtonBorderBrush"            Color="Transparent"/>
-                            <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent"/>
-                            <SolidColorBrush x:Key="ButtonBorderBrushPressed"     Color="Transparent"/>
-                        </Button.Resources>
-                        <FontIcon Glyph="&#xE72C;" FontSize="14"/>
-                    </Button>
-                </StackPanel>
-            </local:HandTabView.TabStripHeader>
+        <!-- タブストリップコンテナ 80px（hidden: Y=-80、shown: Y=0）
+             Row0 = 40px ウィンドウドラッグ専用 / Row1 = 40px タブ -->
+        <Grid x:Name="TabStripContainer" VerticalAlignment="Top" Height="70" Background="#b11e7c">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="30"/>
+                <RowDefinition Height="40"/>
+            </Grid.RowDefinitions>
 
-            <local:HandTabView.TabStripFooter>
-                <Border x:Name="CaptionPadding" IsHitTestVisible="False"/>
-            </local:HandTabView.TabStripFooter>
-        </local:HandTabView>
+            <Border Grid.Row="0" Background="Transparent" IsHitTestVisible="False"/>
 
-        <Grid Grid.Row="1" x:Name="ContentGrid"/>
+            <local:HandTabView
+                Grid.Row="1"
+                x:Name="Tabs"
+                Height="40"
+                TabWidthMode="SizeToContent"
+                AddTabButtonClick="Tabs_AddTabButtonClick"
+                TabCloseRequested="Tabs_TabCloseRequested"
+                TabDroppedOutside="Tabs_TabDroppedOutside"
+                SelectionChanged="Tabs_SelectionChanged"
+                KeyDown="Tabs_KeyDown"
+                Loaded="Tabs_Loaded"
+                CanReorderTabs="False">
+
+                <local:HandTabView.TabStripHeader>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border Width="8" IsHitTestVisible="False"/>
+                        <Button Click="ReloadButton_Click"
+                                Width="40" Height="40"
+                                Padding="0"
+                                ToolTipService.ToolTip="再読み込み">
+                            <Button.Resources>
+                                <SolidColorBrush x:Key="ButtonBackground"             Color="Transparent"/>
+                                <SolidColorBrush x:Key="ButtonBackgroundPointerOver"  Color="#c42589"/>
+                                <SolidColorBrush x:Key="ButtonBackgroundPressed"      Color="#9a1a6c"/>
+                                <SolidColorBrush x:Key="ButtonForeground"             Color="White"/>
+                                <SolidColorBrush x:Key="ButtonForegroundPointerOver"  Color="White"/>
+                                <SolidColorBrush x:Key="ButtonForegroundPressed"      Color="White"/>
+                                <SolidColorBrush x:Key="ButtonBorderBrush"            Color="Transparent"/>
+                                <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent"/>
+                                <SolidColorBrush x:Key="ButtonBorderBrushPressed"     Color="Transparent"/>
+                            </Button.Resources>
+                            <FontIcon Glyph="&#xE72C;" FontSize="16"/>
+                        </Button>
+                    </StackPanel>
+                </local:HandTabView.TabStripHeader>
+
+                <local:HandTabView.TabStripFooter>
+                    <Border x:Name="CaptionPadding" IsHitTestVisible="False"/>
+                </local:HandTabView.TabStripFooter>
+            </local:HandTabView>
+        </Grid>
+
+        <!-- タブドラッグ中のフローティングゴースト（IsHitTestVisible=False でクリックを透過）-->
+        <Border x:Name="DragGhost"
+                HorizontalAlignment="Left" VerticalAlignment="Top"
+                Visibility="Collapsed" IsHitTestVisible="False"
+                CornerRadius="6,6,0,0"
+                Background="#ff55c5"
+                BorderBrush="#ff90e0" BorderThickness="1,1,1,0">
+            <TextBlock x:Name="DragGhostText" Foreground="White" FontSize="13"
+                       VerticalAlignment="Center" Margin="12,0,8,0"
+                       TextTrimming="CharacterEllipsis"/>
+        </Border>
+
     </Grid>
 </Window>
