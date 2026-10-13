@@ -29,8 +29,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.yuzuki.mai_notification.data.ApiClient
+import com.yuzuki.mai_notification.data.SseClient
 import com.yuzuki.mai_notification.data.model.HistoryLog
 import com.yuzuki.mai_notification.ui.home.BoxLoading
 import com.yuzuki.mai_notification.ui.home.BoxMessage
@@ -49,10 +52,12 @@ import java.util.Date
 import java.util.Locale
 
 private const val PAGE_SIZE = 30
+private const val SSE_URL = "https://koinoyamai.love/api/events/stream"
 
 /**
  * 通知履歴（/api/history）。
- * 末尾到達で追加取得（hasMore）。カードをタップすると url を開く。
+ * 末尾到達で追加取得（hasMore）。SSE で通知追加を受けて自動更新。
+ * カードをタップすると url を開く。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -63,6 +68,7 @@ fun HistoryScreen() {
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var loadedOnce by remember { mutableStateOf(false) }
+    var reload by remember { mutableIntStateOf(0) }
     val listState = rememberLazyListState()
 
     suspend fun load(offset: Int) {
@@ -82,6 +88,25 @@ fun HistoryScreen() {
     }
 
     LaunchedEffect(Unit) { if (!loadedOnce) load(0) }
+
+    // SSE: 通知追加を受けて先頭ページを再取得（差分ではなく全体リロード）
+    LaunchedEffect(reload) {
+        if (loadedOnce) load(0)
+    }
+
+    DisposableEffect(Unit) {
+        val sse = SseClient(
+            url = SSE_URL,
+            client = SseClient.shared(),
+            onEvent = { json ->
+                if (json.contains("\"history-updated\"")) {
+                    reload++
+                }
+            }
+        )
+        sse.start()
+        onDispose { sse.stop() }
+    }
 
     // 末尾付近まで来たら次ページを取得
     LaunchedEffect(listState, logs.size, hasMore, loading) {

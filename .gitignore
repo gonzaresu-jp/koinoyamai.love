@@ -8,6 +8,8 @@ gipt_debug/
 .ytprofile/
 debug_pages/
 data/
+# Kotlin パッケージの data/ は追跡対象（上の data/ はランタイムデータ用）
+!mai_notification/app/src/main/java/com/yuzuki/mai_notification/data/
 .git/
 ytcommunity_state.json
 node_modules/

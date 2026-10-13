@@ -4,9 +4,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Web
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -31,6 +32,8 @@ import com.yuzuki.mai_notification.ui.web.WebViewScreen
 import java.net.URLEncoder
 
 private const val HOME_SITE = "https://koinoyamai.love/"
+private const val WIKI_URL = "https://koinoyamai.love/wiki"
+private const val ARCHIVE_URL = "https://koinoyamai.love/archive"
 
 private data class Tab(val route: String, val label: String, val icon: ImageVector)
 
@@ -38,14 +41,15 @@ private val tabs = listOf(
     Tab("home", "ホーム", Icons.Default.Home),
     Tab("history", "履歴", Icons.AutoMirrored.Filled.List),
     Tab("schedule", "予定", Icons.Default.CalendarMonth),
-    Tab("settings", "設定", Icons.Default.Settings),
-    Tab("browse", "ブラウザ", Icons.Default.Web)
+    Tab("wiki", "Wiki", Icons.Default.MenuBook),
+    Tab("archive", "アーカイブ", Icons.Default.Movie),
+    Tab("settings", "設定", Icons.Default.Settings)
 )
 
 /**
- * ネイティブのシェル（Phase 1）。
- * 4タブは Compose のネイティブ画面、「ブラウザ」タブは案Bの WebView 残置面
- * （wiki / アーカイブ / logs / OAuth ログインなど）をそのまま表示する。
+ * ネイティブのシェル（Phase 2）。
+ * ホーム／履歴／予定／設定は Compose のネイティブ画面、
+ * Wiki とアーカイブは WebView 残置面を個別タブとして表示する。
  */
 @Composable
 fun AppRoot(startRoute: String = "home", startUrl: String? = null) {
@@ -61,7 +65,7 @@ fun AppRoot(startRoute: String = "home", startUrl: String? = null) {
         }
     }
 
-    // WebView 画面（ブラウザタブ / ログイン誘導）では下部バーを隠す
+    // WebView 画面（ログイン誘導など）では下部バーを隠す
     val showBottomBar = currentRoute?.startsWith("web") != true
 
     Scaffold(
@@ -98,6 +102,8 @@ fun AppRoot(startRoute: String = "home", startUrl: String? = null) {
             composable("schedule") {
                 ScheduleScreen(onOpenLogin = { openSite(HOME_SITE) })
             }
+            composable("wiki") { WebViewScreen(WIKI_URL) }
+            composable("archive") { WebViewScreen(ARCHIVE_URL) }
             composable("settings") {
                 SettingsScreen(onOpenLogin = { openSite(HOME_SITE) })
             }

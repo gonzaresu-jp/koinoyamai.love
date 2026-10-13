@@ -27,6 +27,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -39,13 +40,17 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yuzuki.mai_notification.data.ApiClient
+import com.yuzuki.mai_notification.data.SseClient
 import com.yuzuki.mai_notification.data.model.EventItem
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 
+private const val SSE_URL = "https://koinoyamai.love/api/events/stream"
+
 /**
  * ホーム: 直近の配信予定（/api/events?from=now）。
+ * SSE（/api/events/stream）で通知追加を受けて自動更新する。
  * 予定カードをタップすると該当ページ（YouTube 等）を開く。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -56,16 +61,10 @@ fun HomeScreen() {
     var error by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(reload) {
-        events = null
-        error = null
+    suspend fun load() {
         runCatching {
             // 過去の予定を並べないため from=現在時刻 を指定
-            ApiClient.service.events(
-                limit = 30,
-                offset = 0,
-                platform = null
-            )
+            ApiClient.service.events(limit = 30, offset = 0, platform = null)
         }.onSuccess { resp ->
             val now = OffsetDateTime.now()
             events = resp.items
@@ -76,9 +75,31 @@ fun HomeScreen() {
                     }.getOrDefault(true)
                 }
                 .sortedBy { it.startTime }
+            error = null
         }.onFailure { e ->
             error = e.message ?: e.javaClass.simpleName
         }
+    }
+
+    LaunchedEffect(reload) {
+        events = null
+        error = null
+        load()
+    }
+
+    // SSE: 通知追加を受けて自動更新
+    DisposableEffect(Unit) {
+        val sse = SseClient(
+            url = SSE_URL,
+            client = SseClient.shared(),
+            onEvent = { json ->
+                if (json.contains("\"history-updated\"")) {
+                    reload++
+                }
+            }
+        )
+        sse.start()
+        onDispose { sse.stop() }
     }
 
     Scaffold(
