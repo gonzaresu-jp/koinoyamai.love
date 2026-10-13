@@ -28,6 +28,9 @@ public sealed partial class MainWindow : Window
     private readonly Dictionary<TabViewItem, WebView2> _tabWebViews = new();
     private readonly Dictionary<TabViewItem, long> _tabCallbackTokens = new();
 
+    // SSE 通知の重複排除（複数タブで同一イベントが届くため最後に処理したIDを保持）
+    private int _lastNotifId = 0;
+
     private static readonly SolidColorBrush TabActive   = new(Color.FromArgb(0xFF, 0xFD, 0x2A, 0xB1));
     private static readonly SolidColorBrush TabInactive = new(Color.FromArgb(0xFF, 0x7D, 0x14, 0x57));
 
@@ -280,6 +283,8 @@ public sealed partial class MainWindow : Window
         await core.AddScriptToExecuteOnDocumentCreatedAsync(
             "Object.defineProperty(window,'__WEBVIEW2_HOST__',{value:true,writable:false});");
 
+        await core.AddScriptToExecuteOnDocumentCreatedAsync(SseNotifyBridgeScript);
+
         core.NotificationReceived += (_, e2) =>
         {
             e2.Handled = true;
@@ -318,7 +323,8 @@ public sealed partial class MainWindow : Window
 
         core.WebMessageReceived += (_, e2) =>
         {
-            switch (e2.TryGetWebMessageAsString())
+            var msg = e2.TryGetWebMessageAsString();
+            switch (msg)
             {
                 case "shortcut:new-tab":
                     DispatcherQueue.TryEnqueue(() => AddNewTab(AppUrl));
@@ -328,6 +334,9 @@ public sealed partial class MainWindow : Window
                     {
                         if (Tabs.SelectedItem is TabViewItem t) CloseTab(t);
                     });
+                    break;
+                default:
+                    if (msg?.StartsWith("{") == true) HandleWebMessage(msg);
                     break;
             }
         };
@@ -586,6 +595,77 @@ public sealed partial class MainWindow : Window
             };
         })();
         """;
+
+    // ---- SSE プッシュ通知ブリッジ ----
+
+    // web-push の fake endpoint 問題を回避するため、SSE 経由でサーバー側の通知履歴を
+    // リアルタイム受信し、Windows トーストに変換する。
+    private const string SseNotifyBridgeScript = """
+        (function () {
+            if (typeof window.chrome?.webview?.postMessage !== 'function') return;
+            if (window.location.hostname !== 'koinoyamai.love') return;
+            let lastId = 0;
+            let es = null;
+            let retryMs = 5000;
+            function connect() {
+                try {
+                    es = new EventSource('/api/events/stream');
+                    es.onopen = function () { retryMs = 5000; };
+                    es.onmessage = async function (e) {
+                        try {
+                            const d = JSON.parse(e.data);
+                            if (d.type !== 'history-updated') return;
+                            const r = await fetch('/api/history?limit=1');
+                            const json = await r.json();
+                            const notif = json.logs?.[0];
+                            if (!notif || notif.id <= lastId) return;
+                            lastId = notif.id;
+                            window.chrome.webview.postMessage(JSON.stringify({
+                                type: 'push-notification',
+                                id: notif.id,
+                                title: notif.title || '',
+                                body: notif.body || '',
+                                icon: notif.icon || '',
+                                url: notif.url || ''
+                            }));
+                        } catch (_) {}
+                    };
+                    es.onerror = function () {
+                        try { es.close(); } catch (_) {}
+                        es = null;
+                        setTimeout(connect, retryMs);
+                        retryMs = Math.min(retryMs * 2, 60000);
+                    };
+                } catch (_) {
+                    setTimeout(connect, retryMs);
+                }
+            }
+            window.addEventListener('beforeunload', function () { try { es?.close(); } catch (_) {} });
+            connect();
+        })();
+        """;
+
+    private void HandleWebMessage(string json)
+    {
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (!root.TryGetProperty("type", out var typeProp) ||
+                typeProp.GetString() != "push-notification") return;
+
+            var id = root.TryGetProperty("id", out var idProp) ? idProp.GetInt32() : 0;
+            if (id > 0 && id <= _lastNotifId) return;  // 複数タブからの重複を破棄
+            if (id > 0) _lastNotifId = id;
+
+            var title = root.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
+            var body  = root.TryGetProperty("body",  out var b) ? b.GetString() ?? "" : "";
+            var icon  = root.TryGetProperty("icon",  out var i) ? i.GetString() ?? "" : "";
+
+            DispatcherQueue.TryEnqueue(() => NotificationHelper.ShowToast(title, body, icon));
+        }
+        catch { }
+    }
 
     // ---- Windows 自動起動（レジストリ）----
 
