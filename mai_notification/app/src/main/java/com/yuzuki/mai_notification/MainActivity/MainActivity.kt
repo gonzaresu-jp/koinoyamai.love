@@ -3,8 +3,11 @@ package com.yuzuki.mai_notification
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -105,16 +108,23 @@ class MainActivity : AppCompatActivity() {
         swipe.addView(web)
         setContentView(swipe)
 
-        // 表示中の WebView の描画プロセスを優先度「重要」に（バックグラウンドでは下げる）
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true)
-        }
+        // 表示中の WebView の描画プロセスの優先度をフォアグラウンド/バックグラウンドで切替
+        // （Chrome同様、裏に回ったら優先度を下げてメモリを節約。前面では重要に保つ）
+        // 描画プロセスを前面では優先（whenInForeground=true で裏に回ったら自動的に WAIVED 降格＝
+        // Chrome と同様の挙動。従来からこの設定で既に最適化済み）
+        applyRendererPriority()
 
         // アップデート確認（6時間に1回まで・失敗しても無視）。初回表示の邪魔をしないよう少し遅らせる
         web.postDelayed({ com.yuzuki.mai_notification.UpdateChecker.checkOnLaunch(this) }, 3000)
         // v1.1: 起動のたびに clearCache(true) していたのをやめる（毎回すべてを再ダウンロードしていた）。
         // JS/CSS は ?v=更新日時 付きで配信され、HTML はサーバーが no-store を返すので、キャッシュを使っても古くならない。
-        web.clearHistory()
+        // v1.6: 通知タップ等で targetUrl 指定がない場合は前回のページを restoreState で即復元（2回目以降の起動を高速化）。
+        // targetUrl 指定時・初回起動時は clearHistory してから読み込む。
+        val targetUrlIntent = intent?.getStringExtra("targetUrl")
+        val canRestore = savedInstanceState != null && targetUrlIntent == null
+        if (!canRestore) {
+            web.clearHistory()
+        }
 
         // ルート背景を紫に。透明化したステータスバー/ナビバーの下からこの色が透けて見える
         swipe.setBackgroundColor(android.graphics.Color.parseColor("#B11E7C"))
@@ -139,15 +149,21 @@ class MainActivity : AppCompatActivity() {
             domStorageEnabled = true
             useWideViewPort = true
             loadWithOverviewMode = true
-            // サーバーの Cache-Control に従う（旧: LOAD_NO_CACHE で常にネットワークから取得していた）
-            cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
+            // サーバーの Cache-Control に従う（旧: LOAD_NO_CACHE で常にネットワークから取得していた）。
+            // オフライン時のみキャッシュを優先（ブラウザ同様、電波が無くても2回目以降のページを開ける）
+            cacheMode = if (isOnline()) {
+                android.webkit.WebSettings.LOAD_DEFAULT
+            } else {
+                android.webkit.WebSettings.LOAD_CACHE_ELSE_NETWORK
+            }
 
             databaseEnabled = true
             allowFileAccess = true
             mediaPlaybackRequiresUserGesture = false
 
-            // 画面外（スクロール先）も事前にラスタライズしてスクロールを滑らかに
-            offscreenPreRaster = true
+            // v1.6: offscreenPreRaster=true を解除。画面外を事前にラスタライズすると
+            // メモリ/GPU使用量が増えて「重い」原因になっていた（Chromeは既定でOFF）
+            offscreenPreRaster = false
 
             // モバイル表示にするためUserAgentをスマホ向けに設定
             userAgentString = "Mozilla/5.0 (Linux; Android 13; Pixel 7) " +
@@ -183,37 +199,31 @@ class MainActivity : AppCompatActivity() {
                 return openExternal(uri.toString())
             }
 
-            override fun onPageFinished(view: WebView?, url: String?) {
-                Log.d("MaiWebBridge", "onPageFinished url=$url")
-                swipe.isRefreshing = false
-
-                // ステータスバーの高さをCSS変数としてWebViewに注入
+            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                super.onPageStarted(view, url, favicon)
+                // ステータスバー高さはDOMに依存しないので onPageStarted で即注入（CSS変数が先に使える）
                 val insets = ViewCompat.getRootWindowInsets(web)
                 val statusBarHeight = insets
                     ?.getInsets(WindowInsetsCompat.Type.statusBars())?.top ?: 0
                 val statusBarDp = statusBarHeight / resources.displayMetrics.density
-                Log.d("DEBUG_INSETS", "statusBarHeight(px): $statusBarHeight, dp: $statusBarDp")
+                view?.evaluateJavascript(
+                    "document.documentElement.style.setProperty('--status-bar-height', '${statusBarDp}px');",
+                    null
+                )
+            }
 
-                view?.evaluateJavascript("""
-                    (function() {
-                        // ステータスバー高さをCSS変数として注入
-                        document.documentElement.style.setProperty('--status-bar-height', '${statusBarDp}px');
+            override fun onPageFinished(view: WebView?, url: String?) {
+                Log.d("MaiWebBridge", "onPageFinished url=$url")
+                swipe.isRefreshing = false
 
-                        // headerの実際の高さを測定してCSS変数にセット
-                        var header = document.querySelector('header');
-                        if (header) {
-                            var headerH = header.getBoundingClientRect().height;
-                            document.documentElement.style.setProperty('--header-height', headerH + 'px');
-                        }
-
-                    })();
-                """.trimIndent(), null)
-
-
-                // ハンバーガーメニュー(body.menu-open)の開閉を監視してネイティブへ通知し、
-                // 開いている間は pull-to-refresh を無効化する
+                // header高さの測定＋menu-open監視を1回の JS 実行にまとめた（v1.6）
+                // （以前は evaluateJavascript を2回に分けていたため往復が余分に発生していた）
                 view?.evaluateJavascript("""
                     (function(){
+                        var h = document.querySelector('header');
+                        if (h) {
+                            document.documentElement.style.setProperty('--header-height', h.getBoundingClientRect().height + 'px');
+                        }
                         if (window.__maiMenuObserver) return;
                         window.__maiMenuObserver = true;
                         var report = function(){
@@ -238,8 +248,15 @@ class MainActivity : AppCompatActivity() {
                 return true
             }
         }
-        // URLロード
-        loadInitialUrl()
+        // URLロード or 前回状態の復元
+        if (canRestore) {
+            // targetUrl 指定なしでプロセス復元された場合は前回のページを即表示（2回目以降の起動を高速化）
+            if (web.restoreState(savedInstanceState) == null) {
+                loadInitialUrl()
+            }
+        } else {
+            loadInitialUrl()
+        }
 
         // Pull to refresh
         swipe.setOnRefreshListener {
@@ -281,6 +298,25 @@ class MainActivity : AppCompatActivity() {
         // アニメーション等を止めて電池と CPU を節約（JS のタイマーは止めない＝SSE は維持）
         web.onPause()
         super.onPause()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        web.saveState(outState)
+    }
+
+    private fun applyRendererPriority() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true)
+        }
+    }
+
+    // ネットワークが生きているか（オフライン時のキャッシュ優先に使う）
+    private fun isOnline(): Boolean {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     private fun registerFcmToken() {

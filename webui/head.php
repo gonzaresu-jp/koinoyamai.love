@@ -93,6 +93,8 @@ $image = isset($pageImage) ? $pageImage : $defaultImage;
 <!-- =====================================================
      CSS / 基本アセット
      ===================================================== -->
+<!-- プリコネクション: ヘッダーの外部アイコン(img.icons8.com)へ先に接続を確立 -->
+<link rel="preconnect" href="https://img.icons8.com" />
 <!-- メインCSS: ブロックするが必須 -->
 <link rel="stylesheet" href="/style.min.css?v=<?= @filemtime(__DIR__ . '/style.min.css') ?: time(); ?>" />
 <!-- FontAwesome: preloadで非ブロック読み込み -->

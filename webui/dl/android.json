@@ -1,6 +1,6 @@
 {
-  "versionCode": 6,
-  "versionName": "1.5",
-  "url": "https://koinoyamai.love/mai-notification.apk?v=6",
-  "notes": "接続先ドメインを koinoyamai.love に移行しました（1.5）。"
+  "versionCode": 7,
+  "versionName": "1.6",
+  "url": "https://koinoyamai.love/mai-notification.apk?v=7",
+  "notes": "WebView表示を高速化・軽量化しました（1.6）。2回目以降の起動が即表示、オフラインでもキャッシュから閲覧可能、バックグラウンド時のメモリ使用量を削減。"
 }
