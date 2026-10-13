@@ -1,18 +1,28 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <!-- WebView2Loader.dll はネットワークドライブから読めないため常にローカルへ出力 -->
+  <PropertyGroup>
+    <BaseOutputPath>$(LOCALAPPDATA)\MaiPushWinUI\</BaseOutputPath>
+  </PropertyGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>MaiPushWinUI</RootNamespace>
-    <AssemblyName>MaiPush</AssemblyName>
+    <AssemblyName>まいちゃん通知</AssemblyName>
     <ApplicationIcon>Assets\app-icon.ico</ApplicationIcon>
     <Platforms>x64</Platforms>
-    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <UseWinUI>true</UseWinUI>
     <WindowsPackageType>None</WindowsPackageType>
+    <!-- self-contained publish で 0xc000027b クラッシュする既知問題の対策（必須） -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>2.0.0</Version>
+    <Version>1.5.2</Version>
+    <Product>まいちゃん通知</Product>
+    <AssemblyTitle>まいちゃん通知</AssemblyTitle>
     <!-- SourceLink 無効（CI 外でのビルド用） -->
     <PublishRepositoryUrl>false</PublishRepositoryUrl>
     <EmbedUntrackedSources>false</EmbedUntrackedSources>

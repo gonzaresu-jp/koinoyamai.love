@@ -53,6 +53,21 @@ public partial class App : Application
 
     private void OnNotificationInvoked(AppNotificationManager sender, AppNotificationActivatedEventArgs args)
     {
+        // 「ダウンロード」ボタン → URL を既定ブラウザで開く
+        if (args.Arguments.TryGetValue("url", out var url) &&
+            Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+            (uri.Scheme == "http" || uri.Scheme == "https"))
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.ToString())
+                {
+                    UseShellExecute = true
+                });
+            }
+            catch { }
+        }
+
         _window?.DispatcherQueue.TryEnqueue(() => _window?.BringToFront());
     }
 

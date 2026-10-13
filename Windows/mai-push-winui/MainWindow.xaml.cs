@@ -26,6 +26,7 @@ public sealed partial class MainWindow : Window
     private TaskbarIcon? _trayIcon;
 
     private readonly Dictionary<TabViewItem, WebView2> _tabWebViews = new();
+    private readonly Dictionary<TabViewItem, long> _tabCallbackTokens = new();
 
     private static readonly SolidColorBrush TabActive   = new(Color.FromArgb(0xFF, 0xFD, 0x2A, 0xB1));
     private static readonly SolidColorBrush TabInactive = new(Color.FromArgb(0xFF, 0x7D, 0x14, 0x57));
@@ -36,7 +37,7 @@ public sealed partial class MainWindow : Window
 
         _appWindow = this.GetAppWindow();
         _appWindow.Resize(new SizeInt32(960, 580));
-        _appWindow.Title = "";
+        _appWindow.Title = "まいちゃん通知";
         if (File.Exists("Assets\\app-icon.ico"))
             _appWindow.SetIcon("Assets\\app-icon.ico");
 
@@ -110,6 +111,21 @@ public sealed partial class MainWindow : Window
     private static extern bool ScreenToClient(IntPtr hWnd, ref POINT pt);
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
+    [DllImport("user32.dll")]
+    private static extern IntPtr CreatePopupMenu();
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool AppendMenuW(IntPtr hMenu, uint uFlags, IntPtr uIDNewItem, string? lpNewItem);
+    [DllImport("user32.dll")]
+    private static extern int TrackPopupMenuEx(IntPtr hmenu, uint fuFlags, int x, int y, IntPtr hwnd, IntPtr lptpm);
+    [DllImport("user32.dll")]
+    private static extern bool DestroyMenu(IntPtr hMenu);
+
+    private const uint MF_STRING = 0x00000000;
+    private const uint MF_SEPARATOR = 0x00000800;
+    private const uint MF_CHECKED = 0x00000008;
+    private const uint TPM_RIGHTBUTTON = 0x00000002;
+    private const uint TPM_NONOTIFY = 0x00000080;
+    private const uint TPM_RETURNCMD = 0x00000100;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT { public int X, Y; }
@@ -230,6 +246,22 @@ public sealed partial class MainWindow : Window
                 e2.State = CoreWebView2PermissionState.Allow;
         };
 
+        // requestPermission() が denied を返すと new Notification() が黙殺されるため、
+        // ナビゲーションごとに通知権限を明示的に許可しておく
+        void AllowNotifications()
+        {
+            try
+            {
+                if (Uri.TryCreate(core.Source, UriKind.Absolute, out var u) &&
+                    !string.IsNullOrEmpty(u.Host))
+                    _ = core.Profile.SetPermissionStateAsync(CoreWebView2PermissionKind.Notifications,
+                        u.GetLeftPart(UriPartial.Authority), CoreWebView2PermissionState.Allow);
+            }
+            catch { }
+        }
+        core.NavigationCompleted += (_, _) => AllowNotifications();
+        core.SourceChanged += (_, _) => AllowNotifications();
+
         await core.AddScriptToExecuteOnDocumentCreatedAsync("""
             document.addEventListener('DOMContentLoaded', () => {
                 const s = document.createElement('style');
@@ -328,7 +360,7 @@ public sealed partial class MainWindow : Window
             if (container is not null)
             {
                 bool setting = false;
-                container.RegisterPropertyChangedCallback(Panel.BackgroundProperty, (s, _) =>
+                long token = container.RegisterPropertyChangedCallback(Panel.BackgroundProperty, (s, _) =>
                 {
                     if (setting || s is not Panel p) return;
                     bool isActive = ReferenceEquals(tab, Tabs.SelectedItem);
@@ -338,6 +370,8 @@ public sealed partial class MainWindow : Window
                     try { p.Background = expected; }
                     finally { setting = false; }
                 });
+                // CloseTab でコールバックを解除するためトークンを保存
+                _tabCallbackTokens[tab] = token;
             }
             DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, UpdateTabColors);
         };
@@ -384,6 +418,13 @@ public sealed partial class MainWindow : Window
 
     private void CloseTab(TabViewItem tab)
     {
+        // RegisterPropertyChangedCallback のトークンを解除してメモリリークを防ぐ
+        if (_tabCallbackTokens.TryGetValue(tab, out var token))
+        {
+            var container = FindChild<Grid>(tab, "TabContainer");
+            container?.UnregisterPropertyChangedCallback(Panel.BackgroundProperty, token);
+            _tabCallbackTokens.Remove(tab);
+        }
         if (_tabWebViews.TryGetValue(tab, out var wv))
         {
             ContentGrid.Children.Remove(wv);
@@ -407,6 +448,14 @@ public sealed partial class MainWindow : Window
     private void Tabs_TabCloseRequested(TabView sender, TabViewTabCloseRequestedEventArgs args) =>
         CloseTab(args.Tab);
 
+    private void Tabs_TabDroppedOutside(TabView sender, TabViewTabDroppedOutsideEventArgs args)
+    {
+        // タブをウィンドウ外にドラッグしても切り離さない（元の位置に戻す）
+        // 何もしなければ TabView がタブを Tabs.TabItems から削除しようとするので防ぐ
+        if (!Tabs.TabItems.Contains(args.Tab))
+            Tabs.TabItems.Add(args.Tab);
+    }
+
     private void Tabs_SelectionChanged(object sender, SelectionChangedEventArgs args)
     {
         foreach (var (_, webView) in _tabWebViews)
@@ -418,7 +467,30 @@ public sealed partial class MainWindow : Window
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, UpdateTabColors);
     }
 
-    private void Tabs_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e) { }
+    private void Tabs_KeyDown(object sender, Microsoft.UI.Xaml.Input.KeyRoutedEventArgs e)
+    {
+        var ctrl = Microsoft.UI.Input.InputKeyboardSource
+            .GetKeyStateForCurrentThread(Windows.System.VirtualKey.Control)
+            .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        if (!ctrl) return;
+
+        switch (e.Key)
+        {
+            case Windows.System.VirtualKey.T:          // Ctrl+T: 新しいタブ
+                AddNewTab(AppUrl);
+                e.Handled = true;
+                break;
+            case Windows.System.VirtualKey.W:          // Ctrl+W: 現在のタブを閉じる
+                if (Tabs.SelectedItem is TabViewItem t)
+                    CloseTab(t);
+                e.Handled = true;
+                break;
+            case Windows.System.VirtualKey.R:          // Ctrl+R: 再読み込み
+                ReloadActive();
+                e.Handled = true;
+                break;
+        }
+    }
 
     private void ReloadButton_Click(object sender, RoutedEventArgs e) => ReloadActive();
 
@@ -555,41 +627,61 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            _trayIcon = new TaskbarIcon { ToolTipText = "MaiPush" };
+            _trayIcon = new TaskbarIcon { ToolTipText = "まいちゃん通知" };
             var ico = Path.GetFullPath("Assets\\tray-icon.ico");
             if (File.Exists(ico))
-                _trayIcon.Icon = new System.Drawing.Icon(ico);
+                // 16x16 を明示指定してトレイ表示の透明化バグを回避
+                _trayIcon.Icon = new System.Drawing.Icon(ico, 16, 16);
             _trayIcon.DoubleClickCommand = new SimpleCommand(BringToFront);
 
-            var menu = new MenuFlyout();
-            void AddItem(string text, Action action)
-            {
-                var item = new MenuFlyoutItem { Text = text };
-                item.Click += (_, _) => action();
-                menu.Items.Add(item);
-            }
-            AddItem("開く", BringToFront);
-            AddItem("再読み込み", () => ReloadActive());
-            AddItem("新しいタブ", () => { BringToFront(); AddNewTab(AppUrl); });
-            menu.Items.Add(new MenuFlyoutSeparator());
-
-            // Windows 起動時に自動起動（--hidden でトレイ起動）
-            var autoStartItem = new ToggleMenuFlyoutItem
-            {
-                Text = "Windows 起動時に自動起動",
-                IsChecked = IsAutoStartEnabled(),
-            };
-            autoStartItem.Click += (_, _) => SetAutoStart(autoStartItem.IsChecked);
-            menu.Items.Add(autoStartItem);
-
-            menu.Items.Add(new MenuFlyoutSeparator());
-            AddItem("終了", ExitApp);
-            _trayIcon.ContextFlyout = menu;
+            // WinUI の MenuFlyout は H.NotifyIcon が表示すると MenuFlyoutItem.Click が
+            // 発火しないことがある（DoubleClickCommand は ICommand なので正常）ため、
+            // 右クリックメニューは Win32 の TrackPopupMenu で表示する。
+            _trayIcon.RightClickCommand = new SimpleCommand(ShowTrayMenu);
             _trayIcon.ForceCreate(enablesEfficiencyMode: false);
+
+            // 動作確認用: MAIPUSH_TEST_MENU=1 で起動すると3秒後にメニューを自動表示
+            if (Environment.GetEnvironmentVariable("MAIPUSH_TEST_MENU") == "1")
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(3000);
+                    DispatcherQueue.TryEnqueue(ShowTrayMenu);
+                });
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[Tray] {ex.Message}");
+        }
+    }
+
+    private void ShowTrayMenu()
+    {
+        try
+        {
+            GetCursorPos(out var cpt);
+            IntPtr menu = CreatePopupMenu();
+            AppendMenuW(menu, MF_STRING, (IntPtr)1, "開く");
+            AppendMenuW(menu, MF_STRING, (IntPtr)2, "再読み込み");
+            AppendMenuW(menu, MF_STRING, (IntPtr)3, "新しいタブ");
+            AppendMenuW(menu, MF_SEPARATOR, IntPtr.Zero, null!);
+            AppendMenuW(menu, MF_STRING | (IsAutoStartEnabled() ? MF_CHECKED : 0u), (IntPtr)4, "Windows 起動時に自動起動");
+            AppendMenuW(menu, MF_SEPARATOR, IntPtr.Zero, null!);
+            AppendMenuW(menu, MF_STRING, (IntPtr)5, "終了");
+            uint cmd = (uint)TrackPopupMenuEx(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
+                cpt.X, cpt.Y, _hwnd, IntPtr.Zero);
+            DestroyMenu(menu);
+            switch (cmd)
+            {
+                case 1: BringToFront(); break;
+                case 2: ReloadActive(); break;
+                case 3: BringToFront(); AddNewTab(AppUrl); break;
+                case 4: SetAutoStart(!IsAutoStartEnabled()); break;
+                case 5: ExitApp(); break;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[TrayMenu] {ex.Message}");
         }
     }
 
@@ -608,9 +700,11 @@ public sealed partial class MainWindow : Window
 
     private void ExitApp()
     {
-        _trayIcon?.Dispose();
-        try { AppNotificationManager.Default.Unregister(); } catch { }
-        Application.Current.Exit();
+        // WinUI3 では UI スレッドからの Environment.Exit / Dispose 経由の終了が
+        // デッドロックして止まることがあるため、メッセージループを経由せず強制終了する。
+        // トレイアイコンはプロセス終了時に OS が自動で消す。
+        try { Process.GetCurrentProcess().Kill(); }
+        catch { Environment.Exit(0); }
     }
 }
 

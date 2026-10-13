@@ -5,7 +5,7 @@ namespace MaiPushWinUI;
 internal static class UpdateChecker
 {
     private const string FeedUrl = "https://koinoyamai.love/dl/desktop.json";
-    private static readonly Version CurrentVersion = new(2, 0, 0);
+    private static readonly Version CurrentVersion = new(1, 5, 2);
 
     public static async Task CheckAsync()
     {
@@ -26,7 +26,7 @@ internal static class UpdateChecker
 
             // アップデート通知（クリックでブラウザ開く）
             var builder = new Microsoft.Windows.AppNotifications.Builder.AppNotificationBuilder()
-                .AddText($"MaiPush v{latest} が利用可能")
+                .AddText($"まいちゃん通知 v{latest} が利用可能")
                 .AddText(notes)
                 .AddButton(new Microsoft.Windows.AppNotifications.Builder.AppNotificationButton("ダウンロード")
                     .AddArgument("url", url ?? ""));
