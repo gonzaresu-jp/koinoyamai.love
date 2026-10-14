@@ -645,3 +645,95 @@ body.lightbox-open {
         height: 68px;
     }
 }
+
+/* ============ YouTube リンクのポップアップ（リンク位置にアンカー表示） ============ */
+.wk-sm-pop {
+    position: fixed;
+    z-index: 960;
+    display: none;
+}
+
+.wk-sm-pop.is-open {
+    display: block;
+}
+
+.wk-sm-card {
+    position: relative;
+    width: 100%;
+    background: #fff;
+    border: 1px solid var(--wk-border, #ecd3e2);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 14px 44px rgba(44, 44, 62, 0.3);
+    cursor: pointer;
+    outline: none;
+    transform: translateY(6px);
+    opacity: 0;
+    transition: transform 0.16s ease, opacity 0.16s ease;
+}
+
+.wk-sm-pop.is-open .wk-sm-card {
+    transform: none;
+    opacity: 1;
+}
+
+.wk-sm-thumb {
+    background: var(--wk-soft, #f7e0ef);
+    line-height: 0;
+}
+
+.wk-sm-thumb img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+}
+
+.wk-sm-body {
+    padding: 12px 14px 14px;
+}
+
+.wk-sm-title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 700;
+    line-height: 1.45;
+    color: var(--wk-text, #2c2c3e);
+}
+
+.wk-sm-channel {
+    margin: 6px 0 0;
+    font-size: 0.8rem;
+    color: var(--wk-muted, #6b6b80);
+}
+
+.wk-sm-hint {
+    margin: 8px 0 0;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--wk-primary, #B11E7C);
+}
+
+.wk-sm-close {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 1;
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 50%;
+    background: rgba(44, 44, 62, 0.65);
+    color: #fff;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.wk-sm-close:hover {
+    background: rgba(44, 44, 62, 0.85);
+}
+
+.wk-sm-card:hover {
+    box-shadow: 0 18px 52px rgba(44, 44, 62, 0.36);
+}

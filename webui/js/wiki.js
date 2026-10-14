@@ -319,6 +319,146 @@
     }
   });
 
+  // YouTube アーカイブへのテキストリンク → リンク位置の近くにサムネ＋タイトルのポップアップ
+  // （配信スケジュールのカードのような体験）。カード表示(.wk-video-card)とチャンネルは対象外。
+  // タイトルは YouTube oEmbed (CORS許可) から実行時取得し videoId 単位でキャッシュ。
+  function setupStreamPopups() {
+    let pop = null;
+    const titleCache = Object.create(null);
+
+    function extractVideoId(href) {
+      try {
+        const u = new URL(href, location.href);
+        if (u.hostname === "youtu.be") return u.pathname.slice(1) || null;
+        if (!/^(www\.)?youtube\.com$/.test(u.hostname)) return null;
+        const v = u.searchParams.get("v");
+        if (v) return v;
+        const m = u.pathname.match(/^\/(?:live|embed)\/([A-Za-z0-9_-]{6,})/);
+        return m ? m[1] : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function ensurePop() {
+      if (pop) return pop;
+      pop = document.createElement("div");
+      pop.className = "wk-sm-pop";
+      pop.innerHTML =
+        '<div class="wk-sm-card" role="dialog" aria-label="動画プレビュー">' +
+        '<button class="wk-sm-close" type="button" aria-label="閉じる">&times;</button>' +
+        '<div class="wk-sm-thumb"><img alt="" referrerpolicy="no-referrer"></div>' +
+        '<div class="wk-sm-body">' +
+        '<p class="wk-sm-title"></p>' +
+        '<p class="wk-sm-channel"></p>' +
+        '<p class="wk-sm-hint">クリックで YouTube を開く</p>' +
+        "</div></div>";
+      document.body.appendChild(pop);
+      return pop;
+    }
+
+    function hidePop() {
+      if (!pop || !pop.classList.contains("is-open")) return;
+      pop.classList.remove("is-open");
+      pop._url = "";
+      pop._videoId = "";
+    }
+
+    function positionPop(link) {
+      const r = link.getBoundingClientRect();
+      const vw = document.documentElement.clientWidth;
+      const pw = Math.min(360, Math.max(240, vw - 24));
+      pop.style.width = pw + "px";
+      pop.style.left = "0px";
+      pop.style.top = "0px";
+      pop.style.bottom = "auto";
+      let left = r.left;
+      if (left + pw > vw - 12) left = vw - pw - 12;
+      if (left < 12) left = 12;
+      pop.style.left = Math.round(left) + "px";
+      const ph = pop.offsetHeight || 260;
+      const below = r.bottom + 8;
+      if (below + ph <= window.innerHeight - 12) {
+        pop.style.top = Math.round(below) + "px";
+      } else if (r.top - 8 - ph >= 12) {
+        pop.style.top = "auto";
+        pop.style.bottom = Math.round(window.innerHeight - r.top + 8) + "px";
+      } else {
+        pop.style.top = Math.round(Math.max(12, Math.min(below, window.innerHeight - ph - 12))) + "px";
+      }
+    }
+
+    function openPop(link, videoId) {
+      const p = ensurePop();
+      p._url = link.href;
+      p._videoId = videoId;
+      const img = p.querySelector(".wk-sm-thumb img");
+      img.src = "https://img.youtube.com/vi/" + encodeURIComponent(videoId) + "/hqdefault.jpg";
+      img.alt = "";
+      const titleEl = p.querySelector(".wk-sm-title");
+      const chEl = p.querySelector(".wk-sm-channel");
+      const cached = titleCache[videoId];
+      if (cached) {
+        titleEl.textContent = cached.title;
+        chEl.textContent = cached.author;
+      } else {
+        titleEl.textContent = "読み込み中…";
+        chEl.textContent = "";
+        const ep = "https://www.youtube.com/oembed?format=json&url=" +
+          encodeURIComponent("https://www.youtube.com/watch?v=" + videoId);
+        let opts = {};
+        try { opts = { signal: AbortSignal.timeout(6000) }; } catch (e) {}
+        fetch(ep, opts)
+          .then((res) => (res && res.ok ? res.json() : null))
+          .then((d) => {
+            if (!d || !pop || pop._videoId !== videoId) return;
+            titleCache[videoId] = { title: d.title || "", author: d.author_name || "" };
+            titleEl.textContent = d.title || "YouTube 動画";
+            chEl.textContent = d.author_name || "";
+          })
+          .catch(() => {
+            if (pop && pop._videoId === videoId && titleEl.textContent === "読み込み中…") {
+              titleEl.textContent = "YouTube 動画";
+            }
+          });
+      }
+      p.classList.add("is-open");
+      positionPop(link);
+    }
+
+    document.addEventListener("click", (e) => {
+      if (!e.target || typeof e.target.closest !== "function") return;
+      const inPop = pop && pop.classList.contains("is-open") && e.target.closest(".wk-sm-pop");
+      if (pop && pop.classList.contains("is-open") && !inPop) hidePop();
+      if (inPop) {
+        if (e.target.closest(".wk-sm-close")) {
+          hidePop();
+          return;
+        }
+        if (e.target.closest(".wk-sm-card") && pop._url) {
+          window.open(pop._url, "_blank", "noopener");
+          hidePop();
+        }
+        return;
+      }
+      const link = e.target.closest("a[href]");
+      if (!link || link.closest(".wk-video-card")) return;
+      const videoId = extractVideoId(link.href);
+      if (!videoId) return;
+      // 修飾キー付きクリック（新規タブ・コピー等）は既定動作のまま
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+      e.preventDefault();
+      openPop(link, videoId);
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") hidePop();
+    });
+    window.addEventListener("scroll", hidePop, { passive: true });
+    window.addEventListener("resize", hidePop, { passive: true });
+  }
+
   initLightbox();
   setupScrollSpy();
+  setupStreamPopups();
 })();
