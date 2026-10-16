@@ -1,5 +1,5 @@
 {
   "version": "1.8.1",
-  "url": "https://koinoyamai.love/dl/MaiPush-1.8.1-Setup.exe",
+  "url": "https://koinoyamai.love/dl/MaiPush-1.8.1-Setup.exe?v=1792147466",
   "notes": "YouTube・X などの外部リンクがアプリ内タブで開いてしまう問題を修正（1.8.1）。外部リンクは既定のブラウザ／登録アプリで開き、自サイトとログイン画面は従来通りアプリ内タブに残ります。iframe の埋め込みには影響しません。"
 }
