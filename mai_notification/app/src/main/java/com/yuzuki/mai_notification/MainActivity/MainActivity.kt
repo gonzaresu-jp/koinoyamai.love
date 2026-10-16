@@ -53,6 +53,9 @@ class MainActivity : AppCompatActivity() {
     @Volatile
     private var menuOpen: Boolean = false
 
+    // 別ウィンドウ要求（target="_blank" / window.open）の受け皿となる一時WebView
+    private var windowHolder: WebView? = null
+
     // Android13 通知許可
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
@@ -151,6 +154,15 @@ class MainActivity : AppCompatActivity() {
         web.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
+
+            // v1.7.1: 別ウィンドウ要求（target="_blank" / window.open）を受け取れるようにする。
+            // 既定は false のため、YouTube・X 等の rel="noopener" リンクが「新しいウィンドウ」に
+            // 落とせず既存WebView内に落ち、アプリ内ブラウザで開いてしまっていた。
+            setSupportMultipleWindows(true)
+            // JS から直接 window.open されるケース（ユーザー操作を伴わないもの）も許可し、
+            // 下の onCreateWindow で自サイト／外部を判定して振り分ける
+            javaScriptCanOpenWindowsAutomatically = true
+
             useWideViewPort = true
             loadWithOverviewMode = true
             // サーバーの Cache-Control に従う（旧: LOAD_NO_CACHE で常にネットワークから取得していた）。
@@ -250,6 +262,60 @@ class MainActivity : AppCompatActivity() {
                 if (!isDebuggable) return true
                 Log.d("WebConsole", "${consoleMessage.messageLevel()}: ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
                 return true
+            }
+
+            // v1.7.1: target="_blank" / window.open はここ（onCreateWindow）で受け取る。
+            // 未実装だと別ウィンドウ要求が既存WebView内に落ち、外部リンクがアプリ内に開かれていた
+            // （同一タブ遷移は shouldOverrideUrlLoading で従来通り OS 委譲している）。
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: android.os.Message?
+            ): Boolean {
+                val src = view ?: return false
+                val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
+
+                // 開くURLは resultMsg 経由でしか渡らないため、受け皿となる一時WebViewを差し込み、
+                // その最初の遷移を横取りして shouldOverrideUrlLoading と同じ振り分けに流す
+                val holder = WebView(src.context)
+                holder.settings.javaScriptEnabled = true
+                holder.webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView?,
+                        request: WebResourceRequest?
+                    ): Boolean {
+                        val uri = request?.url ?: return false
+                        val handled = dispatchNewWindowUrl(uri)
+                        if (handled) dismissWindowHolder(holder)
+                        return handled
+                    }
+
+                    // shouldOverrideUrlLoading が鳴らない経路でも外部に出さない
+                    override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                        if (url == null) return
+                        // 処理できなかった（about:blank 等、受け皿に任せるURL）なら何もしない
+                        if (dispatchNewWindowUrl(Uri.parse(url))) {
+                            view?.stopLoading()
+                            dismissWindowHolder(holder)
+                        }
+                    }
+                }
+
+                // 前回分の受け皿が残っていれば先に破棄（WebViewリーク防止）
+                windowHolder?.let { prev -> runCatching { prev.destroy() } }
+                windowHolder = holder
+                transport.webView = holder
+                resultMsg.sendToTarget()
+                return true
+            }
+
+            // ダイアログ等のウィンドウが閉じられたら受け皿を破棄
+            override fun onCloseWindow(window: WebView?) {
+                if (window != null && window !== web) {
+                    runCatching { window.destroy() }
+                    if (windowHolder === window) windowHolder = null
+                }
             }
         }
         // URLロード or 前回状態の復元
@@ -365,6 +431,45 @@ class MainActivity : AppCompatActivity() {
     private fun isAuthHost(host: String?): Boolean {
         val h = host?.lowercase() ?: return false
         return h in AUTH_HOSTS
+    }
+
+    /**
+     * 別ウィンドウ要求（target="_blank" / window.open）で渡ってきたURLの振り分け。
+     * 自サイト・認証ホストは既存の WebView（web）で開き、それ以外は openExternal()
+     * （専用アプリ優先→ブラウザ）に委譲する。tel: / mailto: / intent: も同様。
+     *
+     * 戻り値 true = 処理済み（受け皿の WebView では読み込まなくてよい）
+     */
+    private fun dispatchNewWindowUrl(uri: Uri): Boolean {
+        val scheme = uri.scheme?.lowercase()
+        val url = uri.toString()
+
+        if (scheme == "http" || scheme == "https") {
+            // 自サイトとログインフローはアプリ内ブラウザのまま（新タブは作らない）
+            if (isOwnSite(uri) || isAuthHost(uri.host)) {
+                web.loadUrl(url)
+                return true
+            }
+            // 専用アプリもブラウザも無ければ、視認される既存WebViewで読む
+            //（shouldOverrideUrlLoading と同じ保険。受け皿は画面上に無いため読ませても見えない）
+            if (openExternal(url)) return true
+            web.loadUrl(url)
+            return true
+        }
+
+        // data: / about: / blob: / javascript: / file: は受け皿の WebView に任せる
+        if (scheme == null || scheme == "data" || scheme == "about" ||
+            scheme == "blob" || scheme == "javascript" || scheme == "file"
+        ) return false
+
+        // tel: / mailto: / intent: などはOSに任せる（開けなければ受け皿に任せる）
+        return openExternal(url)
+    }
+
+    // 振り分け完了後の受け皿を破棄する（まだ使われている場合は次回作成時に破棄される）
+    private fun dismissWindowHolder(holder: WebView) {
+        if (windowHolder === holder) windowHolder = null
+        holder.postDelayed({ runCatching { holder.destroy() } }, 100)
     }
 
     /**
