@@ -11,7 +11,7 @@
 
   <!-- 配信アーカイブ検索（独自コンテンツ） -->
   <url>
-    <loc>https://koinoyamai.love/archive</loc>
+    <loc>https://koinoyamai.love/archive/</loc>
     <lastmod>2026-09-10</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
@@ -59,7 +59,7 @@
 
   <!-- システム稼働状況 -->
   <url>
-    <loc>https://koinoyamai.love/status</loc>
+    <loc>https://koinoyamai.love/status/</loc>
     <lastmod>2026-09-10</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.3</priority>

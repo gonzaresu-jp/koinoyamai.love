@@ -458,7 +458,30 @@
     window.addEventListener("resize", hidePop, { passive: true });
   }
 
+  // ---- 読み上げボタン（.wk-say）：Web Speech API で発音を再生
+  // data-text / data-lang を読み上げ。Google翻訳への外部依存なし。
+  function setupSayButtons() {
+    if (!("speechSynthesis" in window) || typeof SpeechSynthesisUtterance === "undefined") return;
+    document.addEventListener("click", (e) => {
+      if (!e.target || typeof e.target.closest !== "function") return;
+      const btn = e.target.closest(".wk-say");
+      if (!btn) return;
+      e.preventDefault();
+      try {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(btn.getAttribute("data-text") || "");
+        u.lang = btn.getAttribute("data-lang") || "zh-CN";
+        u.rate = 0.85;
+        const vs = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+        const v = vs.find((vv) => (vv.lang || "").toLowerCase().indexOf(u.lang.toLowerCase().slice(0, 2)) === 0);
+        if (v) u.voice = v;
+        window.speechSynthesis.speak(u);
+      } catch (err) {}
+    });
+  }
+
   initLightbox();
   setupScrollSpy();
   setupStreamPopups();
+  setupSayButtons();
 })();

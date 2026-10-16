@@ -737,3 +737,29 @@ body.lightbox-open {
 .wk-sm-card:hover {
     box-shadow: 0 18px 52px rgba(44, 44, 62, 0.36);
 }
+
+/* 読み上げボタン（.wk-say）：Web Speech API で発音を再生 */
+.wk-say {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.7em;
+    height: 1.7em;
+    margin-left: 0.3em;
+    padding: 0;
+    border: 1px solid #d8a7c3;
+    border-radius: 50%;
+    background: #fff;
+    color: #b11e7c;
+    cursor: pointer;
+    vertical-align: baseline;
+}
+
+.wk-say:hover {
+    background: #fdf0f6;
+}
+
+.wk-say svg {
+    width: 0.95em;
+    height: 0.95em;
+}
