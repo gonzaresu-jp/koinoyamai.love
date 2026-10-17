@@ -28,6 +28,23 @@ public partial class App : Application
         }
 
         InitializeComponent();
+        Diagnostics.LogStartup();
+        Diagnostics.RegisterRestartOnCrash();
+        Diagnostics.RegisterWerDumpDirectory();
+
+        // ---- グローバル例外ログ（0xc000027b 対策の観測用）----
+        UnhandledException += (_, e) =>
+        {
+            Diagnostics.Log("Application.UnhandledException", e.Exception);
+            e.Handled = true; // クラッシュで即死しない（トレイ常駐を優先）
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            Diagnostics.Log("AppDomain.UnhandledException", e.ExceptionObject as Exception);
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            Diagnostics.Log("UnobservedTaskException", e.Exception);
+            e.SetObserved();
+        };
 
         try
         {

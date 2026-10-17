@@ -5,7 +5,7 @@ namespace MaiPushWinUI;
 internal static class UpdateChecker
 {
     private const string FeedUrl = "https://koinoyamai.love/dl/desktop.json";
-    private static readonly Version CurrentVersion = new(1, 8, 1);
+    private static readonly Version CurrentVersion = new(1, 8, 2);
 
     public static async Task CheckAsync()
     {

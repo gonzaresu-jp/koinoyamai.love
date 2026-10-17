@@ -210,7 +210,22 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ビルド出力: `$(LOCALAPPDATA)\MaiPushWinUI\` に固定済み（`BaseOutputPath` + `PublishDir`）。
   - `dotnet publish` 後の正規パス: `%LOCALAPPDATA%\MaiPushWinUI\publish\まいちゃん通知.exe`
   - **ネットワークドライブ上の publish/ ディレクトリからは起動しないこと**。
+- **トレイアイコンのパスは必ず `AppContext.BaseDirectory` 起点の絶対パスにすること（v1.8.2 教訓）**
+  - Run キー（自動起動）で起動したプロセスの CWD は `C:\Windows\System32` になる。
+    相対パス `Assets\tray-icon.ico` は File.Exists=false → TaskbarIcon.Icon=null のまま
+    ForceCreate → Shell_NotifyIcon に空ハンドル → **トレイに「透明な空きアイコン」が残る**。
+  - 同様に `_appWindow.SetIcon()` も相対パスは自動起動時に失敗する。
+- **トースト表示（NotificationHelper.ShowToast）は例外を握りつぶすこと**
+  - WinRT コールバック（CoreMessaging / DispatcherQueue 経由）内での未処理例外は
+    stowed exception (0xc000027b) としてプロセスごと落ちる。WER では
+    combase.dll (E_INVALIDARG/E_FAIL) × CoreMessagingXP.dll / Microsoft.UI.Xaml.dll の
+    フォールトが多発していた（v1.8.2 で診断強化: `%LOCALAPPDATA%\MaiPush\log.txt` に例外ログ、
+    WER LocalDumps でミニダンプ収集、RegisterApplicationRestart で自動再起動）。
+- **Release publish は self-contained（csproj の `<SelfContained>`）**
+  - framework-dependent publish でインストールすると、グローバル .NET 構成が揃わない環境・
+    InstallDelete 後のタイミングで「No frameworks were found」で自動起動失敗する。
 
+最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）
 最終更新: 2026-10-13（§10 WinUI ネットワーク起動禁止を追記）
 最終更新: 2026-10-10（§9 埋め込み停止中→稼働中に訂正 / CollabPoll 修正・md整理は別コミット）
 最終更新: 2026-10-03（チャット読み上げ追加 / TTS systemd化・int8＋ONNX高速化 / latent-sliceストリーミング・不採用レコード / AGENTS.md §9 追加）

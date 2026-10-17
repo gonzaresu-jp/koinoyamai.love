@@ -65,8 +65,13 @@ public sealed partial class MainWindow : Window
         _appWindow = this.GetAppWindow();
         _appWindow.Resize(new SizeInt32(960, 580));
         _appWindow.Title = "まいちゃん通知";
-        if (File.Exists("Assets\\app-icon.ico"))
-            _appWindow.SetIcon("Assets\\app-icon.ico");
+        // パスは必ず絶対で解決する。
+        // 自動起動（Run キー）時は CWD が C:\Windows\System32 になるため
+        // 相対パス "Assets\\app-icon.ico" は File.Exists が false になり SetIcon されない。
+        var exeDir = AppContext.BaseDirectory;
+        var appIconPath = Path.Combine(exeDir, "Assets", "app-icon.ico");
+        if (File.Exists(appIconPath))
+            _appWindow.SetIcon(appIconPath);
 
         ExtendsContentIntoTitleBar = true;
         StyleCaptionButtons();
@@ -1098,15 +1103,45 @@ public sealed partial class MainWindow : Window
 
     // ---- システムトレイ ----
 
+    // トレイアイコンのソース。死なないように保持し、定期再送にも使う。
+    private System.Drawing.Icon? _trayIconSource;
+    private DispatcherQueueTimer? _trayKeepAliveTimer;
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
+    private const int SM_CXSMICON = 49; // トレイ小アイコンの物理幅（DPI反映）
+
     private void SetupTrayIcon()
     {
         try
         {
             _trayIcon = new TaskbarIcon { ToolTipText = "まいちゃん通知" };
-            var ico = Path.GetFullPath("Assets\\tray-icon.ico");
+
+            // 絶対パス解決が必須。Run キー（自動起動）では CWD が System32 になるため
+            // 相対パスだと Icon が null のまま ForceCreate され、
+            // トレイに「透明な空き四角」が出続ける（v1.8.2 の透明アイコン問題の本命）。
+            var ico = Path.Combine(AppContext.BaseDirectory, "Assets", "tray-icon.ico");
             if (File.Exists(ico))
-                // 16x16 を明示指定してトレイ表示の透明化バグを回避
-                _trayIcon.Icon = new System.Drawing.Icon(ico, 16, 16);
+                _trayIconSource = TryLoadTrayIcon(ico);
+
+            // ファイルが読めなかった場合の保険: 実行ファイルからアイコンを抽出する。
+            // Icon null のまま Shell_NotifyIcon(NIM_ADD) して透明アイコンが残るのを防ぐ。
+            if (_trayIconSource is null)
+            {
+                try
+                {
+                    var exe = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
+                    if (exe is not null && File.Exists(exe))
+                        _trayIconSource = System.Drawing.Icon.ExtractAssociatedIcon(exe);
+                }
+                catch (Exception ex) { Diagnostics.Log("TrayIcon.Fallback", ex); }
+            }
+
+            if (_trayIconSource is not null)
+                _trayIcon.Icon = _trayIconSource;
+            else
+                Diagnostics.Log("TrayIcon", "アイコンソースを確保できませんでした");
+
             _trayIcon.DoubleClickCommand = new SimpleCommand(BringToFront);
 
             // WinUI の MenuFlyout は H.NotifyIcon が表示すると MenuFlyoutItem.Click が
@@ -1114,6 +1149,8 @@ public sealed partial class MainWindow : Window
             // 右クリックメニューは Win32 の TrackPopupMenu で表示する。
             _trayIcon.RightClickCommand = new SimpleCommand(ShowTrayMenu);
             _trayIcon.ForceCreate(enablesEfficiencyMode: false);
+
+            StartTrayKeepAlive();
 
             // 動作確認用: MAIPUSH_TEST_MENU=1 で起動すると3秒後にメニューを自動表示
             if (Environment.GetEnvironmentVariable("MAIPUSH_TEST_MENU") == "1")
@@ -1125,8 +1162,56 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[Tray] {ex.Message}");
+            Diagnostics.Log("TrayIcon", ex);
         }
+    }
+
+    /// <summary>
+    /// ICO からトレイに適したサイズのアイコンを読み込む。
+    /// トレイの小アイコン物理サイズ（SM_CXSMICON・DPI 反映）に最も近いフレームを使う。
+    /// </summary>
+    private static System.Drawing.Icon? TryLoadTrayIcon(string icoPath)
+    {
+        try
+        {
+            var tray = GetSystemMetrics(SM_CXSMICON);
+            if (tray > 0 && tray != 16)
+            {
+                try { return new System.Drawing.Icon(icoPath, new System.Drawing.Size(tray, tray)); }
+                catch { }
+            }
+            return new System.Drawing.Icon(icoPath, 16, 16);
+        }
+        catch (Exception ex)
+        {
+            Diagnostics.Log("TrayIcon.Load", ex);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// アイコン定義を 2 分ごとに再送する。
+    /// Explorer 再起動直後の TaskbarCreated 取りこぼしや DPI 変更後の
+    /// 「透明になったトレイアイコン」を自動修復する（checked: H.NotifyIcon は
+    /// IconSource==null のとき OnDpiChanged で再描画しないため）。
+    /// </summary>
+    private void StartTrayKeepAlive()
+    {
+        if (_trayIconSource is null) return;
+        _trayKeepAliveTimer?.Stop();
+        _trayKeepAliveTimer = DispatcherQueue.CreateTimer();
+        _trayKeepAliveTimer.Interval = TimeSpan.FromMinutes(2);
+        _trayKeepAliveTimer.IsRepeating = true;
+        _trayKeepAliveTimer.Tick += (_, _) =>
+        {
+            try
+            {
+                if (_trayIcon is { } icon && _trayIconSource is { } src)
+                    icon.UpdateIcon(src);
+            }
+            catch { }
+        };
+        _trayKeepAliveTimer.Start();
     }
 
     private void ShowTrayMenu()
@@ -1175,9 +1260,12 @@ public sealed partial class MainWindow : Window
 
     private void ExitApp()
     {
-        // WinUI3 では UI スレッドからの Environment.Exit / Dispose 経由の終了が
-        // デッドロックして止まることがあるため、メッセージループを経由せず強制終了する。
-        // トレイアイコンはプロセス終了時に OS が自動で消す。
+        // 先に Dispose（内部で Shell_NotifyIcon(NIM_DELETE)）でトレイを消してから
+        // 落とさないと「透明な空きアイコン」が残る。消し込み後、WinUI3 の
+        // Environment.Exit / Dispose 経由の終了はデッドロックすることがあるため
+        // Process.Kill で確実に落とす。
+        try { _trayIcon?.Dispose(); }
+        catch { }
         try { Process.GetCurrentProcess().Kill(); }
         catch { Environment.Exit(0); }
     }
