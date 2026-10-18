@@ -2,16 +2,16 @@
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
-const { getSharedBrowser, closeSharedBrowser } = require('./browser');
+const { getSharedBrowser, closeSharedBrowser } = require('../core/browser');
 const fetch = require('node-fetch');
 const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const os = require('os');
 const fs = require('fs');
 const { analyzeTweet, extractScheduleFromAnalysis, extractUrlsFromTweet } = require('./gemma-analyzer');
-const { checkScheduleDrift } = require('./schedule-drift-monitor');
+const { checkScheduleDrift } = require('../core/schedule-drift-monitor');
 const twitterMediaSaver = require('./twitter-media-saver');
-const { signNotifyPayload } = require('./notify-sign');
+const { signNotifyPayload } = require('../core/notify-sign');
 
 const PROFILE_PATH = '/var/lib/mai-push/puppeteer-profile';
 const COOKIE_DB = path.join(PROFILE_PATH, 'cookies.sqlite');

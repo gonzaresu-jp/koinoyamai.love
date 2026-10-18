@@ -3,7 +3,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { getSharedBrowser, closeSharedBrowser } = require('./browser');
+const { getSharedBrowser, closeSharedBrowser } = require('../core/browser');
 
 /* ytcommunity 専用の puppeteer-extra/Stealth は不要になったため削除 */
 

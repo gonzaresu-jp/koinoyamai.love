@@ -1,10 +1,10 @@
 'use strict';
 
-const { initUserTables } = require('./routes/user-helpers');
-const userAuth = require('./routes/user-auth');
-const userProfile = require('./routes/user-profile');
-const userSchedules = require('./routes/user-schedules');
-const userInternal = require('./routes/user-internal');
+const { initUserTables } = require('../../routes/user-helpers');
+const userAuth = require('../../routes/user-auth');
+const userProfile = require('../../routes/user-profile');
+const userSchedules = require('../../routes/user-schedules');
+const userInternal = require('../../routes/user-internal');
 
 function register(app, db, authLimiter) {
   userAuth.register(app, db, authLimiter);

@@ -9,7 +9,7 @@ const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 
 const { parseStringPromise } = require('xml2js');
-const { upsertEvent } = require('./weekly');
+const { upsertEvent } = require('../../weekly');
 
 const CHANNEL_IDS = [
     'UCElHA6-5CBmgWODVWNxS8VA',
@@ -142,7 +142,7 @@ function buildEventFromVideoItem(item, fallbackTitle) {
 async function sendNotifyApi(payload) {
     try {
         const bodyString = JSON.stringify(payload);
-        const sig = require('./notify-sign').signNotifyPayload(NOTIFY_CONFIG.hmacSecret || null, bodyString);
+        const sig = require('../core/notify-sign').signNotifyPayload(NOTIFY_CONFIG.hmacSecret || null, bodyString);
         await axios.post(NOTIFY_CONFIG.apiUrl, payload, {
             headers: {
                 'Content-Type': 'application/json',

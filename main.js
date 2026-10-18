@@ -9,22 +9,22 @@ const express = require("express");
 const cron = require("node-cron");
 const axios = require("axios");
 const crypto = require("crypto");
-const { signNotifyPayload } = require("./notify-sign");
+const { signNotifyPayload } = require("./src/core/notify-sign");
 const sqlite3 = require("sqlite3").verbose();
 
-const youtube = require("./youtube");
-const youtubeCommunity = require("./ytcommunity");
-const { startBilibiliWatcher } = require("./bilibili-live");
-const { startBilibiliDynamicWatcher } = require("./bilibili-dynamic");
-const twitcasting = require("./twitcasting");
-const twitter = require("./twitter");
-const fanbox = require("./fanbox");
-const MilestoneScheduler = require("./milestone");
-const gipt = require("./gipt");
-const { startTwitchPolling } = require("./twitch");
-const { closeAllBrowsers, closeSharedBrowser } = require("./browser");
-const discordAlert = require("./discord-alert");
-const twitterMediaSaver = require("./twitter-media-saver");
+const youtube = require("./src/scrapers/youtube");
+const youtubeCommunity = require("./src/scrapers/ytcommunity");
+const { startBilibiliWatcher } = require("./src/scrapers/bilibili-live");
+const { startBilibiliDynamicWatcher } = require("./src/scrapers/bilibili-dynamic");
+const twitcasting = require("./src/scrapers/twitcasting");
+const twitter = require("./src/scrapers/twitter");
+const fanbox = require("./src/scrapers/fanbox");
+const MilestoneScheduler = require("./src/core/milestone");
+const gipt = require("./src/scrapers/gipt");
+const { startTwitchPolling } = require("./src/scrapers/twitch");
+const { closeAllBrowsers, closeSharedBrowser } = require("./src/core/browser");
+const discordAlert = require("./src/core/discord-alert");
+const twitterMediaSaver = require("./src/scrapers/twitter-media-saver");
 const helmet = require("helmet");
 
 // 致命的なクラッシュの監視を開始

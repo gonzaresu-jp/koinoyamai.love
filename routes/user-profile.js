@@ -1,6 +1,6 @@
 'use strict';
 
-const auth = require('../auth');
+const auth = require('../src/core/auth');
 const { dbGet, dbRun, dbAll, mergeSettings, DEFAULT_PLATFORM_SETTINGS, migrateSubscription } = require('./user-helpers');
 
 function register(app, db) {

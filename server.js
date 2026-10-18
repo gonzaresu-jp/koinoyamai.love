@@ -10,8 +10,8 @@ const cookieParser = require("cookie-parser");
 const rateLimit = require("express-rate-limit");
 const { ipKeyGenerator } = require("express-rate-limit");
 const helmet = require("helmet");
-const discordAlert = require("./discord-alert");
-const MilestoneScheduler = require("./milestone");
+const discordAlert = require("./src/core/discord-alert");
+const MilestoneScheduler = require("./src/core/milestone");
 const ctx = require("./services/context");
 const { initDatabase } = require("./services/database");
 const { loadVapid } = require("./services/notification");
@@ -225,7 +225,7 @@ const archiveLimiter = rateLimit({
 app.use("/api/archive", archiveLimiter);
 
 // --- User routes (existing module) ---
-const userRoutes = require("./user-routes");
+const userRoutes = require("./src/core/user-routes");
 userRoutes.register(app, db, authLimiter);
 
 // --- All other route modules ---

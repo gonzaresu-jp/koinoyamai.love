@@ -1,5 +1,5 @@
-const { analyzeTweet, extractUrlsFromTweet } = require('./gemma-analyzer');
-const { fetchVideoStatus } = require('./youtube');
+const { analyzeTweet, extractUrlsFromTweet } = require('../scrapers/gemma-analyzer');
+const { fetchVideoStatus } = require('../scrapers/youtube');
 const { sendDiscordAlert } = require('./discord-alert');
 
 /**

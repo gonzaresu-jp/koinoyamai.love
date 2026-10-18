@@ -1,12 +1,12 @@
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
-const { getSharedBrowser, closeSharedBrowser } = require('./browser');
+const { getSharedBrowser, closeSharedBrowser } = require('../core/browser');
 const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-const { signNotifyPayload } = require('./notify-sign');
+const { signNotifyPayload } = require('../core/notify-sign');
 const PUPPETEER_EXECUTABLE_PATH = process.env.PUPPETEER_EXECUTABLE_PATH || null;
 
 const SEEN_PATH = path.join(__dirname, 'twicas_seen.json');

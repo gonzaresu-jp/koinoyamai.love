@@ -9,7 +9,7 @@
 
 const axios = require('axios');
 const fs = require('fs');
-const { signNotifyPayload } = require('./notify-sign');
+const { signNotifyPayload } = require('../core/notify-sign');
 const path = require('path');
 // env vars は main.js 経由で既に読み込まれているが、
 // 単体起動時のために明示パスで dotenv も読む

@@ -183,10 +183,10 @@ function initDatabase() {
     cleanupDuplicates();
     backfillPlatformSettingsDefaults();
 
-    const userRoutes = require("../user-routes");
+    const userRoutes = require("../src/core/user-routes");
     userRoutes.initUserTables(db);
 
-    const twitterMediaSaver = require("../twitter-media-saver");
+    const twitterMediaSaver = require("../src/scrapers/twitter-media-saver");
     twitterMediaSaver.initMediaDb(db);
   });
 

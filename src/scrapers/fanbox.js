@@ -1,10 +1,10 @@
 global.File = class File { };
-const { getSharedBrowser, closeSharedBrowser } = require('./browser');
+const { getSharedBrowser, closeSharedBrowser } = require('../core/browser');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const cheerio = require('cheerio');
-const { signNotifyPayload } = require('./notify-sign');
+const { signNotifyPayload } = require('../core/notify-sign');
 
 const LOCAL_API_URL = 'http://127.0.0.1:8080/api/notify';
 const FANBOX_USER = 'koinoya-mai';

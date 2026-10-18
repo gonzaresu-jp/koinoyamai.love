@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { getSharedBrowser, closeSharedBrowser } = require('./browser');
+const { getSharedBrowser, closeSharedBrowser } = require('../core/browser');
 
 // ====== 固定設定 ======
 const TARGET_URL = 'https://gi-pt.com/main/wishlist/fan-view/3a0fdc24-209e-d962-896b-cdd7d7828943';
