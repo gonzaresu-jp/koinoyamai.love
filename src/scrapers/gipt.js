@@ -11,8 +11,8 @@ const PLATFORM_ID = 'gipt';
 const ICON_URL = '/icon.webp';
 
 // 保存先（必要なら init() で上書き）
-let stateFilePath = path.join(__dirname, 'gipt_state.json');
-let debugDirDefault = path.join(__dirname, 'gipt_debug');
+let stateFilePath = path.join(__dirname, '..', '..', 'gipt_state.json');
+let debugDirDefault = path.join(__dirname, '..', '..', 'gipt_debug');
 
 // 通知（initで注入）
 let notifyConfig = null;
@@ -139,7 +139,7 @@ async function fetchGipts(opts = {}) {
     const browser = await getSharedBrowser({
       userDataDir: process.platform === 'linux'
         ? '/dev/shm/puppeteer-profile-shared'
-        : path.join(__dirname, 'tmp', 'puppeteer-shared'),
+        : path.join(__dirname, '..', '..', 'tmp', 'puppeteer-shared'),
       ephemeral: true
     });
     page = await browser.newPage();
@@ -388,8 +388,8 @@ module.exports = {
 if (require.main === module) {
   (async () => {
     init({
-      statePath: path.join(__dirname, 'gipt_state.json'),
-      debugDir: path.join(__dirname, 'gipt_debug'),
+      statePath: path.join(__dirname, '..', '..', 'gipt_state.json'),
+      debugDir: path.join(__dirname, '..', '..', 'gipt_debug'),
       notifyFn: async (payload) => {
   const title = payload?.data?.title ?? '';
   const body  = payload?.data?.body  ?? '';

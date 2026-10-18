@@ -9,8 +9,8 @@ const axios = require('axios');
 const { signNotifyPayload } = require('../core/notify-sign');
 const PUPPETEER_EXECUTABLE_PATH = process.env.PUPPETEER_EXECUTABLE_PATH || null;
 
-const SEEN_PATH = path.join(__dirname, 'twicas_seen.json');
-const LOGS_DIR = path.join(__dirname, 'logs');
+const SEEN_PATH = path.join(__dirname, '..', '..', 'twicas_seen.json');
+const LOGS_DIR = path.join(__dirname, '..', '..', 'logs');
 
 const API_BASE_URL = 'https://apiv2.twitcasting.tv';
 const CLIENT_ID = process.env.TWITCASTING_CLIENT_ID;
@@ -187,7 +187,7 @@ async function checkPrivateLive(screenId){
 const browser = await getSharedBrowser({
       userDataDir: process.platform === 'linux'
         ? '/dev/shm/puppeteer-profile-shared'
-        : path.join(__dirname, 'tmp', 'puppeteer-shared'),
+        : path.join(__dirname, '..', '..', 'tmp', 'puppeteer-shared'),
       ephemeral: true
     });
         page = await browser.newPage();

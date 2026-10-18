@@ -8,7 +8,7 @@
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', '..', 'data.db');
 
 console.log('📊 Database Migration Starting...');
 console.log(`Database: ${DB_PATH}`);

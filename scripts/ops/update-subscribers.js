@@ -8,8 +8,8 @@
 //   - 書き込みは一時ファイル → rename で行い、グラフ側が途中の状態を読まないようにする
 //
 // 使い方:
-//   node scripts/update-subscribers.js            # 取得して追記
-//   node scripts/update-subscribers.js --dry-run  # 追記内容を表示するだけ
+//   node scripts/ops/update-subscribers.js            # 取得して追記
+//   node scripts/ops/update-subscribers.js --dry-run  # 追記内容を表示するだけ
 // cron（elza）: 5 0 * * * （JST 0:05 に前日分ではなく「その日の値」を記録）
 'use strict';
 

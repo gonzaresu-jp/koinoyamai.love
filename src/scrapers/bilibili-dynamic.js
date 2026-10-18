@@ -13,14 +13,14 @@ const { signNotifyPayload } = require('../core/notify-sign');
 const path = require('path');
 // env vars は main.js 経由で既に読み込まれているが、
 // 単体起動時のために明示パスで dotenv も読む
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
 
 /* =========================================================
    設定
 ========================================================= */
 
 const DEFAULT_UID = '1900434152';
-const LOGS_DIR = path.join(__dirname, 'logs');
+const LOGS_DIR = path.join(__dirname, '..', '..', 'logs');
 const STATE_FILE = path.join(LOGS_DIR, 'bilibili-state.json');
 
 const DEFAULT_NOTIFY_CONFIG = {

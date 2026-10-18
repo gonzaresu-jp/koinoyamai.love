@@ -11,7 +11,7 @@ const FANBOX_USER = 'koinoya-mai';
 const ICON_URL = '/icon.webp';
 const PUBLIC_URL = `https://www.fanbox.cc/@${FANBOX_USER}`;
 const POLL_INTERVAL = 3 * 60 * 1000;
-const STATE_FILE = path.resolve(__dirname, 'fanbox-state.json');
+const STATE_FILE = path.resolve(__dirname, '..', '..', 'fanbox-state.json');
 const NOTIFY_TOKEN = process.env.NOTIFY_API_TOKEN || process.env.LOCAL_API_TOKEN || null;
 
 // 既知の投稿IDセット（IDの大小ではなく集合で管理）

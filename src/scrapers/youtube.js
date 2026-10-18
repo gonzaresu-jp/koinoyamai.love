@@ -39,7 +39,7 @@ const API_KEY = process.env.YOUTUBE_API_KEY || ''; // 必ず環境変数で提�
 const DISABLE_INTERNAL_NOTIFY =
     process.env.DISABLE_NOTIFICATIONS === '1' || process.env.DISABLE_NOTIFICATIONS === 'true';
 
-const SENT_RECORDS_FILE = path.join(__dirname, 'sent_records.json');
+const SENT_RECORDS_FILE = path.join(__dirname, '..', '..', 'sent_records.json');
 
 function loadSentRecords() {
     try {
@@ -188,7 +188,7 @@ const COLLAB_POLL_WINDOW_DAYS = 3;
 let _collabDb = null;
 function getCollabDb() {
     if (!_collabDb) {
-        const dbPath = path.join(__dirname, process.env.DB_FILE_NAME || 'data.db');
+        const dbPath = path.join(__dirname, '..', '..', process.env.DB_FILE_NAME || 'data.db');
         _collabDb = new sqlite3.Database(dbPath);
     }
     return _collabDb;
@@ -323,7 +323,7 @@ function startWebhook(port = 3001) {
     console.log('Starting YouTube Webhook server...');
 
     // raw log dir
-    const RAW_LOG_DIR = path.join(__dirname, 'logs');
+    const RAW_LOG_DIR = path.join(__dirname, '..', '..', 'logs');
     if (!fs.existsSync(RAW_LOG_DIR)) fs.mkdirSync(RAW_LOG_DIR, { recursive: true });
     const rawFile = path.join(RAW_LOG_DIR, 'youtube-webhook-raw.log');
 

@@ -23,9 +23,9 @@ let notifyConfig = {};
 
 let stateCache = null;
 let stateDirty = false;
-let stateFilePath = path.join(__dirname, 'ytcommunity_state.json');
+let stateFilePath = path.join(__dirname, '..', '..', 'ytcommunity_state.json');
 
-const LOG_DIR = path.join(__dirname, 'logs');
+const LOG_DIR = path.join(__dirname, '..', '..', 'logs');
 const LOG_FILE = path.join(LOG_DIR, 'ytcommunity.log');
 
 if (!fs.existsSync(LOG_DIR)) {
@@ -58,7 +58,7 @@ async function getBrowser() {
   return getSharedBrowser({
     userDataDir: process.platform === 'linux' 
         ? '/dev/shm/puppeteer-profile-shared' 
-        : path.join(__dirname, 'tmp', 'puppeteer-shared'),
+        : path.join(__dirname, '..', '..', 'tmp', 'puppeteer-shared'),
     ephemeral: true
   });
 }

@@ -5,7 +5,7 @@ const path = require('path');
 const TWITCH_API = 'https://api.twitch.tv/helix';
 const TWITCH_AUTH = 'https://id.twitch.tv/oauth2/token';
 
-const STATE_FILE = path.join(__dirname, 'twitch_state.json');
+const STATE_FILE = path.join(__dirname, '..', '..', 'twitch_state.json');
 
 
 /* ===============================

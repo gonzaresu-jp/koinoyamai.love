@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const aiQuota = require('../../services/ai-quota');
 
-const LOG_DIR = path.join(__dirname, 'logs');
+const LOG_DIR = path.join(__dirname, '..', '..', 'logs');
 const LOG_FILE = path.join(LOG_DIR, 'gemma.log');
 
 if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true });
