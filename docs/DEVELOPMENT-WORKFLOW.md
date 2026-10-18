@@ -30,6 +30,9 @@ git push origin feature/xxx                     … staging で検証したリ�
 bash scripts/promote.sh feature/xxx --sync-staging … 本番へ ff 昇格 + 本番smoke + staging追従
 ```
 
+> GitHub 運用（issue / PR / 別エージェント独立レビュー / main ブランチ保護）は `AGENTS.md §13` を参照。
+> 感度の高い変更（DB・認証、依存、通知経路、外部API/インフラ）は PR＋レビュー必須。
+
 ### deploy-staging.sh
 
 ```
