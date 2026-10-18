@@ -1,6 +1,6 @@
 const ctx = require("../services/context");
 const notif = require("../services/notification");
-const auth = require("../auth");
+const auth = require("../src/core/auth");
 
 function register(app, db) {
   const { parseAndMergePlatformSettings } = notif;

@@ -12,14 +12,14 @@
 |---|---|---|---|
 | pm2 | `ecosystem.config.js` | `cwd: '/var/www/html/mai-push'` ×3（worker/discord-bot/api） | `/srv/mai-push` へ3件 |
 | pm2 | `~/.pm2/dump.pm2` | 絶対パス 11件 | pm2 再登録後 `pm2 save` で自動更新 |
-| cron | root/user crontab 3本 | `0 3 * * * .../scripts/backup.sh`、`*/15 .../healthcheck.sh`、`30 9 * * * .../minutes-gen-cron.sh` | `crontab -e` で3本のパスを書き換え |
+| cron | root/user crontab 3本 | `0 3 * * * .../scripts/ops/backup.sh`、`*/15 .../healthcheck.sh`、`30 9 * * * .../minutes-gen-cron.sh` | `crontab -e` で3本のパスを書き換え |
 | nginx | `/etc/nginx/nginx.conf` | `root`/`alias` で `/var/www/html/mai-push/{webui,admin}` が**14箇所**（96/129/134/139/168/188/480/521/539/548/555/563/666/676/687行付近） | sed 一括置換 → `nginx -t` → reload |
-| script | `scripts/backup.sh` | `BASE="/var/www/html/mai-push"` | `/srv/mai-push` |
-| script | `scripts/healthcheck.sh` | `.env` を絶対パス grep | 同上 |
-| script | `scripts/minutes-gen-cron.sh` | `cd /var/www/html/mai-push` | 同上 |
-| script | `scripts/minutes-gen.js` / `minutes-test.js` / `whisper-subs.js` | `dotenv` に絶対パス指定 | `path.join(__dirname, "..", ".env")` 等に**相寜化**（推奨・今回の main.js 事故と同じ分類） |
-| script | `scripts/check-native.sh` | `node /var/www/html/mai-push/scripts/check-native.js` | 同上（他サイト分(DIRS)は対象外） |
-| script | `scripts/render-compare-html.js` | コメント中の例示パス | コメント修正のみ |
+| script | `scripts/ops/backup.sh` | `BASE="/var/www/html/mai-push"` | `/srv/mai-push` |
+| script | `scripts/ops/healthcheck.sh` | `.env` を絶対パス grep | 同上 |
+| script | `scripts/ops/minutes-gen-cron.sh` | `cd /var/www/html/mai-push` | 同上 |
+| script | `scripts/ops/minutes-gen.js` / `minutes-test.js` / `whisper-subs.js` | `dotenv` に絶対パス指定 | `path.join(__dirname, "..", ".env")` 等に**相寜化**（推奨・今回の main.js 事故と同じ分類） |
+| script | `scripts/ops/check-native.sh` | `node /var/www/html/mai-push/scripts/ops/check-native.js` | 同上（他サイト分(DIRS)は対象外） |
+| script | `scripts/tools/render-compare-html.js` | コメント中の例示パス | コメント修正のみ |
 | script | `scripts/nginx/default.conf` | `root /var/www/html;`（テンプレート。本番nginxに未適用と確認） | 参考更新のみ（無くても可） |
 | samba | `/etc/samba/smb.conf` | `[html] path = /var/www/html` | 新share `[mai-push] path = /srv/mai-push` を追加（`[html]` は他サイト用なので残す） |
 | ドキュメント | `AGENTS.md` / `SECURITY.md` / `DEVELOPMENT-WORKFLOW.md` | 本番パスの記述 | 一括更新 |
@@ -30,8 +30,8 @@
 - **cloudflared**: `/etc/cloudflared/config.yml` は `localhost:80` / `localhost:1700` のみ（ポート参照・パス参照なし）。
 - **nginx の proxy_pass**: すべて `127.0.0.1:{8080,3001,3002}` のポート参照のみ（ファイルパスを読まない）。
 - **`location ^~ /mai-push/ { deny all; }`**: URLパスでありファイルシステムパスではない。**残す**（old URL ブロック用）。
-- **`scripts/deploy-staging.sh`**: `PROD="$(cd "$(dirname "$0")/.." && pwd)"` の相対解決 → 自動追従。
-- **`scripts/sync-test-db.sh`**: もともと `dirname` 相対＋staging側は `/home/yuzuki/mai-push-test` 固定 → 修正不要。
+- **`scripts/deploy/deploy-staging.sh`**: `PROD="$(cd "$(dirname "$0")/.." && pwd)"` の相対解決 → 自動追従。
+- **`scripts/deploy/sync-test-db.sh`**: もともと `dirname` 相対＋staging側は `/home/yuzuki/mai-push-test` 固定 → 修正不要。
 - **staging (`/home/yuzuki/mai-push-test`)**: パス移設の対象外（別ツリー）。
 - **backups 保存先 `/var/lib/mai-push/backups`**: 既に公開ツリー外 → 変更不要（`backup.sh` 内の `BACKUP_DIR` は据え置き）。
 - **`/var/www/html/mai-push` 配下の DB/.env 特殊ファイル**: `.env`(600)・`data.db` は移動時にパーミッション引き継ぎ（`cp -a`）。
@@ -152,12 +152,12 @@ crontab -l | grep mai-push   # 3本すべて /srv になっていることを確
 | ファイル | 変更 |
 |---|---|
 | `ecosystem.config.js` | cwd ×3 → `/srv/mai-push` |
-| `scripts/backup.sh` | `BASE` + コメント cron 例 |
-| `scripts/healthcheck.sh` | `.env` grep パス |
-| `scripts/minutes-gen-cron.sh` | `cd` パス |
-| `scripts/minutes-gen.js` / `minutes-test.js` / `whisper-subs.js` | dotenv を `__dirname` 相対に |
-| `scripts/check-native.sh` | node 実行パス |
-| `scripts/render-compare-html.js` | コメント例示 |
+| `scripts/ops/backup.sh` | `BASE` + コメント cron 例 |
+| `scripts/ops/healthcheck.sh` | `.env` grep パス |
+| `scripts/ops/minutes-gen-cron.sh` | `cd` パス |
+| `scripts/ops/minutes-gen.js` / `minutes-test.js` / `whisper-subs.js` | dotenv を `__dirname` 相対に |
+| `scripts/ops/check-native.sh` | node 実行パス |
+| `scripts/tools/render-compare-html.js` | コメント例示 |
 | `scripts/nginx/default.conf` | `root` 例示（参考） |
 | `AGENTS.md` / `SECURITY.md` / `DEVELOPMENT-WORKFLOW.md` | 本番パス記述 |
 

@@ -6,7 +6,7 @@
 ## 検証結果（2026-09-22 時点）
 
 - staging(8081) に本ブランチをデプロイ済み。deploy-staging.sh の smoke 全 PASS。
-- **回帰テスト 19/19 PASS**（`node scripts/regression-test.js --port 18099`、一時DB・実push抑止）。
+- **回帰テスト 19/19 PASS**（`node scripts/ops/regression-test.js --port 18099`、一時DB・実push抑止）。
 - SSE 保護を 8081 実プロセスで確認: 同一クライアント 5接続まで 200 / 6・7接続目 429 / 解放後 200 復帰。
 - 回帰テストが**既存潜在バグを検出・修正**: SSE の Origin 判定が `Set.some()` を呼んでおり、
   同一オリジン EventSource（Origin ヘッダなし）で常に TypeError→500 になっていた → `Set.has()` に修正。
@@ -60,7 +60,7 @@ readlink /proc/<pid>/cwd
 | `services/context.js` | `LOCAL_API_TOKEN` の `ADMIN_NOTIFY_TOKEN` フォールバックを**廃止**（`POST /api/internal/scraper-status` の送信者はコード上存在せず、worker は直接DB更新のため影響なし確認済み） |
 | `main.js` | ワーカー内 `/api/notify` のトークン比較を timing-safe 化 |
 | `webui/js/rss-reader.js` | **XSS修正**: 外部RSSの title/desc/link/enclosure を未エスケープで innerHTML に流していた → エスケープ＋ `http(s):` URL検証＋ textContent 描画に変更 |
-| `scripts/regression-test.js` | 新規。sqlite3@6 昇格前の回帰テスト（下記） |
+| `scripts/ops/regression-test.js` | 新規。sqlite3@6 昇格前の回帰テスト（下記） |
 
 **trust proxy の評価**: `app.set("trust proxy", 1)` は現行トポロジ（nginx 直結 `/api/` では XFF 未送出、
 cloudflared 経由では `X-Real-IP`＋クラウドフレアが付与した XFF）で実クライアントIPを正しく取る。
@@ -74,7 +74,7 @@ nginx 設定変更時は `proxy_set_header X-Forwarded-For $proxy_add_x_forwarde
 **`npm audit fix --force` をテストなしで実行しない（AGENTS.md）**
 
 1. 本番 `data.db` と staging `data-test.db` を Web公開外・制限付きの場所へバックアップ。
-2. ✅ 回帰テスト実装済み・**staging で 21/21 PASS（2026-09-24）**: `scripts/regression-test.js`（`npm test` に接続）
+2. ✅ 回帰テスト実装済み・**staging で 21/21 PASS（2026-09-24）**: `scripts/ops/regression-test.js`（`npm test` に接続）
    （notifications / subscriptions / scraper_status の INSERT/SELECT/lastID・UPSERT、
    `/api/health`、notify: tokenなし401 / HMACなし401 / 誤HMAC 401 / timestampなし401 / 期限切れ401 / 完全認証で `suppressed:true`、
    内部scraper-status認証、token-exchange 無効code 400、SSE 上限429）
@@ -82,7 +82,7 @@ nginx 設定変更時は `proxy_set_header X-Forwarded-For $proxy_add_x_forwarde
 4. `node --check` → staging pm2 再起動 → **回帰テスト実行:**
 
 ```bash
-node scripts/regression-test.js --port 18099
+node scripts/ops/regression-test.js --port 18099
 ```
 
 5. staging 8081 で smoke（health / scraper-status / events）＋ブラウザ目視。
@@ -113,10 +113,10 @@ node scripts/regression-test.js --port 18099
 ### 重大回帰の発見（HMAC必須化の送信側未追従）
 - `/api/notify`/`/api/internal/twitter/analysis` はトークン＋HMAC必須だが、**全送信モジュールが未追随**。
 - 実測（本番8080にライブプローブ）: 正トークン＋誤HMAC→401 Invalid、正トークン＋HMACなし→401 Missing。
-  送信側コード（twitter.js: `X-Notify-Token` のみ / main.js: `X-Signature` はAPIの受付ヘッダ `x-notify-hmac|x-hmac-signature` 外）は**必ず401になる**。
+  送信側コード（src/scrapers/twitter.js: `X-Notify-Token` のみ / main.js: `X-Signature` はAPIの受付ヘッダ `x-notify-hmac|x-hmac-signature` 外）は**必ず401になる**。
 - ログ上は最後の再起動（2026-09-22 03:37JST）より前の成功行が残存して見えていただけで、
   以降は新着が無く送信試行ゼロのため失敗が可視化されていない（= 次の新着で静かに失敗する状態）。
-- 本作業で修正: `notify-sign.js`（共通HMAC署名ヘルパー）を新設し、
+- 本作業で修正: `src/core/notify-sign.js`（共通HMAC署名ヘルパー）を新設し、
   twitter/twitcasting/fanbox/youtube/bilibili/main.js の全送信を `X-Notify-Hmac`（生hex）に統一。
   **staging(8081) で実環境E2E確認済み**: 送信者形式のHMAC付与で `suppressed:true`(200)、
   HMACなしで401。`/api/internal/twitter/analysis` も同様に200/401を確認。
@@ -125,7 +125,7 @@ node scripts/regression-test.js --port 18099
 | 対象 | 変更 |
 |---|---|
 | `package.json` | `"sqlite3": "^6.0.1"`（**staging で実体 npm install 済み・回帰テスト 19/19 PASS**、本番は承認後に反映） |
-| `scripts/backup.sh` | DB/.env の保存先を Web公開ツリー外 `/var/lib/mai-push/backups` へ移動（nginx deny 単一依存を解消） |
+| `scripts/ops/backup.sh` | DB/.env の保存先を Web公開ツリー外 `/var/lib/mai-push/backups` へ移動（nginx deny 単一依存を解消） |
 | `main.js` | ワーカー内 `/api/notify` を **fail-closed**（トークン未設定時 503、server.js と統一） |
 | `server.js` | `trust proxy 1` → `"loopback"` に限定（同一ホスト前段のみ信頼、直結クライアントの XFF 偽造を無効化）。SSE送信元キーと同じ方針 |
 | `server.js` | **helmet を全 static マウント（/pushweb /admin /webui）より前に移動**（従来は /pushweb・/admin が非防備だった） |
@@ -155,6 +155,6 @@ node scripts/regression-test.js --port 18099
 
 ## 補助ファイル
 
-- `scripts/regression-test.js`: sqlite3@6 昇格ゲート用回帰テスト（`--port` で起動ポート指定）。
+- `scripts/ops/regression-test.js`: sqlite3@6 昇格ゲート用回帰テスト（`--port` で起動ポート指定）。
 - staging `.env` は `DISABLE_NOTIFICATIONS=1` 固定。**この設定を 1 に戻すな**。
 - `/tmp/verify_sec.sh`・`/tmp/ensure_env.js` は旧セッションの補助スクリプト。実行前に内容と対象ポートを確認。

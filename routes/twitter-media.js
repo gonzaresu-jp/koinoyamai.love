@@ -2,7 +2,7 @@ const fs = require("fs");
 const path = require("path");
 
 function register(app, db) {
-  const twitterMediaSaver = require("../twitter-media-saver");
+  const twitterMediaSaver = require("../src/scrapers/twitter-media-saver");
 
   app.get("/api/twitter-media", (req, res) => {
     const username = "koinoya_mai";

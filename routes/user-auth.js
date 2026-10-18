@@ -1,7 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
-const auth = require('../auth');
+const auth = require('../src/core/auth');
 const { upsertUser, upsertDiscordUser, migrateSubscription, unlinkUserDevices, safeRedirect } = require('./user-helpers');
 
 const OAUTH_STATE_TTL_MS = 5 * 60 * 1000;

@@ -6,7 +6,7 @@ function escapeXml(unsafe) {
   return String(unsafe).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
 }
 
-const { periodToTime } = require("../gemma-analyzer");
+const { periodToTime } = require("../src/scrapers/gemma-analyzer");
 
 // http(s) のみ許可（XSS/SSRF 防止）。不正なら null。
 function safeHttpUrl(u) {

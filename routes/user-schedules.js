@@ -1,6 +1,6 @@
 'use strict';
 
-const auth = require('../auth');
+const auth = require('../src/core/auth');
 const admin = require('../lib/admin');
 const { dbGet, dbRun, dbAll, normalizeOptionalText, normalizeRequiredTitle, normalizeOptionalHttpUrl, normalizeReminderMinutes, MAX_SCHEDULE_TITLE_LEN, MAX_SCHEDULE_TEXT_LEN, MAX_SCHEDULE_URL_LEN } = require('./user-helpers');
 
