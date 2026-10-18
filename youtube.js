@@ -33,6 +33,12 @@ const PLANNED_ASSUMPTION_THRESHOLD_MS = 10 * 60 * 1000;
 
 const API_KEY = process.env.YOUTUBE_API_KEY || ''; // 必ず環境変数で提供する事
 
+// staging（DISABLE_NOTIFICATIONS=1）では nassy への実DL通知(POST /)を送らない。
+// ここで false を返すと呼び出し側が「未送信」とみなして毎ポーリングで再送してしまうため、
+// 送信は行わず「成功扱い(true)」にして sent_records に記録だけ残す（prod は影響なし）。
+const DISABLE_INTERNAL_NOTIFY =
+    process.env.DISABLE_NOTIFICATIONS === '1' || process.env.DISABLE_NOTIFICATIONS === 'true';
+
 const SENT_RECORDS_FILE = path.join(__dirname, 'sent_records.json');
 
 function loadSentRecords() {
@@ -155,6 +161,10 @@ async function sendNotifyApi(payload) {
 /** 指定の内部エンドポイントに URL を送りつける（新規動画用）。
  *  extraPayload で { source: 'collab', title } 等を付加できる（nassy側は未知キーを無視するため後方互換）。 */
 async function sendInternalUrl(urlToSend, extraPayload = {}) {
+    if (DISABLE_INTERNAL_NOTIFY) {
+        console.log(`sendInternalUrl suppressed (DISABLE_NOTIFICATIONS): ${urlToSend}`);
+        return true;
+    }
     try {
         await axios.post('http://192.168.1.70:1700/', { url: urlToSend, ...extraPayload }, {
             headers: { 'Content-Type': 'application/json' },

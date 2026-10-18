@@ -3,6 +3,9 @@
 このリポジトリで作業するAI/エージェントは**必ず本ファイルを読むこと**。
 過去に複数回の重大事故が確認されている（2026-09-21〜22）。
 
+> コード全体像・「どこに何があるか」は **`docs/ARCHITECTURE.md`**（アーキテクチャ早見表）に集約。
+> 実装を探す前にまずこれを読む。構成を変えたら同ファイルも更新する。
+
 ## 1. ポート位相（最重要・間違えやすい）
 - **本番API = PORT 8080**（pm2: `mai-push-api`, `/var/www/html/mai-push/server.js`）
 - **staging API = PORT 8081**（pm2: `mai-push-api-test`, `/home/yuzuki/mai-push-test/server.js`, NODE_ENV=development）
@@ -225,6 +228,85 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - framework-dependent publish でインストールすると、グローバル .NET 構成が揃わない環境・
     InstallDelete 後のタイミングで「No frameworks were found」で自動起動失敗する。
 
+## 11. コーディング/設計規約（最小限・事故に直結するもの）
+
+> 網羅的なスタイル規約ではない。「破ると事故る」ものだけ。迷ったら既存コードに倣う。
+
+- **TZ は `Asia/Tokyo` 固定**: `server.js` / `main.js` 冒頭で `process.env.TZ = ... "Asia/Tokyo"`。
+  日時はこれ前提（naive `new Date()` の解釈・曜日配置）。実行環境の TZ に依存させるな。
+- **bind は `127.0.0.1`**: API/ワーカー内 Express は loopback 限定（前段 nginx/cloudflared 経由）。
+  例外は YouTube Webhook(3001) のみ（外部フックのため 0.0.0.0 のまま）。**安易に広げるな**。
+- **dotenv は環境ディレクトリ固定**: `require("dotenv").config({ path: path.join(__dirname, ".env") })`。
+  path 無しの `config()` は staging が本番 `.env` を読む事故になる（`§6.6`）。`.env` の重複キーは先頭勝ち（`§3`）。
+- **`/admin` は `login.html` のみ静的配信**。認証コード（admin.js/webauthn.js）は `lib/` に置く（ソース露出防止, `§6.6`）。
+- **webui は CSP `script-src 'self'`**: インライン JS 不可 → 新規 JS は `webui/js/*.js` に置き
+  `?v=<?= @filemtime(...) ?>` で読込。基本スタイルは非 minify 側（`css/*.css` 等）に。`style.min.css` に入れても効かない。
+- **通知送信は `notify-sign.js` 経由**: `signNotifyPayload(secret, bodyString)` で**送信する生 JSON 文字列**に署名し
+  `x-notify-hmac` + `x-notify-timestamp` を付与（`§3`, `§6.5`）。API 側は生ボディで検証・`timingSafeEqual`。`==` 比較に戻すな。
+- **fail-closed**: トークン/秘密が未設定なら認証系は 503/401 で閉じる（通すな）。
+- **秘密情報をコミットしない**: `.env`・鍵・cookie 等。`.gitignore` 済みでも `git add -A` に注意。
+- **DB 書込ロック耐性**: SQLite は `busy_timeout`/`timeout` を設定し、長時間書込はリトライ（nassy `§8` の load 由来）。
+- **ネイティブビルドは Node v22 優先**: 本番は v22.12.0（`§5`）。v18 でビルドすると ABI 不一致。
+
+## 12. ドキュメント更新ルール（ARCHITECTURE.md を腐らせない）
+
+全体像は `docs/ARCHITECTURE.md`。**変更したら対応するドキュメントも同じコミットで更新する**。
+
+| 変更内容 | 更新するドキュメント |
+|---|---|
+| プロセス/ポート/起動方法 | `AGENTS.md §1` / `docs/ARCHITECTURE.md §2` |
+| `routes/`・`services/`・`lib/`・スクレイパーの追加/改名/削除 | `docs/ARCHITECTURE.md §4`（§3 のフローも該当時） |
+| DB スキーマ（`services/database.js`/`migrate.js`） | `docs/ARCHITECTURE.md §5` |
+| env キー追加/変更 | `AGENTS.md §3` / `docs/ARCHITECTURE.md §6` |
+| 通知・認証・HMAC | `AGENTS.md §2,§3` / `docs/SECURITY.md` |
+| デプロイ/検証の作法 | `AGENTS.md §7` / `docs/DEVELOPMENT-WORKFLOW.md` |
+| webui 構成/CSP/静的配信 | `docs/ARCHITECTURE.md §4.5` / `AGENTS.md §6.6` |
+| アーカイブ API | `docs/ARCHIVE-ADMIN-SPEC.md` |
+| 予定抽出/スケジュール | `docs/SCHEDULE-FEATURES.md` |
+| 依存パッケージ更新 | `AGENTS.md §5` |
+| Android/WinUI アプリ | `AGENTS.md §10` / `webui/dl/*.json` |
+| nassy 連携 | `AGENTS.md §8` |
+| ユーザーに見える変更（機能追加/修正/挙動変更） | `webui/updatelogs.php`（**指示がなくても必ず更新**。下記） |
+
+### updatelogs（更新履歴）は毎回更新する — 指示されなくても行うこと
+
+`webui/updatelogs.php` は**ユーザー向けの更新履歴**。ユーザーが言わなくても、ユーザーに見える変更をしたら**必ず**更新する。
+
+- `$updateLogs` の**先頭（新しい順）**に当日分のエントリを追加（同日内は既存先頭エントリへ追記）。
+- 分類キー `fix` / `add` / `change` に、利用者目線の日本語で1行ずつ書く（内部実装の話は書かない）。
+- `lines` は `bash scripts/count-lines.sh` の実測 `SUM code` を**その日の絶対値**として記録する（前日に増分を足す等の累積計算は禁止）。集計対象・除外・過去値の扱いは `docs/DEVELOPMENT-WORKFLOW.md §93`。
+- フッターの「Last updated」は最新日付から自動表示のため、追記のみで反映される。
+- 対象外（更新不要）: 内部リファクタのみ・ドキュメントのみ・テストのみ・データ更新のみ。
+
+**変更時のセルフチェック（commit/push 前）**:
+- [ ] 上の表に該当するドキュメントを更新した（該当なしなら不要）
+- [ ] ユーザーに見える変更なら `webui/updatelogs.php` を更新した（`lines` を `count-lines.sh` の実測値で）
+- [ ] `node --check <file>` / `php -l <file>`（pre-push でも自動実行, `§7.3`）
+- [ ] `npm test`（回帰テスト 21 項目）
+- [ ] 本番操作の前に `bash scripts/assert-port.sh prod|staging`（`§7.2`）
+- [ ] 感度の高い変更なら PR＋別エージェントの独立レビューを通した（`§13`）
+- [ ] 秘密情報・DB・`webui/data` を不用意にコミットしていない
+- [ ] AGENTS.md / ARCHITECTURE.md の記載と実装が一致している
+
+## 13. GitHub 運用（issue / PR / レビュー, 2026-10-19 追加）
+
+- リポジトリ: `gonzaresu-jp/koinoyamai.love`（public・`gh` 認証済み）。
+- **PR＋独立レビューを必須とする変更（感度が高い）**:
+  DB/スキーマ・認証/HMAC・外部依存の更新・通知経路・外部API/インフラ（nginx / tailscale / systemd）。
+  → ブランチ → PR → **別エージェントによる独立レビュー** → ユーザー承認・マージ。
+- それ以外（コメント/ログ/ドキュメント/データ更新・小さな修正）は直接 push 可（日次 cron の data 自動 push と同扱い）。
+- **レビュー観点**: バグ、セキュリティ（HMAC/認証/secret 取扱い）、`§11` の規約、テスト、`§12` のドキュメント・updatelogs 更新漏れ。
+- 基本の流れ:
+  1. 大きめの作業・不具合は **issue 化**（`gh issue create`）。既存: #1 ドメイン移行 / #2 リポジトリ名リネーム。
+  2. ブランチを作成して実装（`feature/xxx`）。
+  3. 検証（`§7`）後 `gh pr create`。PR 本文に **変更概要 / 検証内容 / 影響範囲 / 該当ドキュメント・updatelogs の更新** を記載（`.github/PULL_REQUEST_TEMPLATE.md` が自動適用）。
+  4. 別エージェントでレビュー → 指摘対応。
+  5. ユーザーが承認・マージ（`gh pr merge`）。
+- **main ブランチ保護（設定済み, 2026-10-19）**: PR 必須（承認数0）・**force push 禁止**・削除禁止。`enforce_admins=false`（日次 data 自動 push を許すため）。
+  - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
+  - 例外: 日次自動コミット（`scripts/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
+
+最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）
 最終更新: 2026-10-13（§10 WinUI ネットワーク起動禁止を追記）
 最終更新: 2026-10-10（§9 埋め込み停止中→稼働中に訂正 / CollabPoll 修正・md整理は別コミット）
