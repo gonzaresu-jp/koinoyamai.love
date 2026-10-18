@@ -1,6 +1,6 @@
 {
-  "versionCode": 8,
-  "versionName": "1.7",
-  "url": "https://koinoyamai.love/mai-notification.apk?v=8",
-  "notes": "カウント等のカルーセル横スワイプが途切れる問題を修正（1.7）。プルトゥリフレッシュが横スワイプを横取りしていたため、横方向のスワイプは奪わないようにしました。"
+  "versionCode": 9,
+  "versionName": "1.7.1",
+  "url": "https://koinoyamai.love/mai-notification.apk?v=9",
+  "notes": "YouTube・X などの外部リンクがアプリ内ブラウザで開いてしまう問題を修正（1.7.1）。target=\"_blank\" / window.open での別ウィンドウ要求を受け取れるようにし、外部リンクは専用アプリ→ブラウザで開きます。自サイトとログイン画面は従来通りアプリ内に残ります。"
 }

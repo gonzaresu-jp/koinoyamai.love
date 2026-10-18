@@ -32,7 +32,9 @@
         if ($winFile) {
             $winSize = @filesize(__DIR__ . '/dl/' . $winFile);
             $winSizeMb = $winSize ? round($winSize / 1048576, 0) . " MB" : "";
-            $winHref = '/dl/' . rawurlencode($winFile);
+            // 同名ファイルを上書きすると Cloudflare / nginx のキャッシュに旧版が残るため、
+            // APK と同じく filemtime を付けてキャッシュを破棄する（ビルドのたびに自動で変わる）
+            $winHref = '/dl/' . rawurlencode($winFile) . '?v=' . @filemtime(__DIR__ . '/dl/' . $winFile);
         }
     }
     ?>

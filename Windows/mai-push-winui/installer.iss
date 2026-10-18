@@ -5,7 +5,7 @@
 ;   出力: installer\MaiPush-<MyAppVersion>-Setup.exe
 
 #define MyAppName "まいちゃん通知"
-#define MyAppVersion "1.8.0"
+#define MyAppVersion "1.8.1"
 #define MyAppPublisher "koinoyamai"
 #define MyAppURL "https://koinoyamai.love"
 #define MyAppExeName "まいちゃん通知.exe"
@@ -59,3 +59,32 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{#MyAppName} を起動します"; Flags: nowait postinstall skipifsilent
+
+[Code]
+// ---- インストール／アンインストール前の既存プロセス終了 ----
+// 本アプリは閉じる要求（WM_CLOSE → AppWindow.Closing）を必ず拒否してトレイへ
+// 隠す仕様のため、CloseApplications（Restart Manager）による自動終了が効かず
+// 「アプリケーションを自動的に終了できませんでした」でインストールが止まる。
+// トレイ常駐でも実行ファイルは開いたままでファイル差し替えも失敗するため、
+// コピーを始める前にこちらから終了させる。
+procedure KillRunningApp();
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM "{#MyAppExeName}"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  // 終了直後ファイルロックが残らないよう少し待つ
+  Sleep(300);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  KillRunningApp();
+  Result := '';
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  KillRunningApp();
+  Result := True;
+end;

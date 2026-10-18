@@ -539,6 +539,66 @@ public sealed partial class MainWindow : Window
         return best;
     }
 
+    // ---- 外部リンクのOS委譲（v1.8.1）----
+    // 外部リンクをアプリ内タブに閉じ込めないため、自サイト・認証ホスト以外は
+    // 既定ブラウザ／登録アプリへ委譲する。
+
+    // ログイン（Google / Discord OAuth）に必要なホスト。ここへの遷移はアプリ内に残す
+    private static readonly string[] AuthHosts =
+    {
+        "accounts.google.com",
+        "discord.com",
+        "login.discord.com",
+    };
+
+    // アプリ内ブラウザで開いてよい自サイトかどうか
+    private static bool IsOwnSiteHost(string? host)
+    {
+        if (string.IsNullOrEmpty(host)) return false;
+        var h = host.ToLowerInvariant();
+        return h == "honna-yuzuki.com" || h.EndsWith(".honna-yuzuki.com") ||
+               h == "koinoyamai.love" || h.EndsWith(".koinoyamai.love");
+    }
+
+    private static bool IsAuthHost(string? host)
+    {
+        if (string.IsNullOrEmpty(host)) return false;
+        var h = host.ToLowerInvariant();
+        foreach (var a in AuthHosts)
+            if (h == a) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// WebView2 内（＝アプリ内）で読み込ませてよい URI かどうか。
+    /// 自サイト・認証ホストの http(s) と、data: / about: / blob: / javascript: / file: が該当。
+    /// それ以外（外部サイト・tel:・mailto: 等）は OpenExternal へ回す。
+    /// </summary>
+    private static bool IsInternalUri(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) return false;
+        var scheme = uri.Scheme.ToLowerInvariant();
+        if (scheme == "http" || scheme == "https")
+            return IsOwnSiteHost(uri.Host) || IsAuthHost(uri.Host);
+        return scheme is "data" or "about" or "blob" or "javascript" or "file";
+    }
+
+    /// <summary>
+    /// 外部リンクを開く。UseShellExecute=true で http(s) は既定ブラウザ、
+    /// tel: 等は登録済みアプリへ。開けなかった場合は無視する。
+    /// </summary>
+    private static void OpenExternal(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[OpenExternal] {url}: {ex.Message}");
+        }
+    }
+
     // ---- V2: タブごとの WebView2 初期化 ----
 
     private async Task InitWebViewAsync(TabViewItem tab, WebView2 wv, string url)
@@ -619,10 +679,25 @@ public sealed partial class MainWindow : Window
                     tab.IconSource = new BitmapIconSource { UriSource = uri, ShowAsMonochrome = false });
         };
 
+        // 別ウィンドウ要求（target="_blank" / window.open）: 内部なら新タブ、
+        // 外部なら既定ブラウザ／登録アプリへ。無条件 AddNewTab だと外部がアプリ内に開いていた
         core.NewWindowRequested += (_, e2) =>
         {
             e2.Handled = true;
-            DispatcherQueue.TryEnqueue(() => AddNewTab(e2.Uri));
+            if (IsInternalUri(e2.Uri))
+                DispatcherQueue.TryEnqueue(() => AddNewTab(e2.Uri));
+            else
+                DispatcherQueue.TryEnqueue(() => OpenExternal(e2.Uri));
+        };
+
+        // 同一タブ遷移: 外部リンクはアプリ内に読み込まず OS に委譲する。
+        // NavigationStarting はメインフレームのみが対象（iframe は FrameNavigationStarting）
+        // のため、埋め込み表示には影響しない。
+        core.NavigationStarting += (_, e2) =>
+        {
+            if (IsInternalUri(e2.Uri)) return;
+            e2.Cancel = true;
+            OpenExternal(e2.Uri);
         };
 
         await core.AddScriptToExecuteOnDocumentCreatedAsync("""
