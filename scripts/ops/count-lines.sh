@@ -16,8 +16,8 @@
 #      Android 2026-09-27）ため、除外しないとグラフが段差になる。
 #
 # 使い方:
-#   scripts/count-lines.sh                 # 現在の作業ツリーで集計
-#   scripts/count-lines.sh <rev>           # 過去のコミット時点の内容を集計（例: a033353）
+#   scripts/ops/count-lines.sh                 # 現在の作業ツリーで集計
+#   scripts/ops/count-lines.sh <rev>           # 過去のコミット時点の内容を集計（例: a033353）
 #
 # 過去時点は git archive で当時のファイルを一時展開してから集計する。
 # ファイル名だけ過去・中身は作業ツリーから読む方式では、後から増えた行まで

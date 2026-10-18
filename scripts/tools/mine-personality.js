@@ -3,7 +3,7 @@
 // デモ消費を抑えるため有限サンプル（MINER_SAMPLE 本、デフォルト 24）を最新映像から等間隔に選び、
 // 口調・語尾・相槌・質問返し・感情表現などの頻度と実例（verbatim）を集計して JSON で出力する。
 // 出力先: personality-mined-report.json（同スクリプト実行時の状態を保存）
-// 使い方: node scripts/mine-personality.js [> personality-mined-report.json]
+// 使い方: node scripts/tools/mine-personality.js [> personality-mined-report.json]
 
 const fs = require("fs");
 const path = require("path");
@@ -12,7 +12,7 @@ const fetch = require("node-fetch");
 const ARCHIVE_API_BASE = (process.env.ARCHIVE_API_BASE || "http://192.168.1.70:8766").replace(/\/+$/, "");
 const SAMPLE = Math.max(4, Math.min(60, parseInt(process.env.MINER_SAMPLE || "24", 10)));
 const PER_VIDEO_FETCH_MS = parseInt(process.env.MINER_TIMEOUT_MS || "45000", 10);
-const OUT = path.join(__dirname, "..", "personality-mined-report.json");
+const OUT = path.join(__dirname, "../..", "personality-mined-report.json");
 
 async function getJson(url, timeoutMs) {
   const ctrl = new AbortController();

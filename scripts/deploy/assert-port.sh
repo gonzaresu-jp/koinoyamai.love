@@ -2,9 +2,9 @@
 # ポートの実所有者を検証する（AGENTS.md §1 の事故対策）
 #
 # 使い方:
-#   bash scripts/assert-port.sh prod
-#   bash scripts/assert-port.sh staging
-#   bash scripts/assert-port.sh 8080
+#   bash scripts/deploy/assert-port.sh prod
+#   bash scripts/deploy/assert-port.sh staging
+#   bash scripts/deploy/assert-port.sh 8080
 #
 # なぜ必要か（AGENTS.md §1 には過去の重大事故として明記）:
 #   本番 API = 8080、staging API = 8081。curl localhost:8081 は staging であり、
@@ -20,7 +20,7 @@
 #   2 = ポートが listening していない
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 # 期待値（AGENTS.md §1 と整合。tree ごとに別ファイルへ hardcode しない）
 PROD_PORT=8080

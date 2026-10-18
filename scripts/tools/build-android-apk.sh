@@ -2,9 +2,9 @@
 # build-android-apk.sh - Android APK をビルドして Web 配布先へデプロイする
 #
 # 使い方:
-#   bash scripts/build-android-apk.sh              # release ビルド + 配布
-#   bash scripts/build-android-apk.sh --debug      # debug ビルドのみ（配布しない）
-#   bash scripts/build-android-apk.sh --no-deploy  # ビルドのみ（配布しない）
+#   bash scripts/tools/build-android-apk.sh              # release ビルド + 配布
+#   bash scripts/tools/build-android-apk.sh --debug      # debug ビルドのみ（配布しない）
+#   bash scripts/tools/build-android-apk.sh --no-deploy  # ビルドのみ（配布しない）
 #
 # 何をするか:
 #   1. mai_notification/ で gradlew assembleRelease（または assembleDebug）
@@ -19,7 +19,7 @@
 
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 APP_DIR="$ROOT/mai_notification"
 APK_RELEASE="$APP_DIR/app/build/outputs/apk/release/app-release.apk"
 APK_DEBUG="$APP_DIR/app/build/outputs/apk/debug/app-debug.apk"

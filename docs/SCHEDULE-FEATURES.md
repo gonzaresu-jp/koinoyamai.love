@@ -115,7 +115,7 @@ Response:
 
 ## 実装詳細
 
-### gemma-analyzer.js の改善
+### src/scrapers/gemma-analyzer.js の改善
 
 ```javascript
 // 新関数: URL抽出
@@ -129,7 +129,7 @@ function extractScheduleFromAnalysis(analysis, tweetDate, urls = [])
   → YouTube URL を優先的に url フィールドに設定
 ```
 
-### twitter.js の改善
+### src/scrapers/twitter.js の改善
 
 ```javascript
 // 新関数: 重複検索
@@ -152,7 +152,7 @@ async function createScheduleFromTweet(username, tweet, analysis)
      - 重複なし → 新規作成
 ```
 
-### user-routes.js の新API
+### src/core/user-routes.js の新API
 
 ```javascript
 // GET /api/internal/schedule/find-duplicate

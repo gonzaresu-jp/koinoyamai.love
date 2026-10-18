@@ -2,8 +2,8 @@
 # デプロイした静的ファイルの完全性を検証する
 #
 # 使い方:
-#   bash scripts/verify-deploy.sh webui/wave.php
-#   bash scripts/verify-deploy.sh webui/index.php https://mai.honna-yuzuki.com/ [マーカー]
+#   bash scripts/deploy/verify-deploy.sh webui/wave.php
+#   bash scripts/deploy/verify-deploy.sh webui/index.php https://mai.honna-yuzuki.com/ [マーカー]
 #
 # なぜ必要か（2026-09-26 の実事故）:
 #   nginx の open_file_cache は、置換直後の静的ファイルについて古い size を
@@ -26,7 +26,7 @@
 #   RETRY_WAIT   (既定 12) … 再試行までの秒数（nginx open_file_cache_valid の 10s + 余裕）
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 ORIGIN_BASE="${ORIGIN_BASE:-http://127.0.0.1:1700}"

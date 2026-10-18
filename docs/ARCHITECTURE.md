@@ -36,11 +36,11 @@
 | `mai-push-api-test`（staging） | 8081 | 127.0.0.1 | `/home/yuzuki/mai-push-test/server.js` | `NODE_ENV=development`・`DISABLE_NOTIFICATIONS=1` |
 | `mai-push-worker`（本番） | 3002 | 127.0.0.1 | `/var/www/html/mai-push/main.js` | スクレイパー本体 |
 | `mai-push-worker-test` | 3003 | 127.0.0.1 | `/home/yuzuki/mai-push-test/main.js` | 手動起動運用 |
-| YouTube Webhook | 3001 | 0.0.0.0 | `youtube.js startWebhook` | PubSubHubbub。外部フックのため唯一 0.0.0.0 |
+| YouTube Webhook | 3001 | 0.0.0.0 | `src/scrapers/youtube.js startWebhook` | PubSubHubbub。外部フックのため唯一 0.0.0.0 |
 | `discord-bot` | – | – | `/var/www/html/mai-push/discord-bot.js` | |
 
 - 定義は `ecosystem.config.js`。API は **Node v22.12.0（nvm）** 固定、ワーカーは既定 node。
-- **`curl localhost:8081` は staging**。本番検証と誤認しないこと（`AGENTS.md §1`）。検証前に `bash scripts/assert-port.sh prod|staging`。
+- **`curl localhost:8081` は staging**。本番検証と誤認しないこと（`AGENTS.md §1`）。検証前に `bash scripts/deploy/assert-port.sh prod|staging`。
 
 ---
 
@@ -50,7 +50,7 @@
 ```
 スクレイパー(main.js が起動: youtube/twitter/twitcasting/fanbox/bilibili/… )
   → 変化を検知し payload 生成
-  → POST {NOTIFY_API_URL}=/api/notify  （notify-sign.js で HMAC v2 署名 + token + timestamp）
+  → POST {NOTIFY_API_URL}=/api/notify  （src/core/notify-sign.js で HMAC v2 署名 + token + timestamp）
   → routes/notify.js
       ├─ notifications に INSERT（履歴）
       ├─ services/notification.js: web push（VAPID）+ FCM（Android）
@@ -64,11 +64,11 @@
 ### 3.2 スクレイパー（`main.js` が起動）
 - 各モジュールは `init(notifyConfig)` を受け取り、検知時に `/api/notify` へ送る。
 - YouTube は Webhook(3001) + RSS ポーリング + 終了検知。Twitter/TwitCasting は `startWatcher`。Bilibili は live/dynamic。Fanbox/Twitch/ytcommunity/gipt も `main.js` から起動。
-- 検知後、`youtube.js sendInternalUrl()` が **nassy(192.168.1.70:1700)** へ動画DL→字幕→チャプターを依頼（`AGENTS.md §8`）。
+- 検知後、`src/scrapers/youtube.js sendInternalUrl()` が **nassy(192.168.1.70:1700)** へ動画DL→字幕→チャプターを依頼（`AGENTS.md §8`）。
 
 ### 3.3 週間スケジュール / 予定抽出
 - `weekly/` がプラットフォーム（youtube/twitch/twitcasting）を取得し `updateSchedule()` で `events` を upsert。
-- Twitter 解析（`gemma-analyzer.js` → `twitter.js`）が配信告知から予定を抽出し `routes/user-schedules.js` 経由で登録。詳細は `docs/SCHEDULE-FEATURES.md`。
+- Twitter 解析（`src/scrapers/gemma-analyzer.js` → `src/scrapers/twitter.js`）が配信告知から予定を抽出し `routes/user-schedules.js` 経由で登録。詳細は `docs/SCHEDULE-FEATURES.md`。
 
 ### 3.4 アーカイブ / RAG
 - アーカイブ本体は **nassy の `api.py`（8766）**。`routes/archive.js` / `routes/admin-archive.js` は上流プロキシ（サーキットブレーカー付き）。仕様は `docs/ARCHIVE-ADMIN-SPEC.md`。
@@ -78,12 +78,21 @@
 
 ## 4. file → 役割索引
 
-### 4.1 ルート（エントリ・スクレイパー・通知）
+### 4.1 ルート（エントリポイントのみ）
 | ファイル | 役割 |
 |---|---|
 | `server.js` | API 本体。static/CSRF/SSE/レート制限/ルーター登録/health。`127.0.0.1` bind |
 | `main.js` | ワーカー。スクレイパー起動・`/api/notify`(fail-closed)・Webhook(3001)・cron・StartGuard |
-| `user-routes.js` | ユーザー系ルーター束ね（`register(app, db, authLimiter)`） |
+| `discord-bot.js` | Discord Bot 本体（pm2 `discord-bot` のエントリ） |
+| `ecosystem.config.js` | pm2 定義（prod/staging の全プロセスと env）。`script:` は上記エントリを指す |
+| `build.mjs` | webui の esbuild バンドル（ルートJSとは無関係） |
+
+> ルート直下は**エントリとビルドのみ**。スクレイパー・共有コアは `src/` 配下（2026-10-19 移動）。
+
+### 4.1b `src/`（スクレイパー・共有コア）
+**`src/scrapers/`**（`main.js` が起動する監視モジュール。`init(notifyConfig)` を受ける）
+| ファイル | 役割 |
+|---|---|
 | `youtube.js` | YouTube 監視。`startPolling/startWebhook/init/…`。nassy 依頼(`sendInternalUrl`) |
 | `twitter.js` | Twitter 監視。`check/startWatcher`。予定解析連携 |
 | `twitcasting.js` | TwitCasting 監視。`startWatcher/checkLiveStatus/sendNotify/syncEventToSchedule` |
@@ -94,14 +103,18 @@
 | `gipt.js` | gipt（チケット等）監視 |
 | `twitter-media-saver.js` | Twitter メディア保存 |
 | `gemma-analyzer.js` | Gemini でツイート解析（予定抽出）。`services/ai-quota` 使用 |
-| `milestone.js` | 記念日通知スケジューラ（`MilestoneScheduler`） |
+
+**`src/core/`**（ルート／他層から共有されるコア）
+| ファイル | 役割 |
+|---|---|
 | `notify-sign.js` | `/api/notify` 用 HMAC v2 署名生成（送信側は必ずこれを使う） |
 | `browser.js` | Puppeteer 共有プール（userDataDir キー） |
-| `discord-bot.js` | Discord Bot 本体 |
+| `milestone.js` | 記念日通知スケジューラ（`MilestoneScheduler`） |
 | `discord-alert.js` | 監視/アラート共通（`attachGlobalCrashHandlers`/`startSystemMonitor`） |
 | `schedule-drift-monitor.js` | スケジュール乖離の監視 |
-| `migrate.js` | DB マイグレーション |
-| `ecosystem.config.js` | pm2 定義（prod/staging の全プロセスと env） |
+| `user-routes.js` | ユーザー系ルーター束ね（`register(app, db, authLimiter)`） |
+| `migrate.js` | DB マイグレーション（CLI: `node src/core/migrate.js`） |
+| `auth.js` | 認証ヘルパー（`routes/user-*.js`・`routes/android.js` が使用） |
 
 ### 4.2 `routes/`（Express ルーター。`register(app, db)`）
 | ファイル | 主なエンドポイント |
@@ -137,7 +150,7 @@
 | `sse.js` | SSE 配信（`sendSseEvent`） |
 | `history.js` | `history.json` 更新 |
 | `scheduler.js` | 定期タスク（`startPeriodicTasks`） |
-| `milestone`（`milestone.js`） | 記念日スケジューラ |
+| `milestone.js`（`src/core/`・再利用） | 記念日スケジューラ |
 | `minutes-sync.js` | 要約(`video_minutes`)→ベクトルDB 同期 |
 | `embeddings.js` | 埋め込み生成クライアント |
 | `vectordb.js` | ベクトルDBクライアント（バックエンド切替） |
@@ -176,10 +189,14 @@
 | `migration.js`, `firebase-messaging-sw.js`, `manifest.json` | SW/移行/PWA |
 
 - **CSP は `script-src 'self'`**（nginx `scripts/nginx/mai-test.conf` 等）。インライン JS 不可 → 新規 JS は `/js/*.js` に置く。
-- 公開 HTML の反映は `bash scripts/verify-deploy.sh webui/<file>` でバイト比較（`open_file_cache` 切詰め検出、`AGENTS.md §7.1`）。
+- 公開 HTML の反映は `bash scripts/deploy/verify-deploy.sh webui/<file>` でバイト比較（`open_file_cache` 切詰め検出、`AGENTS.md §7.1`）。
 
 ### 4.6 `scripts/`（運用）
-`deploy-staging.sh` / `promote.sh`（staging→prod）/ `verify-deploy.sh` / `assert-port.sh` / `check-drift.sh` / `regression-test.js`（`npm test`）/ `sync-test-db.sh` / `backup.sh` / `build-android-apk.sh` / `hooks/`（pre-push）。
+- **`deploy/`**: `deploy-staging.sh` / `promote.sh`（staging→prod）/ `verify-deploy.sh` / `assert-port.sh` / `check-drift.sh` / `sync-test-db.sh` / `restart.sh`
+- **`ops/`**: `regression-test.js`（`npm test`）/ `health-check.js`（`npm run health`）/ `backup.sh` / `healthcheck.sh` / `count-lines.sh` / `check-native.{sh,js}` / `minutes-gen*` / `update-subscribers*`
+- **`tools/`**: `build-android-apk.sh` / 単発メンテ（`dedupe-media`・`mine-personality`・`twitter-stats`・`whisper-subs`・`render-compare-html`・`fix-notification-platform`）
+- **`hooks/`**（pre-push）/ **`nginx/`**（vhost）/ **`archive/`**（旧スクリプト・参照用）
+> すべて**リポジトリ直下から実行**する前提（root は `dirname/../..` で解決）。cron はフルパスで `scripts/{deploy,ops}/...` を指す。
 
 ---
 
@@ -206,17 +223,17 @@
 | やりたいこと | 最初に見る場所 |
 |---|---|
 | 通知の発火/抑制を変える | `routes/notify.js`, `services/notification.js`, `main.js`(notifyConfig) |
-| 通知の署名/認証 | `notify-sign.js`, `routes/notify.js`, `AGENTS.md §3` |
-| 新プラットフォーム監視を足す | `main.js`（起動部）+ 新規 `<platform>.js`（`init(notifyConfig)` 実装） |
-| YouTube 監視/Webhook | `youtube.js`（`startPolling`/`startWebhook`/`init`） |
-| 予定抽出（Twitter解析） | `gemma-analyzer.js`, `twitter.js`, `routes/user-schedules.js`, `docs/SCHEDULE-FEATURES.md` |
+| 通知の署名/認証 | `src/core/notify-sign.js`, `routes/notify.js`, `AGENTS.md §3` |
+| 新プラットフォーム監視を足す | `main.js`（起動部）+ 新規 `src/scrapers/<platform>.js`（`init(notifyConfig)` 実装） |
+| YouTube 監視/Webhook | `src/scrapers/youtube.js`（`startPolling`/`startWebhook`/`init`） |
+| 予定抽出（Twitter解析） | `src/scrapers/gemma-analyzer.js`, `src/scrapers/twitter.js`, `routes/user-schedules.js`, `docs/SCHEDULE-FEATURES.md` |
 | 週間スケジュール | `weekly/`, `events` テーブル, `routes/events.js` |
 | アーカイブ API | `routes/archive.js`, `routes/admin-archive.js`, `docs/ARCHIVE-ADMIN-SPEC.md` |
 | RAG/チャット/TTS | `routes/rag.js`, `services/embeddings.js`, `services/vectordb.js`, `AGENTS.md §9` |
 | 管理画面/認証 | `routes/admin.js`, `lib/admin.js`, `lib/webauthn.js`, `webui/admin.html` |
-| ユーザー/購読/デバイス | `user-routes.js`, `routes/user-*.js`, `routes/subscriptions.js`, `routes/android.js` |
+| ユーザー/購読/デバイス | `src/core/user-routes.js`, `routes/user-*.js`, `routes/subscriptions.js`, `routes/android.js` |
 | フロント UI | `webui/*.php`, `webui/js/`, `webui/css/` |
-| DB スキーマ | `services/database.js`, `migrate.js` |
+| DB スキーマ | `services/database.js`, `src/core/migrate.js` |
 | デプロイ/検証/回帰 | `scripts/*`, `AGENTS.md §6-7`, `docs/DEVELOPMENT-WORKFLOW.md` |
 | セキュリティ | `docs/SECURITY.md`, `AGENTS.md §2-3,§6.6-6.7` |
 

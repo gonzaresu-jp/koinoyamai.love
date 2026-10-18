@@ -1,5 +1,5 @@
 // まいちゃんのツイート統計の共通ライブラリ。
-// admin API (routes/admin-twitter-stats.js) と CLI (scripts/twitter-stats.js) の両方から使う。
+// admin API (routes/admin-twitter-stats.js) と CLI (scripts/tools/twitter-stats.js) の両方から使う。
 // 入力は2系統:
 //   1) notifications テーブル（全ツイート・時刻・画像 flag・リポスト）
 //   2) logs/gemma.log（Gemma/Gemini 分析ログ category/sentiment。2026-04 時点の分以上）

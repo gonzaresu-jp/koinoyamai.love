@@ -1,20 +1,20 @@
 // minutes-gen.js - 配信字幕から要約を生成し、video_minutes テーブルへ保存
 // 使い方:
-//   node scripts/minutes-gen.js --vids "Id1 Id2 ..."
-//   node scripts/minutes-gen.js --recent 20
-//   node scripts/minutes-gen.js --recent 20 --embed   # 生成後に埋め込み→Pi upsert まで実行
-//   node scripts/minutes-gen.js --file list.txt --embed
+//   node scripts/ops/minutes-gen.js --vids "Id1 Id2 ..."
+//   node scripts/ops/minutes-gen.js --recent 20
+//   node scripts/ops/minutes-gen.js --recent 20 --embed   # 生成後に埋め込み→Pi upsert まで実行
+//   node scripts/ops/minutes-gen.js --file list.txt --embed
 // 進捗: video_minutes に video_id が存在すればスキップ（--reset で再生成）
 // path は dotenv より前に require する（固定パスだと staging が本番 .env を読む事故のため）
 const path = require("path");
-require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
+require("dotenv").config({ path: path.join(__dirname, "../..", ".env") });
 const fetch = require("node-fetch");
 const fs = require("fs");
 const os = require("os");
 const sqlite3 = require("sqlite3");
-const aiQuota = require(path.join(__dirname, "..", "services", "ai-quota"));
+const aiQuota = require(path.join(__dirname, "../..", "services", "ai-quota"));
 
-const DB_PATH = process.env.RAG_DB_PATH || path.join(__dirname, "..", "data.db");
+const DB_PATH = process.env.RAG_DB_PATH || path.join(__dirname, "../..", "data.db");
 const ARCHIVE_API_BASE = process.env.ARCHIVE_API_BASE || "http://192.168.1.70:8766";
 const API_URL = process.env.MINUTES_API_URL || process.env.GEMINI_URL || "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 const API_KEY = process.env.MINUTES_API_KEY || process.env.GEMINI_API_KEY || "";
@@ -65,7 +65,7 @@ const NEURON_BUDGET = Math.min(
   parseFloat(process.env.CF_NEURON_BUDGET || "9500"), // 既定: 無料枠10,000のうち安全マージン込み
   10000
 );
-const NEURON_STATE_FILE = path.join(__dirname, "..", "tmp", "minutes_neurons_state.json");
+const NEURON_STATE_FILE = path.join(__dirname, "../..", "tmp", "minutes_neurons_state.json");
 const NEURON_STATE_DAY = () => new Date().toISOString().slice(0, 10); // UTC日付
 let neuronState = { day: NEURON_STATE_DAY(), used: 0 };
 function loadNeuronState() {
@@ -534,7 +534,7 @@ async function main() {
   console.log(`\n=== SUMMARY: chunks=${totalChunks} items=${totalItems} skipped=${skipped}`);
 
   if (args.embed) {
-    const { embedMinutes } = require("../services/minutes-sync");
+    const { embedMinutes } = require("../../services/minutes-sync");
     const n = await embedMinutes(db);
     console.log(`embed/upsert done: ${n} points`);
   }

@@ -2,8 +2,8 @@
 # staging と本番（main）のドリフトを検出する
 #
 # 使い方:
-#   bash scripts/check-drift.sh            … 乖離の有無を報告して終了（差分表示あり）
-#   bash scripts/check-drift.sh --quiet    … 乖離の有無のみ（cron 用）
+#   bash scripts/deploy/check-drift.sh            … 乖離の有無を報告して終了（差分表示あり）
+#   bash scripts/deploy/check-drift.sh --quiet    … 乖離の有無のみ（cron 用）
 #
 # なぜ必要か（2026-09-26 の実例）:
 #   service-worker.js が prod は v3.72、staging は v3.71 のまま乖離したまま

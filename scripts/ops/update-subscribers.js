@@ -15,9 +15,9 @@
 
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env'), quiet: true });
+require('dotenv').config({ path: path.join(__dirname, '../..', '.env'), quiet: true });
 
-const ROOT = path.join(__dirname, '..');
+const ROOT = path.join(__dirname, '../..');
 const API_KEY = process.env.YOUTUBE_API_KEY || '';
 const DRY_RUN = process.argv.includes('--dry-run');
 

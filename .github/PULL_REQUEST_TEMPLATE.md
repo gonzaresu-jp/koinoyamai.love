@@ -21,7 +21,7 @@ PR 本文テンプレート（AGENTS.md §13）。
 - [ ] `node --check <file>` / `php -l <file>`
 - [ ] `npm test`（回帰テスト 21 項目）
 - [ ] staging で動作確認（PORT 8081 / `DISABLE_NOTIFICATIONS=1`）
-- [ ] 本番操作の前に `bash scripts/assert-port.sh prod|staging`
+- [ ] 本番操作の前に `bash scripts/deploy/assert-port.sh prod|staging`
 
 ## 影響範囲
 <!-- 影響するプロセス・ポート・DB・API・ユーザー -->

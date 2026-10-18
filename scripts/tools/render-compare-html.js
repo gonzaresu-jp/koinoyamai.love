@@ -10,12 +10,12 @@
  *   - archive API {ARCHIVE_API_BASE}/api/transcript/:videoId → YT字幕
  *   - {ARCHIVE_API_BASE}/api/videos (直近一覧; --recent)
  */
-require("dotenv").config({ path: __dirname + "/../.env" });
+require("dotenv").config({ path: __dirname + "/../../.env" });
 const fs = require("fs");
 const path = require("path");
 const sqlite3 = require("sqlite3");
 
-const DB_PATH = process.env.RAG_DB_PATH || path.join(__dirname, "..", "data.db");
+const DB_PATH = process.env.RAG_DB_PATH || path.join(__dirname, "../..", "data.db");
 const ARCHIVE_API_BASE = (process.env.ARCHIVE_API_BASE || "http://192.168.1.70:8766").replace(/\/+$/, "");
 const BUCKET_SEC = parseInt(process.env.COMPARE_BUCKET_SEC || "30", 10);
 

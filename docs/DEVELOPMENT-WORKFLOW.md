@@ -23,11 +23,11 @@
 ```
 feature/xxx で開発
    ↓
-bash scripts/deploy-staging.sh feature/xxx      … stagingに展開 + smoke 自動実行
+bash scripts/deploy/deploy-staging.sh feature/xxx      … stagingに展開 + smoke 自動実行
   （ブラウザで https://mai-test.honna-yuzuki.com を目視確認）
    ↓
 git push origin feature/xxx                     … staging で検証したリビジョンを共有
-bash scripts/promote.sh feature/xxx --sync-staging … 本番へ ff 昇格 + 本番smoke + staging追従
+bash scripts/deploy/promote.sh feature/xxx --sync-staging … 本番へ ff 昇格 + 本番smoke + staging追従
 ```
 
 > GitHub 運用（issue / PR / 別エージェント独立レビュー / main ブランチ保護）は `AGENTS.md §13` を参照。
@@ -36,7 +36,7 @@ bash scripts/promote.sh feature/xxx --sync-staging … 本番へ ff 昇格 + 本
 ### deploy-staging.sh
 
 ```
-bash scripts/deploy-staging.sh <branch> [--worker] [--sync-db] [--dry-run]
+bash scripts/deploy/deploy-staging.sh <branch> [--worker] [--sync-db] [--dry-run]
 ```
 
 - `<branch>`：デプロイするブランチ（main / feature/xxx。origin に存在していること）
@@ -48,7 +48,7 @@ bash scripts/deploy-staging.sh <branch> [--worker] [--sync-db] [--dry-run]
 ### promote.sh
 
 ```
-bash scripts/promote.sh <branch> [--sync-staging] [--no-restart] [--dry-run]
+bash scripts/deploy/promote.sh <branch> [--sync-staging] [--no-restart] [--dry-run]
 ```
 
 - **fast-forward 可能な場合のみ** 昇格。staging で検証したコミットと同一ツリーを本番で動かす
@@ -60,14 +60,14 @@ bash scripts/promote.sh <branch> [--sync-staging] [--no-restart] [--dry-run]
 
 ### promote 後の自動処理
 
-1. 本番 pm2 全再起動（`bash scripts/restart.sh all`）
+1. 本番 pm2 全再起動（`bash scripts/deploy/restart.sh all`）
 2. 本番 API（:8080）の smoke（health / archive stats / videos / search）
 3. （--sync-staging 時）`deploy-staging.sh main` で staging を最新化
 
 ## 運用ルール
 
 1. **本番の pull / 昇格は必ず `--ff-only`**（commitを落とさない）
-2. **staging の DB はスナップショット運用**：`bash scripts/sync-test-db.sh`
+2. **staging の DB はスナップショット運用**：`bash scripts/deploy/sync-test-db.sh`
    - staging API 起動中の同期はロック競合の恐れがあるため `pm2 stop mai-push-api-test` してから実行が安全
 3. **テスト通知（実機への push）は禁止**。staging は DISABLE_NOTIFICATIONS=1 だが、DB に直接書いたテスト行は本番に同期しないこと
 4. 環境差を `.env` に増やさない（`NODE_ENV` とプロセス引数で吸収）
@@ -95,7 +95,7 @@ git reset --hard <commit> && git push --force origin main   # ※force push は�
 
 ## コード行数集計方法（updateLogs の "lines"）
 
-- 公式コマンド: `bash scripts/count-lines.sh [<git-rev>]`
+- 公式コマンド: `bash scripts/ops/count-lines.sh [<git-rev>]`
   - 引数なし = 現在の作業ツリー、引数あり = **そのコミット時点の中身**を集計
   - 過去時点は `git archive` で当時のファイルを一時展開してから cloc を回す
     （ファイル名だけ過去・中身は作業ツリーから読む方式だと、後から増えた行が

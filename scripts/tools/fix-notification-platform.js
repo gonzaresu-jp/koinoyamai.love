@@ -11,8 +11,8 @@
  *
  * 送信側は修正済み。このスクリプトは既存行を正規キーに揃える。
  *
- *   確認のみ: node scripts/fix-notification-platform.js
- *   実行     : node scripts/fix-notification-platform.js --apply
+ *   確認のみ: node scripts/tools/fix-notification-platform.js
+ *   実行     : node scripts/tools/fix-notification-platform.js --apply
  *
  * --apply を付けるまで DB は一切変更しない（dry-run が既定）。
  * 何度実行しても安全（対象が無ければ何もしない）。
@@ -24,7 +24,7 @@ const sqlite3 = require('sqlite3');
 
 const APPLY = process.argv.includes('--apply');
 const DB_PATH = process.argv.find(a => a.startsWith('--db='))?.slice(5)
-  || path.join(__dirname, '..', 'data.db');
+  || path.join(__dirname, '../..', 'data.db');
 
 // SQLite の = は既定で大文字小文字を区別するので、小文字表記だけを狙い撃ちできる
 const RULES = [

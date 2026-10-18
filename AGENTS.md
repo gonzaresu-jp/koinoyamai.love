@@ -21,7 +21,7 @@
 ## 3. 認証仕様（2026-09 codex セキュリティ改修＋09-24 HMAC v2後）
 - `/api/notify` ヘッダ: `x-notify-token: $NOTIFY_API_TOKEN` + `x-notify-hmac` + **`x-notify-timestamp`（UNIX秒、必須）**
 - HMAC v2 署名対象: `"{timestamp}.{rawBody}"` の SHA256 hex（**受信した生ボディ**で検証。JSON作り直し禁止）。
-  送信側は必ず `notify-sign.js` の `signNotifyPayload(secret, bodyString)`（`{hmac, timestamp}` を返す）を使い、
+  送信側は必ず `src/core/notify-sign.js` の `signNotifyPayload(secret, bodyString)`（`{hmac, timestamp}` を返す）を使い、
   送信する JSON 文字列そのものに署名すること。`X-Signature` は API 側で読まれない。
 - タイムスタンプ許容±300秒（リプレイ対策）。超過・欠落は401。
 - env 3値は**環境ごとに別々のランダム値**を `.env` に設定（コミット対象外・`.env` は gitignore）: `NOTIFY_API_TOKEN` / `NOTIFY_HMAC_SECRET` / `INTERNAL_API_TOKEN`。未設定時 `/api/notify` は **503**。
@@ -46,10 +46,10 @@
 - DB・history.json を触るテストは本番でやるな。staging でやれ。
 
 ## 6.5 第2ラウンド反映（2026-09-22、本番昇格済み main @ fb4449f）
-- **HMAC 送信側は `notify-sign.js`（`signNotifyPayload`）で統一済み**。`/api/notify` へ送る
+- **HMAC 送信側は `src/core/notify-sign.js`（`signNotifyPayload`）で統一済み**。`/api/notify` へ送る
   コードを書くなら必ず `X-Notify-Hmac`（生hex）を付けること。`X-Signature` は API 側で読まれない。
   ※ 2026-09 の HMAC 必須化直後は全送信モジュールが未追随で、実は next-new-content で401する状態だった（修正済み）。
-- `/api/internal/twitter/analysis` もトークン + HMAC 必須（twitter.js 送信側は同期済み）。
+- `/api/internal/twitter/analysis` もトークン + HMAC 必須（`src/scrapers/twitter.js` 送信側は同期済み）。
 - `main.js` のワーカー内 `/api/notify` は **fail-closed（トークン未設定時 503）**。
 - **sqlite3 は 6.0.1 に昇格済み**（npm audit critical 解消）。`npm audit fix --force` 禁止は解除されたが、
   依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト → smoke」を通すこと。
@@ -68,7 +68,7 @@
   `lib/` に移動（nginx の alias も同dir直配信のため、移動が必須）。
 - `/api/system-info` は公開（CPU%・メモリ%・loadavg・稼働時間・RSSのみ。**ホスト名/ディスク/OS詳細は返さない**）。status ページのリソース欄は誰でも閲覧可能。
 - `/api/ask`（公開）は 5回/分＋質問500文字上限。管理者用 `/api/admin/ask` は対象外。
-- 回帰テストは `npm test`（scripts/regression-test.js、HMAC v2＋timestamp検証含む 21 項目）に接続済み。
+- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証含む 21 項目）に接続済み。
 - pm2-logrotate 導入済み（20M・10世代・圧縮）。
 
 ## 6.7 admin は Tailnet 専用（2026-10-10 追加）
@@ -100,8 +100,8 @@
 
 ### 7.1 デプロイ後の検証（必須）
 ```bash
-bash scripts/verify-deploy.sh webui/<file>          # 静的ファイル
-bash scripts/verify-deploy.sh webui/<file>.php      # PHP（バイト比較はskip）
+bash scripts/deploy/verify-deploy.sh webui/<file>          # 静的ファイル
+bash scripts/deploy/verify-deploy.sh webui/<file>.php      # PHP（バイト比較はskip）
 ```
 - **配信バイト数 vs ディスクのバイト数**を機械比較し、nginx の `open_file_cache` による
   切り詰め（応答が途中で切れ `<script>` が消える）を検出する。**HTTP 200 を返しても
@@ -110,8 +110,8 @@ bash scripts/verify-deploy.sh webui/<file>.php      # PHP（バイト比較はsk
 
 ### 7.2 ポート位相の検証（本番操作の**前**に必須）
 ```bash
-bash scripts/assert-port.sh prod        # 8080 が本番ツリーか
-bash scripts/assert-port.sh staging     # 8081 が staging ツリーか
+bash scripts/deploy/assert-port.sh prod        # 8080 が本番ツリーか
+bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 ```
 - ポート → PID → 実行スクリプトパスを照合する。**不一致なら exit 1 で停止**。
 - AGENTS.md §1 の事故（`curl localhost:8081` で本番と誤認）を防ぐ。
@@ -125,8 +125,8 @@ bash scripts/assert-port.sh staging     # 8081 が staging ツリーか
 
 ### 7.4 staging/本番のドリフト検出
 ```bash
-bash scripts/check-drift.sh            # 乖離の有無と是正コマンドを表示
-bash scripts/check-drift.sh --quiet    # cron 用（出力最小）
+bash scripts/deploy/check-drift.sh            # 乖離の有無と是正コマンドを表示
+bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 ```
 - git ブランチの乖離、Service Worker バージョン、主要ファイルの md5 一致、
   未コミット変更を検査する。**exit 0=乖離なし / 1=乖離あり**。
@@ -134,16 +134,16 @@ bash scripts/check-drift.sh --quiet    # cron 用（出力最小）
   自動コミットによる behind は**正常と判定**（誤検出しない）。
 - **cron 登録済み**（1日1回 06:30、0.14秒。ログは `logs/drift.log`）:
   ```
-  30 6 * * * cd /var/www/html/mai-push && ./scripts/check-drift.sh --quiet >> logs/drift.log 2>&1
+  30 6 * * * cd /var/www/html/mai-push && ./scripts/deploy/check-drift.sh --quiet >> logs/drift.log 2>&1
   ```
   乖離があった場合のみログに記録される（--quiet は出力を stderr に出すため、
   乖離なしは無言で exit 0）。
 
 ### 7.5 日次データ更新（cron 実装済み・手動介入不要）
 ```
-5 0 * * * cd /var/www/html/mai-push && ./scripts/update-subscribers-and-commit.sh >> logs/subscribers.log 2>&1
+5 0 * * * cd /var/www/html/mai-push && ./scripts/ops/update-subscribers-and-commit.sh >> logs/subscribers.log 2>&1
 ```
-- `scripts/update-subscribers.js` で YouTube 登録者数を取得し `webui/data/*.txt` に追記、
+- `scripts/ops/update-subscribers.js` で YouTube 登録者数を取得し `webui/data/*.txt` に追記、
   そのまま **commit + push** する。`webui/data` は ignore 済みだが追跡済みのため `git add -u` を使う。
 - 登録者数が変わらない日は空コミットを作らない。**自動pushは他作業と競合しないよう
   データ変更があった日のみ**。push 失敗時はログに記録し exit 1。
@@ -155,7 +155,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 
 ## 8. nassy 側パイプライン（2026-09-27 systemd 化）— 本番 worker の依存先
 配信終了後の **動画DL → 字幕 → チャプター** は elza ではなく **nassy** で実行される。
-`main.js/youtube.js` は検知した直後に `sendInternalUrl()`（`youtube.js:155-166`）で
+`main.js` と `src/scrapers/youtube.js` は検知した直後に `sendInternalUrl()`（`src/scrapers/youtube.js:163`）で
 `POST http://192.168.1.70:1700/` を送り、nassy の常駐サーバが受け取って処理する。
 
 - **nassy = 192.168.1.70 = 192.168.1.93 = 100.65.152.57（Tailscale）**は同一マシン。
@@ -241,7 +241,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - **`/admin` は `login.html` のみ静的配信**。認証コード（admin.js/webauthn.js）は `lib/` に置く（ソース露出防止, `§6.6`）。
 - **webui は CSP `script-src 'self'`**: インライン JS 不可 → 新規 JS は `webui/js/*.js` に置き
   `?v=<?= @filemtime(...) ?>` で読込。基本スタイルは非 minify 側（`css/*.css` 等）に。`style.min.css` に入れても効かない。
-- **通知送信は `notify-sign.js` 経由**: `signNotifyPayload(secret, bodyString)` で**送信する生 JSON 文字列**に署名し
+- **通知送信は `src/core/notify-sign.js` 経由**: `signNotifyPayload(secret, bodyString)` で**送信する生 JSON 文字列**に署名し
   `x-notify-hmac` + `x-notify-timestamp` を付与（`§3`, `§6.5`）。API 側は生ボディで検証・`timingSafeEqual`。`==` 比較に戻すな。
 - **fail-closed**: トークン/秘密が未設定なら認証系は 503/401 で閉じる（通すな）。
 - **秘密情報をコミットしない**: `.env`・鍵・cookie 等。`.gitignore` 済みでも `git add -A` に注意。
@@ -256,7 +256,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 |---|---|
 | プロセス/ポート/起動方法 | `AGENTS.md §1` / `docs/ARCHITECTURE.md §2` |
 | `routes/`・`services/`・`lib/`・スクレイパーの追加/改名/削除 | `docs/ARCHITECTURE.md §4`（§3 のフローも該当時） |
-| DB スキーマ（`services/database.js`/`migrate.js`） | `docs/ARCHITECTURE.md §5` |
+| DB スキーマ（`services/database.js`/`src/core/migrate.js`） | `docs/ARCHITECTURE.md §5` |
 | env キー追加/変更 | `AGENTS.md §3` / `docs/ARCHITECTURE.md §6` |
 | 通知・認証・HMAC | `AGENTS.md §2,§3` / `docs/SECURITY.md` |
 | デプロイ/検証の作法 | `AGENTS.md §7` / `docs/DEVELOPMENT-WORKFLOW.md` |
@@ -274,7 +274,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 
 - `$updateLogs` の**先頭（新しい順）**に当日分のエントリを追加（同日内は既存先頭エントリへ追記）。
 - 分類キー `fix` / `add` / `change` に、利用者目線の日本語で1行ずつ書く（内部実装の話は書かない）。
-- `lines` は `bash scripts/count-lines.sh` の実測 `SUM code` を**その日の絶対値**として記録する（前日に増分を足す等の累積計算は禁止）。集計対象・除外・過去値の扱いは `docs/DEVELOPMENT-WORKFLOW.md §93`。
+- `lines` は `bash scripts/ops/count-lines.sh` の実測 `SUM code` を**その日の絶対値**として記録する（前日に増分を足す等の累積計算は禁止）。集計対象・除外・過去値の扱いは `docs/DEVELOPMENT-WORKFLOW.md §93`。
 - フッターの「Last updated」は最新日付から自動表示のため、追記のみで反映される。
 - 対象外（更新不要）: 内部リファクタのみ・ドキュメントのみ・テストのみ・データ更新のみ。
 
@@ -283,7 +283,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - [ ] ユーザーに見える変更なら `webui/updatelogs.php` を更新した（`lines` を `count-lines.sh` の実測値で）
 - [ ] `node --check <file>` / `php -l <file>`（pre-push でも自動実行, `§7.3`）
 - [ ] `npm test`（回帰テスト 21 項目）
-- [ ] 本番操作の前に `bash scripts/assert-port.sh prod|staging`（`§7.2`）
+- [ ] 本番操作の前に `bash scripts/deploy/assert-port.sh prod|staging`（`§7.2`）
 - [ ] 感度の高い変更なら PR＋別エージェントの独立レビューを通した（`§13`）
 - [ ] 秘密情報・DB・`webui/data` を不用意にコミットしていない
 - [ ] AGENTS.md / ARCHITECTURE.md の記載と実装が一致している
@@ -304,7 +304,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   5. ユーザーが承認・マージ（`gh pr merge`）。
 - **main ブランチ保護（設定済み, 2026-10-19）**: PR 必須（承認数0）・**force push 禁止**・削除禁止。`enforce_admins=false`（日次 data 自動 push を許すため）。
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
-  - 例外: 日次自動コミット（`scripts/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
+  - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）

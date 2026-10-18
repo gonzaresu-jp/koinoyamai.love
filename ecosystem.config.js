@@ -35,7 +35,7 @@ module.exports = {
   },
   // ===== テスト環境（staging）: 本番と同居・DB/通知/定期タスクを分離 =====
   // 使い方:
-  //   bash scripts/sync-test-db.sh               # 本番data.db  -> data-test.db スナップショット
+  //   bash scripts/deploy/sync-test-db.sh               # 本番data.db  -> data-test.db スナップショット
   //   pm2 start ecosystem.config.js --only mai-push-api-test
   //   pm2 stop  mai-push-api-test
   {

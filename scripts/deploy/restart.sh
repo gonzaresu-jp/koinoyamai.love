@@ -1,10 +1,10 @@
 #!/bin/bash
 # pm2 restart wrapper -- always passes --update-env so ecosystem.config.js changes take effect
-# Usage: ./scripts/restart.sh [worker|api|all]
+# Usage: ./scripts/deploy/restart.sh [worker|api|all]
 
 set -euo pipefail
 
-CDIR="$(cd "$(dirname "$0")/.." && pwd)"
+CDIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
 case "${1:-all}" in
   worker)

@@ -94,7 +94,7 @@
       return;
     }
     try {
-      // データは毎日 0:05 に自動追記される（scripts/update-subscribers.js）。
+      // データは毎日 0:05 に自動追記される（scripts/ops/update-subscribers.js）。
       // Cloudflare が .txt を最大4時間キャッシュするため、1時間ごとに変わるクエリで取りに行く
       const bust = Math.floor(Date.now() / 3600000);
       const res = await fetch(platform.path + '?v=' + bust, { cache: 'no-store' });

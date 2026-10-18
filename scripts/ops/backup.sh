@@ -1,6 +1,6 @@
 #!/bin/bash
 # 日次バックアップ: 一貫性のある DB スナップショット + .env を backups/ へ保存
-# cron: 0 3 * * * /var/www/html/mai-push/scripts/backup.sh
+# cron: 0 3 * * * /var/www/html/mai-push/scripts/ops/backup.sh
 # 保存先は Web 公開ツリーの外（/var/lib/mai-push/backups）。nginx で deny 済みでも、
 # 公開ツリー内には秘密情報の実体を置かない方針（2026-09 セキュリティ強化）。
 set -euo pipefail

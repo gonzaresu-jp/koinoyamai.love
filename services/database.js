@@ -106,7 +106,7 @@ function initDatabase() {
     )`, (err) => { if (err) console.error("vector_sync_state create err:", err.message); });
 
     // 配信ごとの要約（字幕チャンク要約）。source='minutes' としてベクトルDBへ埋め込まれる。
-    // カラム定義は scripts/minutes-gen.js の ensureSchema と完全一致させること（互いに冪等ALTERで補完）。
+    // カラム定義は scripts/ops/minutes-gen.js の ensureSchema と完全一致させること（互いに冪等ALTERで補完）。
     db.run(`CREATE TABLE IF NOT EXISTS video_minutes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       video_id TEXT NOT NULL,

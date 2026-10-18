@@ -20,7 +20,7 @@ const ROOT = path.join(__dirname, "..");
 const GEMMA_LOG = path.join(ROOT, "logs", "gemma.log");
 const NEURON_STATE = path.join(ROOT, "tmp", "minutes_neurons_state.json");
 
-// scripts/minutes-gen.js の既定値と合わせる（無料枠10,000のうち安全マージン込み）
+// scripts/ops/minutes-gen.js の既定値と合わせる（無料枠10,000のうち安全マージン込み）
 const CF_FREE_TIER = 10000;
 const CF_BUDGET = Math.min(parseFloat(process.env.CF_NEURON_BUDGET || "9500"), CF_FREE_TIER);
 

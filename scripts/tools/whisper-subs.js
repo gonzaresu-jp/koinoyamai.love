@@ -1,10 +1,10 @@
 // whisper-subs.js - ASMR/コラボ配信の字幕を Groq Whisper で生成し video_whisper_segments に保存
 //
 // 使い方:
-//   node scripts/whisper-subs.js --vids "id1 id2" [--audio-dir /tmp/...] [--compare-only]
-//   node scripts/whisper-subs.js --audio /path/to/audio.mp3 --id <video_id> [--title "..."]
-//   node scripts/whisper-subs.js --recent 10            # .70カタログからASMR/コラボを検出して未処理分を実行
-//   node scripts/whisper-subs.js --compare <video_id>   # YT字幕との比較レポートのみ
+//   node scripts/tools/whisper-subs.js --vids "id1 id2" [--audio-dir /tmp/...] [--compare-only]
+//   node scripts/tools/whisper-subs.js --audio /path/to/audio.mp3 --id <video_id> [--title "..."]
+//   node scripts/tools/whisper-subs.js --recent 10            # .70カタログからASMR/コラボを検出して未処理分を実行
+//   node scripts/tools/whisper-subs.js --compare <video_id>   # YT字幕との比較レポートのみ
 //
 // 前提:
 //   - GROQ_API_KEY (.env): Groq Whisper (whisper-large-v3-turbo) 用
@@ -18,7 +18,7 @@ const os = require("os");
 const path = require("path");
 const sqlite3 = require("sqlite3");
 
-const DB_PATH = process.env.RAG_DB_PATH || path.join(__dirname, "..", "data.db");
+const DB_PATH = process.env.RAG_DB_PATH || path.join(__dirname, "../..", "data.db");
 const ARCHIVE_API_BASE = (process.env.ARCHIVE_API_BASE || "http://192.168.1.70:8766").replace(/\/+$/, "");
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 const GROQ_MODEL = process.env.GROQ_WHISPER_MODEL || "whisper-large-v3-turbo";
@@ -26,7 +26,7 @@ const YTDLP = process.env.YTDLP_PATH || "yt-dlp";
 const COOKIES = process.env.YTDLP_COOKIES_FILE || "";
 const CHUNK_SEC = parseInt(process.env.WHISPER_CHUNK_SEC || "600", 10); // 10分/chunk (25MB制限対策)
 const WORK_DIR = process.env.WHISPER_WORK_DIR || path.join(os.tmpdir(), "whisper-subs");
-const aiQuota = require(path.join(__dirname, "..", "services", "ai-quota"));
+const aiQuota = require(path.join(__dirname, "../..", "services", "ai-quota"));
 
 // curl -D で吐いたヘッダファイルを Response 相当に変換する（status 行 + ヘッダ行）。
 // リダイレクトでブロックが積むため、末尾ブロックだけを採用する。

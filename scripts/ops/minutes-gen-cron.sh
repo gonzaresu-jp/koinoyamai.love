@@ -11,6 +11,6 @@ flock -n 9 || { echo "$(date '+%F %T') skip: another minutes-gen running" >> log
 LOG="logs/minutes-gen-$(date +%Y%m%d).log"
 {
   echo "=== $(date '+%F %T %Z') minutes-gen start ==="
-  node scripts/minutes-gen.js --recent 800 --embed
+  node scripts/ops/minutes-gen.js --recent 800 --embed
   echo "=== $(date '+%F %T %Z') minutes-gen end (rc=$?) ==="
 } >> "$LOG" 2>&1

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # sync-test-db.sh - 本番 data.db を staging (data-test.db) にスナップショットコピー
-# 使い方: bash scripts/sync-test-db.sh
+# 使い方: bash scripts/deploy/sync-test-db.sh
 # ※ staging API が起動している場合は先に止めてから実行（ロック競合回避）
 set -euo pipefail
-cd "$(dirname "$0")/.."   # 本番リポジトリ（scripts/ の親）
+cd "$(dirname "$0")/../.."   # 本番リポジトリ（scripts/deploy/ の親）
 
 SRC="data.db"
 STAGING_DIR="/home/yuzuki/mai-push-test"

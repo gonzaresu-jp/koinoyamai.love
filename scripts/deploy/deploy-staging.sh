@@ -2,7 +2,7 @@
 # deploy-staging.sh - 指定ブランチを staging 環境（/home/yuzuki/mai-push-test）へデプロイする
 #
 # 使い方:
-#   bash scripts/deploy-staging.sh <branch> [--worker] [--sync-db] [--dry-run]
+#   bash scripts/deploy/deploy-staging.sh <branch> [--worker] [--sync-db] [--dry-run]
 #     <branch>     デプロイするリモートブランチ名（例: main, feature/xxx）
 #     --worker     テスト用 worker (mai-push-worker-test) も起動する（スクレイパーが動く）
 #     --sync-db    先に本番 data.db を data-test.db へスナップショットする
@@ -31,7 +31,7 @@ done
 
 BRANCH="${BRANCH_ORIG:-main}"
 STAGING="/home/yuzuki/mai-push-test"
-PROD="$(cd "$(dirname "$0")/.." && pwd)"
+PROD="$(cd "$(dirname "$0")/../.." && pwd)"
 
 # worktree の .git は「ディレクトリではなくファイル」なので -e で判定する
 if [ ! -e "$STAGING/.git" ] || ! git -C "$STAGING" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -64,10 +64,10 @@ fi
 # 3. DB スナップショット（任意）
 if [ "$SYNC_DB" -eq 1 ]; then
   if [ "$DRY" -eq 1 ]; then
-    echo "[dry] bash $PROD/scripts/sync-test-db.sh"
+    echo "[dry] bash $PROD/scripts/deploy/sync-test-db.sh"
   else
     echo "==> syncing production DB snapshot"
-    bash "$PROD/scripts/sync-test-db.sh"
+    bash "$PROD/scripts/deploy/sync-test-db.sh"
   fi
 fi
 

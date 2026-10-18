@@ -5,12 +5,12 @@
   "main": "main.js",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node scripts/regression-test.js",
-    "restart": "bash scripts/restart.sh",
+    "test": "node scripts/ops/regression-test.js",
+    "restart": "bash scripts/deploy/restart.sh",
     "restart:worker": "pm2 start ecosystem.config.js --only mai-push-worker --update-env",
     "restart:api": "pm2 start ecosystem.config.js --only mai-push-api --update-env",
     "restart:all": "pm2 start ecosystem.config.js --update-env",
-    "health": "node scripts/health-check.js"
+    "health": "node scripts/ops/health-check.js"
   },
   "keywords": [],
   "author": "",

@@ -3,7 +3,7 @@
  * sqlite3@6 昇格前の回帰テスト（SECURITY_HANDOFF / AGENTS.md 手順に基づく）
  *
  * 使い方:
- *   node scripts/regression-test.js [--port 18099]
+ *   node scripts/ops/regression-test.js [--port 18099]
  *
  * やること:
  *   - 一時DBを自動生成して server.js を子プロセス起動（DISABLE_NOTIFICATIONS=1 / NODE_ENV=development）
@@ -129,7 +129,7 @@ async function waitForHealth(child) {
 }
 
 async function main() {
-  const projectDir = path.resolve(__dirname, "..");
+  const projectDir = path.resolve(__dirname, "../..");
   const dbPath = path.join(projectDir, DB_NAME);
   for (const suffix of ["", "-wal", "-shm"]) {
     try { fs.unlinkSync(dbPath + suffix); } catch (_) {}

@@ -1,5 +1,5 @@
 // Health check runner for mai-push processes.
-// Usage: node scripts/health-check.js [--quiet]
+// Usage: node scripts/ops/health-check.js [--quiet]
 // Returns exit code 0 if all processes are healthy, 1 otherwise.
 
 const http = require('http');

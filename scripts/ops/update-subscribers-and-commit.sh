@@ -1,10 +1,10 @@
 #!/bin/bash
 # 登録者数の日次更新 + データファイルの自動コミット
 #
-# cron: 5 0 * * * /var/www/html/mai-push/scripts/update-subscribers-and-commit.sh
+# cron: 5 0 * * * /var/www/html/mai-push/scripts/ops/update-subscribers-and-commit.sh
 #
 # 背景:
-#   scripts/update-subscribers.js は webui/data/*.txt を日次で追記する。
+#   scripts/ops/update-subscribers.js は webui/data/*.txt を日次で追記する。
 #   そのデータファイルは追跡下のまま .gitignore 済み（ignore 規則は追跡済み
 #   ファイルに効かない）で、書き込むたびに作業ツリーが dirty になっていた。
 #   このラッパーは生成直後にデータファイルだけを commit し、ツリーを清潔に保つ。
@@ -22,7 +22,7 @@
 #   ログは logs/subscribers.log に追記（cron のリダイレクト）
 set -uo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 NODE_BIN="/home/yuzuki/.nvm/versions/node/v22.12.0/bin/node"
@@ -35,7 +35,7 @@ if [ ! -x "$NODE_BIN" ]; then
   log "ERROR: node が見つかりません: $NODE_BIN"
   exit 1
 fi
-"$NODE_BIN" scripts/update-subscribers.js
+"$NODE_BIN" "$ROOT/scripts/ops/update-subscribers.js"
 rc=$?
 if [ $rc -ne 0 ]; then
   log "update-subscribers.js が失敗しました (exit=$rc)。commit しません"
@@ -62,8 +62,8 @@ fi
 DATE="$(TZ=Asia/Tokyo date '+%Y/%m/%d')"
 git commit -q -m "chore(data): ${DATE} の登録者数を自動更新
 
-scripts/update-subscribers.js が日次で取得・追記した webui/data/*.txt の差分。
-cron: scripts/update-subscribers-and-commit.sh" -- webui/data
+scripts/ops/update-subscribers.js が日次で取得・追記した webui/data/*.txt の差分。
+cron: scripts/ops/update-subscribers-and-commit.sh" -- webui/data
 log "commit しました: $(git rev-parse --short HEAD) $(git log -1 --format=%s)"
 
 # --- 5. 自動 push ---

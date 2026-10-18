@@ -2,7 +2,7 @@
 # promote.sh - staging で検証済みのブランチを本番(main)へ昇格する
 #
 # 使い方:
-#   bash scripts/promote.sh <branch> [--sync-staging] [--no-restart] [--dry-run]
+#   bash scripts/deploy/promote.sh <branch> [--sync-staging] [--no-restart] [--dry-run]
 #     <branch>        昇格するブランチ名（staging で検証済み・origin に push 済みが前提）
 #     --sync-staging  昇格後、staging を新しい main に追従させる（deploy-staging.sh main）
 #     --no-restart    本番プロセスの再起動をスキップ（設定だけの変更など）
@@ -37,7 +37,7 @@ if [ -z "$BRANCH_ORIG" ]; then
 fi
 BRANCH="$BRANCH_ORIG"
 
-PROD="$(cd "$(dirname "$0")/.." && pwd)"
+PROD="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROD"
 
 # 1. リモート取得
@@ -87,10 +87,10 @@ fi
 # 6. 本番プロセス再起動
 if [ "$RESTART" -eq 1 ]; then
   if [ "$DRY" -eq 1 ]; then
-    echo "[dry] bash $PROD/scripts/restart.sh all"
+    echo "[dry] bash $PROD/scripts/deploy/restart.sh all"
   else
     echo "==> restarting production processes"
-    bash "$PROD/scripts/restart.sh" all
+    bash "$PROD/scripts/deploy/restart.sh" all
   fi
 else
   echo "restart skipped (--no-restart)"
@@ -138,7 +138,7 @@ check "archive search"  "/api/archive/search?q=live"
 # 8. staging を昇格後の main に追従（任意）
 if [ "$SYNC_STAGING" -eq 1 ]; then
   echo "==> syncing staging to new main"
-  bash "$PROD/scripts/deploy-staging.sh" main
+  bash "$PROD/scripts/deploy/deploy-staging.sh" main
 fi
 
 if [ "$fail" -ne 0 ]; then

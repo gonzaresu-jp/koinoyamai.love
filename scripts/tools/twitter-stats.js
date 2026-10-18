@@ -1,16 +1,16 @@
 #!/usr/bin/env node
 // まいちゃんのツイート統計CLI
-// 使い方: node scripts/twitter-stats.js [--json]
+// 使い方: node scripts/tools/twitter-stats.js [--json]
 //   --json  … data/twitter-stats.json にも書き出す
 // 出力: DB（notifications）の全ツイート + logs/gemma.log の分析ラベルを集計する。
 const path = require("path");
 const fs = require("fs");
 const sqlite3 = require("sqlite3").verbose();
-const { getStats } = require("../services/twitter-stats");
+const { getStats } = require("../../services/twitter-stats");
 
 const writeJson = process.argv.includes("--json");
-const OUT_PATH = path.join(__dirname, "..", "data", "twitter-stats.json");
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, "..", "data.db");
+const OUT_PATH = path.join(__dirname, "../..", "data", "twitter-stats.json");
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, "../..", "data.db");
 
 function fmtPct(v) { return v == null ? "-" : v.toFixed(1) + "%"; }
 

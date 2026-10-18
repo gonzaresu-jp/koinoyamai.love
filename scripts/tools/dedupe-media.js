@@ -1,10 +1,10 @@
-// scripts/dedupe-media.js
+// scripts/tools/dedupe-media.js
 // 既存メディアの知覚ハッシュ(media_hash)をDBにバックフィルし、
 // 類似画像(重複)を検出してファイルとDBレコードを削除する一括処理
 //
 // 使い方:
-//   node scripts/dedupe-media.js              # ドライラン(何も削除しない)
-//   node scripts/dedupe-media.js --apply      # 実際に重複を削除
+//   node scripts/tools/dedupe-media.js              # ドライラン(何も削除しない)
+//   node scripts/tools/dedupe-media.js --apply      # 実際に重複を削除
 //
 // 動作:
 //   1. twitter_media の全画像レコードを走査
@@ -17,7 +17,7 @@ const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 const sharp = require('sharp');
 
-const DB_PATH = path.join(__dirname, '..', 'data.db');
+const DB_PATH = path.join(__dirname, '../..', 'data.db');
 const APPLY = process.argv.includes('--apply');
 const HAMMING_THRESHOLD = parseInt(process.env.MEDIA_HAMMING_THRESHOLD || '8', 10);
 
