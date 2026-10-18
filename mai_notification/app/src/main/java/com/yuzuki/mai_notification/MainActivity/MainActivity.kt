@@ -11,7 +11,6 @@ import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Message
 import android.util.Log
 import android.view.MotionEvent
 import android.webkit.WebResourceRequest
@@ -165,10 +164,6 @@ class MainActivity : AppCompatActivity() {
             databaseEnabled = true
             allowFileAccess = true
             mediaPlaybackRequiresUserGesture = false
-            // target="_blank" / window.open を onCreateWindow で受けて振り分けるために必須。
-            // 自サイトは既存の WebView で開き、外部はブラウザ／専用アプリで開く
-            setSupportMultipleWindows(true)
-            javaScriptCanOpenWindowsAutomatically = true
 
             // v1.6: offscreenPreRaster=true を解除。画面外を事前にラスタライズすると
             // メモリ/GPU使用量が増えて「重い」原因になっていた（Chromeは既定でOFF）
@@ -255,54 +250,6 @@ class MainActivity : AppCompatActivity() {
                 if (!isDebuggable) return true
                 Log.d("WebConsole", "${consoleMessage.messageLevel()}: ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
                 return true
-            }
-
-            // target="_blank" / window.open 用。自サイトは既存 WebView で開き、
-            // 外部はブラウザ／専用アプリで開く（アプリ内に残さない）
-            override fun onCreateWindow(
-                view: WebView?,
-                isDialog: Boolean,
-                isUserGesture: Boolean,
-                resultMsg: Message?
-            ): Boolean {
-                if (view == null || resultMsg == null) return false
-                val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
-                val transientView = WebView(view.context)
-                transientView.settings.apply {
-                    javaScriptEnabled = true
-                    domStorageEnabled = true
-                }
-                transientView.webViewClient = object : WebViewClient() {
-                    override fun shouldOverrideUrlLoading(
-                        v: WebView?,
-                        request: WebResourceRequest?
-                    ): Boolean {
-                        val uri2 = request?.url ?: return true
-                        val scheme2 = uri2.scheme?.lowercase()
-                        if (scheme2 == "http" || scheme2 == "https") {
-                            if (isOwnSite(uri2) || isAuthHost(uri2.host)) {
-                                web.loadUrl(uri2.toString())
-                            } else {
-                                openExternal(uri2.toString())
-                            }
-                            try { transientView.destroy() } catch (_: Exception) {}
-                            return true
-                        }
-                        if (scheme2 == null || scheme2 == "data" || scheme2 == "about" ||
-                            scheme2 == "blob" || scheme2 == "javascript" || scheme2 == "file"
-                        ) return true
-                        openExternal(uri2.toString())
-                        try { transientView.destroy() } catch (_: Exception) {}
-                        return true
-                    }
-                }
-                transport.webView = transientView
-                resultMsg.sendToTarget()
-                return true
-            }
-
-            override fun onCloseWindow(window: WebView?) {
-                try { window?.destroy() } catch (_: Exception) {}
             }
         }
         // URLロード or 前回状態の復元

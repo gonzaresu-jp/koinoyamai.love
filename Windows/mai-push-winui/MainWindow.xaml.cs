@@ -24,40 +24,6 @@ public sealed partial class MainWindow : Window
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
-    // アプリ内で開いてよいホスト（自サイト＋OAuth ログインに必要なホスト）。
-    // それ以外は OS の既定ブラウザ／登録アプリで開く（アプリ内に残さない）
-    private static readonly HashSet<string> AuthHosts = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "accounts.google.com",
-        "discord.com",
-        "login.discord.com",
-    };
-
-    private static bool IsOwnSiteHost(string? host)
-    {
-        if (string.IsNullOrEmpty(host)) return false;
-        host = host.ToLowerInvariant();
-        return host == "honna-yuzuki.com" || host.EndsWith(".honna-yuzuki.com") ||
-               host == "koinoyamai.love" || host.EndsWith(".koinoyamai.love");
-    }
-
-    private static bool IsInternalUri(string? url)
-    {
-        if (string.IsNullOrEmpty(url)) return true;
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) return true;
-        if (u.Scheme != Uri.UriSchemeHttp && u.Scheme != Uri.UriSchemeHttps)
-            return false; // tel:/mailto: 等は外部へ
-        if (IsOwnSiteHost(u.Host)) return true;
-        if (AuthHosts.Contains(u.Host)) return true;
-        return false;
-    }
-
-    private static void OpenExternal(string? url)
-    {
-        if (string.IsNullOrEmpty(url)) return;
-        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
-    }
-
     private readonly AppWindow _appWindow;
     private TaskbarIcon? _trayIcon;
 
@@ -656,22 +622,7 @@ public sealed partial class MainWindow : Window
         core.NewWindowRequested += (_, e2) =>
         {
             e2.Handled = true;
-            var uri = e2.Uri;
-            if (string.IsNullOrEmpty(uri)) return;
-            if (IsInternalUri(uri))
-                DispatcherQueue.TryEnqueue(() => AddNewTab(uri));
-            else
-                DispatcherQueue.TryEnqueue(() => OpenExternal(uri));
-        };
-
-        // 同一タブ内の遷移（通常クリック・JS遷移）は自サイトのみ許可し、
-        // 外部はキャンセルして OS の既定ブラウザ／登録アプリで開く。
-        // NavigationStarting はメインフレームのみが対象のため iframe 埋め込みには影響しない
-        core.NavigationStarting += (_, e2) =>
-        {
-            if (IsInternalUri(e2.Uri)) return;
-            e2.Cancel = true;
-            DispatcherQueue.TryEnqueue(() => OpenExternal(e2.Uri));
+            DispatcherQueue.TryEnqueue(() => AddNewTab(e2.Uri));
         };
 
         await core.AddScriptToExecuteOnDocumentCreatedAsync("""
