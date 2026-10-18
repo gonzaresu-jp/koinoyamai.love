@@ -7,6 +7,11 @@
         <a href="/status/" class="header-status-link fade" id="header-status-indicator" title="システムの稼働状況">
             <span class="status-dot"></span>
         </a>
+        <!-- 日本時間（端末が日本TZ以外のときだけ header-jst.js が表示する） -->
+        <span class="header-jst" id="header-jst" hidden title="日本時間（JST）">
+            <span class="header-jst-label">JST</span>
+            <span class="header-jst-time" id="header-jst-time">--:--</span>
+        </span>
     </div>
 
     <!-- ログインボタン（ヘッダー右側に常時表示） -->
@@ -229,3 +234,4 @@
 
 
 <script src="/js/header-auth.js?v=<?= @filemtime(__DIR__ . '/js/header-auth.js') ?: time(); ?>"></script>
+<script src="/js/header-jst.js?v=<?= @filemtime(__DIR__ . '/js/header-jst.js') ?: time(); ?>" defer></script>
