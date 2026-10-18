@@ -279,3 +279,49 @@
         background: rgba(255, 255, 255, 0.15);
         border-color: rgba(255, 255, 255, 0.4);
     }
+
+    /* ========================================
+   ヘッダー: 日本時間（JST）
+   端末が日本TZ以外のときだけ header-jst.js が #header-jst を表示する
+======================================== */
+    .header-jst {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        margin-left: 10px;
+        padding: 3px 9px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.14);
+        border: 1.5px solid rgba(255, 255, 255, 0.28);
+        color: #fff;
+        font-size: 0.72rem;
+        font-weight: 700;
+        line-height: 1.2;
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+        flex-shrink: 0;
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+    }
+
+    /* 初期状態（hidden）は非表示。JS が日本TZ以外のときだけ表示する */
+    .header-jst[hidden] {
+        display: none;
+    }
+
+    .header-jst-label {
+        font-weight: 800;
+        opacity: 0.88;
+    }
+
+    .header-jst-time {
+        font-variant-numeric: tabular-nums;
+    }
+
+    @media (max-width: 400px) {
+        .header-jst {
+            margin-left: 6px;
+            padding: 2px 7px;
+            font-size: 0.68rem;
+        }
+    }
