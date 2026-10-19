@@ -20,36 +20,44 @@
             <h2>新機能追加予定</h2>
             <ul class="plan-list">
                 <li>
-                    <strong>登録者推移データの自動更新</strong>
-                    <span class="note">現在は手動更新している登録者数データを自動取得・日次反映し、グラフを常に最新の状態にする。</span>
-                </li>
-                <li>
-                    <strong>配信アーカイブのカテゴリ自動分類</strong>
-                    <span class="note">手動でのカテゴリ付与は実装済み。次段階としてLLMによる自動提案・自動付与を検討。</span>
-                </li>
-                <li>
                     <strong>他配信プラットフォームのアーカイブ対応とデータ分析</strong>
                     <span class="note">Twitch・TwitCasting等のアーカイブ追加と横断分析。字幕・アーカイブ保存にコストがかかるため、資金状況を見ながら段階的に検討。</span>
                 </li>
                 <li>
-                    <strong>LLM処理の精度・速度向上</strong>
-                    <span class="note">感情判定・流行語抽出・配信判定などの分析モデルの見直しと、より高速・高精度なモデル投入を検討。</span>
+                    <strong>まいちゃんwikiの追加</strong>
+                    <span class="note">衣装・用語・登場人物・配信史などの項目を順次追加し、アーカイブや要約と相互リンクさせて人物wikiを拡充。</span>
+                </li>
+            </ul>
+
+            <h2>実装済み</h2>
+            <ul class="plan-list done-list">
+                <li>
+                    <strong>登録者推移データの自動更新</strong>
+                    <span class="note">毎日0:05にYouTube Data APIから登録者数を取得し、推移グラフへ自動反映。手動更新は不要になりました。</span>
+                </li>
+                <li>
+                    <strong>配信アーカイブのカテゴリ自動分類</strong>
+                    <span class="note">配信タイトル・タグ・概要欄・字幕からカテゴリを自動判定して付与。確信度の高いものだけを対象にし、手動設定は尊重します。</span>
                 </li>
                 <li>
                     <strong>まいちゃんの状態予測</strong>
-                    <span class="note">投稿時刻・曜日・感情ラベルなどの統計から、体調や配信意欲の傾向を予測表示する機能を構想中。</span>
+                    <span class="note">投稿時刻・曜日・感情などの統計から、配信意欲・体調サイン・今後7日間の配信見込みを「活動傾向（推定）」として管理画面に表示。</span>
                 </li>
                 <li>
                     <strong>字幕生成の精度向上</strong>
-                    <span class="note">ASMR・コラボ配信など自動字幕の誤認識が生じやすいケースで精度が上がる方式を検討。</span>
+                    <span class="note">Whisperによる自動字幕生成を導入し、字幕の無い配信も順次テキスト化。アーカイブ検索・要約の対象を拡大しました。</span>
+                </li>
+                <li>
+                    <strong>LLM処理の精度・速度向上</strong>
+                    <span class="note">解析モデルを刷新（Gemini 3.5 flash-lite・Groqフォールバック等）し、分類・要約・流行語抽出の精度と安定性を向上。</span>
                 </li>
             </ul>
 
             <h2>既知の問題</h2>
             <ul class="plan-list">
                 <li>
-                    <strong>登録者推移グラフの更新遅延</strong>
-                    <span class="note">チャンネル登録者推移のグラフが今日までの最新データになっていない問題を調査中です（「登録者推移データの自動更新」で解消予定）。</span>
+                    <strong><s>登録者推移グラフの更新遅延</s></strong>
+                    <span class="note"><s>登録者推移データの自動更新により、グラフが最新日まで反映されるようになったため解消しました。</s></span>
                 </li>
                 <li>
                     <strong><s>PubSubHubbub障害でYTの通知が届かなくなる</s></strong>
