@@ -561,8 +561,7 @@ public sealed partial class MainWindow : Window
     {
         if (string.IsNullOrEmpty(host)) return false;
         var h = host.ToLowerInvariant();
-        return h == "honna-yuzuki.com" || h.EndsWith(".honna-yuzuki.com") ||
-               h == "koinoyamai.love" || h.EndsWith(".koinoyamai.love");
+        return h == "koinoyamai.love" || h.EndsWith(".koinoyamai.love");
     }
 
     private static bool IsAuthHost(string? host)

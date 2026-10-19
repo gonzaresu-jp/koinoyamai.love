@@ -1,6 +1,6 @@
 // 要約生成の品質確認（単体・非デプロイ版）
 // nassy 字幕 → チャンク → Gemini flash-lite 要約 → console 出力
-require("dotenv").config({ path: "/var/www/html/mai-push/.env" });
+require("dotenv").config({ path: "/var/www/html/koinoyamai.love/.env" });
 const fetch = require("node-fetch");
 const path = require("path");
 

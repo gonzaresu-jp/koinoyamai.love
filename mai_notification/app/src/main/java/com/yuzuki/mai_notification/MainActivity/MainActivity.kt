@@ -200,7 +200,7 @@ class MainActivity : AppCompatActivity() {
                 if (scheme == "http" || scheme == "https") {
                     // iframe（サブフレーム）はWebView内で読む
                     if (!request.isForMainFrame) return false
-                    // 自サイト（*.honna-yuzuki.com）とログインフローはアプリ内ブラウザのまま
+                    // 自サイト（*.koinoyamai.love）とログインフローはアプリ内ブラウザのまま
                     if (isOwnSite(uri) || isAuthHost(uri.host)) return false
                     // 外部はOSに委譲。開けなかった時だけWebViewで読む
                     return openExternal(uri.toString())
@@ -423,8 +423,7 @@ class MainActivity : AppCompatActivity() {
     // アプリ内ブラウザで開いてよい自サイトかどうか
     private fun isOwnSite(uri: Uri): Boolean {
         val host = uri.host?.lowercase() ?: return false
-        return host == "honna-yuzuki.com" || host.endsWith(".honna-yuzuki.com") ||
-                host == "koinoyamai.love" || host.endsWith(".koinoyamai.love")
+        return host == "koinoyamai.love" || host.endsWith(".koinoyamai.love")
     }
 
     // ログイン（OAuth）に必要なホストかどうか

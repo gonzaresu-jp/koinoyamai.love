@@ -5,7 +5,7 @@
 # - cron は再始動 watchdog の役割: プロセスが落ちていれば翌朝に立ち上がり、既生成分はスキップして続行
 # - ログは logs/minutes-gen-YYYYMMDD.log に日別追記
 LOCK=/tmp/minutes-gen.lock
-cd /var/www/html/mai-push || exit 1
+cd /var/www/html/koinoyamai.love || exit 1
 exec 9>"$LOCK"
 flock -n 9 || { echo "$(date '+%F %T') skip: another minutes-gen running" >> logs/minutes-gen-cron.log 2>/dev/null; exit 0; }
 LOG="logs/minutes-gen-$(date +%Y%m%d).log"

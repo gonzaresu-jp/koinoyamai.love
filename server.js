@@ -73,8 +73,8 @@ function normalizeOrigin(value) {
 }
 const allowedCorsOrigins = new Set([
   (process.env.PUBLIC_URL || "").replace(/\/+$/, ""),
-  "https://mai.honna-yuzuki.com",
   "https://koinoyamai.love",
+  "https://test.koinoyamai.love",
   "http://localhost:8080",
   "http://127.0.0.1:8080",
   "http://localhost:3008",

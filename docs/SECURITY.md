@@ -24,8 +24,8 @@
 ## 最初に読むもの
 
 - **AGENTS.md は必読。** ポート位相、通知テスト禁止、本番再起動の承認制、依存関係更新の禁止事項がある。
-- 本番: `/var/www/html/mai-push`、API **8080**、pm2: `mai-push-api` / `mai-push-worker`
-- staging: `/home/yuzuki/mai-push-test`、API **8081**、pm2: `mai-push-api-test`（`DISABLE_NOTIFICATIONS=1` 固定）
+- 本番: `/var/www/html/koinoyamai.love`、API **8080**、pm2: `mai-push-api` / `mai-push-worker`
+- staging: `/home/yuzuki/koinoyamai.love-test`、API **8081**、pm2: `mai-push-api-test`（`DISABLE_NOTIFICATIONS=1` 固定）
 - コマンド実行前に必ず所有者確認:
 
 ```bash
@@ -34,7 +34,7 @@ pm2 pid mai-push-api; pm2 pid mai-push-api-test
 readlink /proc/<pid>/cwd
 ```
 
-2026-09-22 実測: 8080 = `/var/www/html/mai-push`（本番）、8081 = `/home/yuzuki/mai-push-test`（staging）。
+2026-09-22 実測: 8080 = `/var/www/html/koinoyamai.love`（本番）、8081 = `/home/yuzuki/koinoyamai.love-test`（staging）。
 
 ## 反映済みの対策（検証済み）
 
@@ -44,7 +44,7 @@ readlink /proc/<pid>/cwd
 - HMAC 比較は `crypto.timingSafeEqual`。署名対象は `{timestamp}.{生ボディ}`（v2、リプレイ対策に±300秒）。
 - Electron は `webSecurity=true`。OAuth callback はループバックのみ許可。
 - CSRF Origin 判定は完全一致。DB/JSバックアップの誤コミット抑止済み。`package-lock.json` はGit管理。
-- **nginx（2026-09-22 外部実測 404）**: `location ^~ /mai-push/ { deny all; }`、ドットファイル deny、
+- **nginx（2026-09-22 外部実測 404 / 2026-10-19 パス改名）**: `location ^~ /koinoyamai.love/ { deny all; }`（旧 `/mai-push/`）、ドットファイル deny、
   `.env|.db|.bak|...` 拡張子 deny が有効 → `/backups/*.db`・`/.env`・`/data.db` はWeb非公開。
 - **データ保護（2026-09-22 実施）**: 本番・staging の `.env` を 600 へ、`backups/` を 750・中身 640 へ変更済み。
   ※ `backups/` は gitignore 済みだが **Web公開ツリー内（/var/www/html 配下）** にある。
@@ -141,7 +141,7 @@ node scripts/ops/regression-test.js --port 18099
 ### staging の node_modules 構成変更（2026-09-22）
 - 従来: staging の `node_modules` は本番への **symlink**（deploy-staging.sh が npm install を行わない前提）。
 - 今回: staging の symlink を外し **実体 npm install（sqlite3@6）** に変更。以後 staging で依存を変える場合は
-  `/home/yuzuki/mai-push-test` で `npm install` し、`package-lock.json` の反映分を本番ツリーでコミットする。
+  `/home/yuzuki/koinoyamai.love-test` で `npm install` し、`package-lock.json` の反映分を本番ツリーでコミットする。
 
 ## 追加で残っているリスク
 

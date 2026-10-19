@@ -45,7 +45,7 @@
 # iPhone(iOS)
 
 1. Safari で URL を開く。
-   * [https://mai.honna-yuzuki.com/](https://mai.honna-yuzuki.com/)
+   * [https://koinoyamai.love/](https://koinoyamai.love/)
 2. 画面下の共有ボタン⎙をタップ。
 
    <img src="./img/IMG_3205.png" width="300">
@@ -77,7 +77,7 @@
 
 1. 共通 URL を開く。
 
-   * [https://mai.honna-yuzuki.com/](https://mai.honna-yuzuki.com/)
+   * [https://koinoyamai.love/](https://koinoyamai.love/)
   ![ホーム](./img/image.png)
 
 2. 右上のハンバーガーメニューを開く。

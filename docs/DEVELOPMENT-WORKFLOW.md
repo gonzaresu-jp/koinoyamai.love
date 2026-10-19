@@ -6,12 +6,12 @@
 
 | | 本番 | staging（テスト） |
 |---|---|---|
-| コード | `/var/www/html/mai-push`（branch: main） | `/home/yuzuki/mai-push-test`（git worktree・branch: staging） |
+| コード | `/var/www/html/koinoyamai.love`（branch: main） | `/home/yuzuki/koinoyamai.love-test`（git worktree・branch: staging） |
 | API ポート | `http://localhost:8080` | `http://localhost:8081` |
 | DB | `data.db` | `data-test.db`（本番のスナップショット） |
 | NODE_ENV | production | development（定期タスク・ベクトル同期・マイルストーン停止） |
 | 通知 | 通常動作 | `DISABLE_NOTIFICATIONS=1` で**実push完全抑止** |
-| URL | https://mai.honna-yuzuki.com | https://mai-test.honna-yuzuki.com（ログインゲート付き） |
+| URL | https://koinoyamai.love | https://test.koinoyamai.love（ログインゲート付き） |
 | pm2 | mai-push-api / mai-push-worker / discord-bot | mai-push-api-test（+ mai-push-worker-test は必要時のみ） |
 
 - staging の `node_modules` / `.env` / `vapid.json` 等は本番へのシンボリックリンク（コード差分だけをテストしたいため）
@@ -24,7 +24,7 @@
 feature/xxx で開発
    ↓
 bash scripts/deploy/deploy-staging.sh feature/xxx      … stagingに展開 + smoke 自動実行
-  （ブラウザで https://mai-test.honna-yuzuki.com を目視確認）
+  （ブラウザで https://test.koinoyamai.love を目視確認）
    ↓
 git push origin feature/xxx                     … staging で検証したリビジョンを共有
 bash scripts/deploy/promote.sh feature/xxx --sync-staging … 本番へ ff 昇格 + 本番smoke + staging追従
@@ -72,7 +72,7 @@ bash scripts/deploy/promote.sh <branch> [--sync-staging] [--no-restart] [--dry-r
 3. **テスト通知（実機への push）は禁止**。staging は DISABLE_NOTIFICATIONS=1 だが、DB に直接書いたテスト行は本番に同期しないこと
 4. 環境差を `.env` に増やさない（`NODE_ENV` とプロセス引数で吸収）
 5. sudo が必要な作業（nginx / cloudflared の設定反映）はエージェント不可 → 手動で行う
-   - nginx: `sudo cp /home/yuzuki/mai-push-test/scripts/nginx/mai-test.conf /etc/nginx/mai-test.conf && sudo nginx -t && sudo systemctl reload nginx`
+   - nginx: `sudo cp /home/yuzuki/koinoyamai.love-test/scripts/nginx/mai-test.conf /etc/nginx/mai-test.conf && sudo nginx -t && sudo systemctl reload nginx`
    - cloudflared: config.yml はリモート管理のためダッシュボードの Public Hostname で変更
 
 ## セキュリティ履歴（2026-09-20 実施）
