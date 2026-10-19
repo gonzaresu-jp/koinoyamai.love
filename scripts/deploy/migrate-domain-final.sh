@@ -89,4 +89,11 @@ cat <<EOF
 [migrate] 完了。
 次を実行してください:
   sudo bash $NEW_PROD/scripts/nginx/apply-domain-final.sh
+
+手動（インフラ・ホスト外設定）:
+  - Google / Discord の OAuth コンソールに redirect_uri を登録:
+      https://koinoyamai.love/auth/google/callback, .../auth/discord/callback
+      （staging は https://test.koinoyamai.love/auth/{google,discord}/callback）
+  - Cloudflare DNS に test.koinoyamai.love を追加（setup-staging-nginx.sh 参照）
+  - 旧アプリ(Android1.4等)は旧ドメインの /api /auth /dl /pushweb が 301 になるため非対応
 EOF

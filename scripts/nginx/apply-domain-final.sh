@@ -6,11 +6,17 @@
 #   3) 廃止した /migration.js location を削除
 #   4) pushweb の CORS 旧ドメインを新ドメインへ
 #   5) default vhost の旧パス deny を新名へ
-# 実行（要 sudo）: sudo bash scripts/nginx/apply-domain-final.sh
-# ※ 先に scripts/deploy/migrate-domain-final.sh でフォルダ移動を済ませておくこと
+#   6) リポジトリの scripts/nginx/mai-test.conf を /etc/nginx/mai-test.conf へ導入
+#      （nginx.conf が include する staging vhost。server_name test.koinoyamai.love）
+# 実行（要 sudo, リポジトリ内から）: sudo bash scripts/nginx/apply-domain-final.sh
+#   ※ 先に scripts/deploy/migrate-domain-final.sh でフォルダ移動を済ませておくこと
+#   ※ このスクリプトは非冪等（2 回目はアンカー不一致で fail-closed 停止）。再実行は
+#      バックアップから戻すか、適用済みチェックを手動で行うこと。
 set -euo pipefail
 
 CONF=/etc/nginx/nginx.conf
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SRC_MAI_TEST="$REPO_ROOT/scripts/nginx/mai-test.conf"
 [ "$(id -u)" -eq 0 ] || { echo "[ERR] sudo で実行してください"; exit 1; }
 [ -f "$CONF" ] || { echo "[ERR] $CONF が見つかりません"; exit 1; }
 
@@ -49,6 +55,18 @@ function replaceAtLeast(name, oldStr, newStr) {
   console.log(`OK: ${name} (${n})`);
 }
 
+// 0 件でも可（staging vhost は別ファイル mai-test.conf 側にある）
+function replaceOptional(name, oldStr, newStr) {
+  const n = s.split(oldStr).length - 1;
+  if (n > 0) {
+    s = s.split(oldStr).join(newStr);
+    changed += n;
+    console.log(`OK: ${name} (${n})`);
+  } else {
+    console.log(`skip: ${name} (0; 別ファイル管理)`);
+  }
+}
+
 // 1) 旧ドメイン: 条件付き301 -> 全パス301（例外なし）
 replace("1700-full-301",
 `    # フェーズ2 (2026-10-10): ページは新ドメイン koinoyamai.love へ301。
@@ -74,7 +92,7 @@ replace("remove-migration.js",
 
 // 3) ツリーパスを新名へ
 replaceAtLeast("tree-path", "/var/www/html/mai-push", "/var/www/html/koinoyamai.love");
-replaceAtLeast("staging-path", "/home/yuzuki/mai-push-test", "/home/yuzuki/koinoyamai.love-test");
+replaceOptional("staging-path", "/home/yuzuki/mai-push-test", "/home/yuzuki/koinoyamai.love-test");
 
 // 4) pushweb CORS 旧ドメイン -> 新ドメイン
 replace("cors-origin", "'https://mai.honna-yuzuki.com'", "'https://koinoyamai.love'", 2);
@@ -95,12 +113,26 @@ NODE
 
 install -m 0644 "$TMP" "$CONF"
 
+# 6) staging vhost（include される別ファイル）を新ホスト・新パスへ導入
+if [ -f "$SRC_MAI_TEST" ]; then
+  if [ -f /etc/nginx/mai-test.conf ]; then
+    BAK2="/etc/nginx/mai-test.conf.bak-domain-final-$(date +%Y%m%d-%H%M%S)"
+    cp -a /etc/nginx/mai-test.conf "$BAK2"
+    echo "[OK] backup: $BAK2"
+  fi
+  install -m 0644 "$SRC_MAI_TEST" /etc/nginx/mai-test.conf
+  echo "[OK] installed /etc/nginx/mai-test.conf (test.koinoyamai.love)"
+else
+  echo "[WARN] $SRC_MAI_TEST が見つかりません（staging vhost 未更新）"
+fi
+
 if nginx -t; then
   systemctl reload nginx
   echo "[OK] nginx reloaded"
 else
-  echo "[ERR] nginx -t 失敗。$BAK から復旧します"
+  echo "[ERR] nginx -t 失敗。バックアップから復旧します"
   cp -a "$BAK" "$CONF"
+  [ -n "${BAK2:-}" ] && cp -a "$BAK2" /etc/nginx/mai-test.conf
   nginx -t
   exit 1
 fi

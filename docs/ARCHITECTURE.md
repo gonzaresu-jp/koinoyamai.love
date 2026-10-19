@@ -186,7 +186,7 @@
 | `js/` | 画面別 JS。`index-*`, `admin-*`, `wave-*`, `header-auth.js`, `header-jst.js`, `pushService.js`, `palette.js` 等 |
 | `css/`, `style.css`, `sp.css` | スタイル。`css/header.css` は非 minify で `?v=filemtime` 読込 |
 | `data/` / `dl/` / `dist/` / `fontawesome-free-*` | データ・配布物・生成物 |
-| `migration.js`, `firebase-messaging-sw.js`, `manifest.json` | SW/移行/PWA |
+| `firebase-messaging-sw.js`, `manifest.json` | SW/PWA |
 
 - **CSP は `script-src 'self'`**（nginx `scripts/nginx/mai-test.conf` 等）。インライン JS 不可 → 新規 JS は `/js/*.js` に置く。
 - 公開 HTML の反映は `bash scripts/deploy/verify-deploy.sh webui/<file>` でバイト比較（`open_file_cache` 切詰め検出、`AGENTS.md §7.1`）。

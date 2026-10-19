@@ -86,6 +86,7 @@ Windows/mai-push-winui/obj/
 # 構造整理 (2026-10-19): 誤コミット防止
 .opencode/
 kernel.errors.txt
+.htpasswd
 # /admin は login.html のみ追跡（旧複製 admin.js/webauthn.js は lib/ へ移設済み）
 admin/admin.js
 admin/webauthn.js
