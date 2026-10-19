@@ -4,7 +4,7 @@
   <!-- トップ（通知ダッシュボード） -->
   <url>
     <loc>https://koinoyamai.love/</loc>
-    <lastmod>2026-09-10</lastmod>
+    <lastmod>2026-10-19</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
@@ -12,7 +12,7 @@
   <!-- 配信アーカイブ検索（独自コンテンツ） -->
   <url>
     <loc>https://koinoyamai.love/archive/</loc>
-    <lastmod>2026-09-10</lastmod>
+    <lastmod>2026-10-06</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
@@ -20,7 +20,7 @@
   <!-- 使い方・対応一覧（SEO用コンテンツページ） -->
   <url>
     <loc>https://koinoyamai.love/guide.php</loc>
-    <lastmod>2026-09-10</lastmod>
+    <lastmod>2026-09-24</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
@@ -28,7 +28,7 @@
   <!-- メディアアーカイブ -->
   <url>
     <loc>https://koinoyamai.love/twitter-media/</loc>
-    <lastmod>2026-09-10</lastmod>
+    <lastmod>2026-09-21</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
@@ -36,7 +36,7 @@
   <!-- 通知ログ一覧 -->
   <url>
     <loc>https://koinoyamai.love/logs/</loc>
-    <lastmod>2026-09-10</lastmod>
+    <lastmod>2026-09-21</lastmod>
     <changefreq>daily</changefreq>
     <priority>0.8</priority>
   </url>
@@ -44,7 +44,7 @@
   <!-- このサービスについて -->
   <url>
     <loc>https://koinoyamai.love/info/</loc>
-    <lastmod>2026-09-10</lastmod>
+    <lastmod>2026-09-21</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
@@ -52,7 +52,7 @@
   <!-- 今後の開発予定 -->
   <url>
     <loc>https://koinoyamai.love/future/</loc>
-    <lastmod>2026-09-10</lastmod>
+    <lastmod>2026-09-21</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.4</priority>
   </url>
@@ -60,7 +60,7 @@
   <!-- システム稼働状況 -->
   <url>
     <loc>https://koinoyamai.love/status/</loc>
-    <lastmod>2026-09-10</lastmod>
+    <lastmod>2026-09-28</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.3</priority>
   </url>
@@ -68,7 +68,7 @@
   <!-- Androidアプリダウンロード -->
   <url>
     <loc>https://koinoyamai.love/download/</loc>
-    <lastmod>2026-09-10</lastmod>
+    <lastmod>2026-10-16</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.4</priority>
   </url>
