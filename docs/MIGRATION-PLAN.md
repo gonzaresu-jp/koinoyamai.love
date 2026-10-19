@@ -1,4 +1,4 @@
-# 移設計画: 本番リポジトリを `/var/www/html/mai-push` → `/srv/mai-push` へ
+# 移設計画: 本番リポジトリを `/var/www/html/koinoyamai.love` → `/srv/mai-push` へ
 
 状態: **計画のみ（未実行）** — 実行は本書の承認ポイントで作業者承認後に開始する。
 目的: Web公開ツリー（nginx root `/var/www/html` 配下）から本番コード・DB・.env を完全に出し、
@@ -10,15 +10,15 @@
 
 | 種別 | 場所 | 内容 | 修正方法 |
 |---|---|---|---|
-| pm2 | `ecosystem.config.js` | `cwd: '/var/www/html/mai-push'` ×3（worker/discord-bot/api） | `/srv/mai-push` へ3件 |
+| pm2 | `ecosystem.config.js` | `cwd: '/var/www/html/koinoyamai.love'` ×3（worker/discord-bot/api） | `/srv/mai-push` へ3件 |
 | pm2 | `~/.pm2/dump.pm2` | 絶対パス 11件 | pm2 再登録後 `pm2 save` で自動更新 |
 | cron | root/user crontab 3本 | `0 3 * * * .../scripts/ops/backup.sh`、`*/15 .../healthcheck.sh`、`30 9 * * * .../minutes-gen-cron.sh` | `crontab -e` で3本のパスを書き換え |
-| nginx | `/etc/nginx/nginx.conf` | `root`/`alias` で `/var/www/html/mai-push/{webui,admin}` が**14箇所**（96/129/134/139/168/188/480/521/539/548/555/563/666/676/687行付近） | sed 一括置換 → `nginx -t` → reload |
-| script | `scripts/ops/backup.sh` | `BASE="/var/www/html/mai-push"` | `/srv/mai-push` |
+| nginx | `/etc/nginx/nginx.conf` | `root`/`alias` で `/var/www/html/koinoyamai.love/{webui,admin}` が**14箇所**（96/129/134/139/168/188/480/521/539/548/555/563/666/676/687行付近） | sed 一括置換 → `nginx -t` → reload |
+| script | `scripts/ops/backup.sh` | `BASE="/var/www/html/koinoyamai.love"` | `/srv/mai-push` |
 | script | `scripts/ops/healthcheck.sh` | `.env` を絶対パス grep | 同上 |
-| script | `scripts/ops/minutes-gen-cron.sh` | `cd /var/www/html/mai-push` | 同上 |
+| script | `scripts/ops/minutes-gen-cron.sh` | `cd /var/www/html/koinoyamai.love` | 同上 |
 | script | `scripts/ops/minutes-gen.js` / `minutes-test.js` / `whisper-subs.js` | `dotenv` に絶対パス指定 | `path.join(__dirname, "..", ".env")` 等に**相寜化**（推奨・今回の main.js 事故と同じ分類） |
-| script | `scripts/ops/check-native.sh` | `node /var/www/html/mai-push/scripts/ops/check-native.js` | 同上（他サイト分(DIRS)は対象外） |
+| script | `scripts/ops/check-native.sh` | `node /var/www/html/koinoyamai.love/scripts/ops/check-native.js` | 同上（他サイト分(DIRS)は対象外） |
 | script | `scripts/tools/render-compare-html.js` | コメント中の例示パス | コメント修正のみ |
 | script | `scripts/nginx/default.conf` | `root /var/www/html;`（テンプレート。本番nginxに未適用と確認） | 参考更新のみ（無くても可） |
 | samba | `/etc/samba/smb.conf` | `[html] path = /var/www/html` | 新share `[mai-push] path = /srv/mai-push` を追加（`[html]` は他サイト用なので残す） |
@@ -31,16 +31,16 @@
 - **nginx の proxy_pass**: すべて `127.0.0.1:{8080,3001,3002}` のポート参照のみ（ファイルパスを読まない）。
 - **`location ^~ /mai-push/ { deny all; }`**: URLパスでありファイルシステムパスではない。**残す**（old URL ブロック用）。
 - **`scripts/deploy/deploy-staging.sh`**: `PROD="$(cd "$(dirname "$0")/.." && pwd)"` の相対解決 → 自動追従。
-- **`scripts/deploy/sync-test-db.sh`**: もともと `dirname` 相対＋staging側は `/home/yuzuki/mai-push-test` 固定 → 修正不要。
-- **staging (`/home/yuzuki/mai-push-test`)**: パス移設の対象外（別ツリー）。
+- **`scripts/deploy/sync-test-db.sh`**: もともと `dirname` 相対＋staging側は `/home/yuzuki/koinoyamai.love-test` 固定 → 修正不要。
+- **staging (`/home/yuzuki/koinoyamai.love-test`)**: パス移設の対象外（別ツリー）。
 - **backups 保存先 `/var/lib/mai-push/backups`**: 既に公開ツリー外 → 変更不要（`backup.sh` 内の `BACKUP_DIR` は据え置き）。
-- **`/var/www/html/mai-push` 配下の DB/.env 特殊ファイル**: `.env`(600)・`data.db` は移動時にパーミッション引き継ぎ（`cp -a`）。
+- **`/var/www/html/koinoyamai.love` 配下の DB/.env 特殊ファイル**: `.env`(600)・`data.db` は移動時にパーミッション引き継ぎ（`cp -a`）。
 
 ### 1.3 移設効果（現状との差分）
 
 | | 移設前 | 移設後 |
 |---|---|---|
-| コード/DB/.env の配置 | `/var/www/html/mai-push`（Web公開ツリー内。nginx deny＋本番の分離で露出は封じ済みだが物理配置は公開ツリー） | `/srv/mai-push`（公開ツリー外） |
+| コード/DB/.env の配置 | `/var/www/html/koinoyamai.love`（Web公開ツリー内。nginx deny＋本番の分離で露出は封じ済みだが物理配置は公開ツリー） | `/srv/mai-push`（公開ツリー外） |
 | Web公開物 | `webui/`・`admin/login.html` は nginx alias で公開 | **同じ**（nginx alias の先が変わるだけで公開範囲は不変） |
 | 事故面 | staging が本番 .env を読む類の相対/絶対パス事故（main.js で発生済み） | 部分解消（本番ツリーが Web ツリーと物理分離され、誤配置・誤公開の経路が消える） |
 
@@ -55,8 +55,8 @@
   └ admin/login.html        ← 同上
 ```
 
-- 既存 `/var/www/html/mai-push` は移設後 **退避**（削除しない・`/var/www/html/mai-push.retired` 等へ rename、1週間保持後に別途判断）。
-- `/home/yuzuki/mai-push-test`（staging）は変更しない。
+- 既存 `/var/www/html/koinoyamai.love` は移設後 **退避**（削除しない・`/var/www/html/koinoyamai.love.retired` 等へ rename、1週間保持後に別途判断）。
+- `/home/yuzuki/koinoyamai.love-test`（staging）は変更しない。
 
 ## 3. 手順（実行は承認後・メンテナンス枠で）
 
@@ -67,7 +67,7 @@
 
 1. リポジトリ内パス修正を **コミット＆push**（§4 のファイル一覧。相対化するスクリプト類を含む）。
 2. `mkdir /srv/mai-push`、chown `yuzuki:yuzuki`、755。
-3. `rsync -a --exclude='.git' /var/www/html/mai-push/ /srv/mai-push/` … 実運用後は下の「同期」方式へ。
+3. `rsync -a --exclude='.git' /var/www/html/koinoyamai.love/ /srv/mai-push/` … 実運用後は下の「同期」方式へ。
    - **初回はコピーベース**（`node_modules` 含め即動く状態を作る）。`data.db` はコピー時に停止不要（backup API で一貫取得するのではなく、フェーズ1のダウンタイム内で `sqlite3 .backup` する）。
 4. smb.conf に share 追記 → `testparm` → `systemctl reload smb`。
    ```
@@ -87,9 +87,9 @@
 pm2 stop mai-push-api mai-push-worker discord-bot
 
 # 2. 一貫した DB スナップショットを /srv 側へ
-sqlite3 /var/www/html/mai-push/data.db ".timeout 8000" ".backup '/srv/mai-push/data.db'"
+sqlite3 /var/www/html/koinoyamai.love/data.db ".timeout 8000" ".backup '/srv/mai-push/data.db'"
 chmod 640 /srv/mai-push/data.db
-cp -a /var/www/html/mai-push/.env /srv/mai-push/.env   # 600 引き継ぎ
+cp -a /var/www/html/koinoyamai.love/.env /srv/mai-push/.env   # 600 引き継ぎ
 
 # 3. 本番ツリーへ最新 main を展開（git 取得は /srv 側で）
 cd /srv/mai-push && git fetch origin && git reset --hard origin/main
@@ -106,23 +106,23 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8080/api/notif
   -H 'Content-Type: application/json' -d '{}'     # 401（認証系生きている）
 
 # 7. nginx パス差し替え → reload
-sed -i 's|/var/www/html/mai-push|/srv/mai-push|g' /etc/nginx/nginx.conf
+sed -i 's|/var/www/html/koinoyamai.love|/srv/mai-push|g' /etc/nginx/nginx.conf
 sudo nginx -t && sudo systemctl reload nginx
 
 # 8. 公開系スモーク（外部から）
-#    https://mai.honna-yuzuki.com/ … トップ200
+#    https://koinoyamai.love/ … トップ200
 #    /admin/login/  … 200（login.html）
 #    /api/archive/stats … 200
 #    YouTube/TwitCasting webhook … 外部 ping が 200 か本番ログで受信確認
 
 # 9. 旧ツリー退避
-mv /var/www/html/mai-push /var/www/html/mai-push.retired
+mv /var/www/html/koinoyamai.love /var/www/html/koinoyamai.love.retired
 ```
 
 ### Phase 2: cron 差し替え（ダウンタイム内でも可・Phase 1 直後）
 
 ```bash
-crontab -l | sed 's|/var/www/html/mai-push|/srv/mai-push|g' | crontab -
+crontab -l | sed 's|/var/www/html/koinoyamai.love|/srv/mai-push|g' | crontab -
 crontab -l | grep mai-push   # 3本すべて /srv になっていることを確認
 ```
 
@@ -130,7 +130,7 @@ crontab -l | grep mai-push   # 3本すべて /srv になっていることを確
 
 | 方式 | 手順 | リスク |
 |---|---|---|
-| A. mv 引き継ぎ（推奨・最速） | Phase 1 の `git reset` 前に `rsync -a /var/www/html/mai-push/node_modules/ /srv/mai-push/node_modules/` | なし（同一ホスト・同一 ABI。native リビルド不要） |
+| A. mv 引き継ぎ（推奨・最速） | Phase 1 の `git reset` 前に `rsync -a /var/www/html/koinoyamai.love/node_modules/ /srv/mai-push/node_modules/` | なし（同一ホスト・同一 ABI。native リビルド不要） |
 | B. クリーン install | `/srv/mai-push` で `PATH=v22` を優先に `npm ci` | ステージング未通過の依存差異が出た場合はここで初めて発覚。**AGENTS.md §5 の通り staging で先に回帰必須** |
 
 初回は **A**、以降の更新は `/srv/mai-push` 内で `npm ci`（B 相当）を普段運用にする。
@@ -142,7 +142,7 @@ crontab -l | grep mai-push   # 3本すべて /srv になっていることを確
 - [ ] `pm2 list`: api/worker/discord-bot = online、↺ が増えていない（クラッシュループなし）
 - [ ] ワーカーログ: Twitter/YouTube/FANBOX 各 watcher「起動」＋1ポーリング周期、error ログ空
 - [ ] 外部: トップ・archive・`/admin/login/`・PWA(SW)・SSE が 200
-- [ ] `ls /var/www/html/mai-push` が不存在（`.retired` のみ）、`grep -r '/var/www/html/mai-push' /etc/nginx/` が 0 件
+- [ ] `ls /var/www/html/koinoyamai.love` が不存在（`.retired` のみ）、`grep -r '/var/www/html/koinoyamai.love' /etc/nginx/` が 0 件
 - [ ] crontab 3本が `/srv/mai-push`、翌 03:00 の backup が `/var/lib/mai-push/backups` に成功（翌朝 `ls` 確認）
 - [ ] Windows から `\\192.168.1.72\mai-push` で読め、opencode の cwd を新パスにして `node --check` 実行可
 - [ ] staging(`8081`) が引き続き別ツリーで `npm test` 21/21 PASS
@@ -172,7 +172,7 @@ crontab -l | grep mai-push   # 3本すべて /srv になっていることを確
 | DB が移設元と二重に更新される | **Phase 1 は必ず「pm2 stop → copy → start」の順**。stop 前に書き込みを許さない |
 | node_modules の native ABI 不一致 | 同一ホストなので発生しない（rsync 引き継ぎ時）。クリーン install 時のみ v22 PATH |
 | SMB 切替で Windows 作業が止まる | `[html]` share は残すため旧パスも読める。新旧並行期間を取る |
-| ロールバック | `mv /var/www/html/mai-push.retired /var/www/html/mai-push` → ecosystem の cwd を旧パスに（または旧 dump 恢復）→ pm2 start → nginx.conf を `.bak` から戻し reload → crontab を旧パスへ。**所要 5 分以内で完全復帰可能** |
+| ロールバック | `mv /var/www/html/koinoyamai.love.retired /var/www/html/koinoyamai.love` → ecosystem の cwd を旧パスに（または旧 dump 恢復）→ pm2 start → nginx.conf を `.bak` から戻し reload → crontab を旧パスへ。**所要 5 分以内で完全復帰可能** |
 
 ## 6. 実行スケジュール案
 

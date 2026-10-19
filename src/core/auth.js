@@ -13,11 +13,11 @@ const DISCORD_CLIENT_SECRET = (process.env.DISCORD_CLIENT_SECRET || '').replace(
 const DISCORD_REDIRECT_URI = (process.env.DISCORD_REDIRECT_URI || '').replace(/"/g, '').trim();
 
 // ---- ドメイン移行: リクエストHostからredirect_uriを動的解決 ----
-// PUBLIC_HOSTS: 常に https を使う公開ドメイン（デュアルドメイン期間は両方許可）
+// PUBLIC_HOSTS: 常に https を使う公開ドメイン（本番 koinoyamai.love / staging test.koinoyamai.love）
 // DEV_HOSTS: http を使うローカル開発ホスト
 const PUBLIC_HOSTS = new Set([
-  'mai.honna-yuzuki.com',
   'koinoyamai.love',
+  'test.koinoyamai.love',
 ]);
 const DEV_HOSTS = new Set(['localhost', '127.0.0.1']);
 

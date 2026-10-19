@@ -1,7 +1,7 @@
 #!/bin/bash
 # 登録者数の日次更新 + データファイルの自動コミット
 #
-# cron: 5 0 * * * /var/www/html/mai-push/scripts/ops/update-subscribers-and-commit.sh
+# cron: 5 0 * * * /var/www/html/koinoyamai.love/scripts/ops/update-subscribers-and-commit.sh
 #
 # 背景:
 #   scripts/ops/update-subscribers.js は webui/data/*.txt を日次で追記する。

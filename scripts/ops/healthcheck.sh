@@ -7,7 +7,7 @@ WORKER_BASE="http://localhost:3002"
 # トークン類は .env から読む（GitHubに直接書かない。判定: FriendlyScanner流出検知対策）
 # .env の値は二重引用符で書かれていることがあるため除去する。
 env_val() {
-    grep -m1 "^$1=" /var/www/html/mai-push/.env 2>/dev/null | cut -d= -f2- | tr -d "\"'" | tr -d ' \r\n'
+    grep -m1 "^$1=" /var/www/html/koinoyamai.love/.env 2>/dev/null | cut -d= -f2- | tr -d "\"'" | tr -d ' \r\n'
 }
 DISCORD_BOT_TOKEN="${DISCORD_BOT_TOKEN:-$(env_val DISCORD_BOT_TOKEN)}"
 DISCORD_CHANNEL_ID="${DISCORD_CHANNEL_ID:-$(env_val DISCORD_CHANNEL_ID)}"
@@ -22,7 +22,7 @@ send_alert() {
     [ "$level" = "ERROR" ] && color=16711680
     curl -s -H "Content-Type: application/json" \
          -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
-         -H "User-Agent: mai-push-healthcheck (https://mai.honna-yuzuki.com, 1.0)" \
+         -H "User-Agent: mai-push-healthcheck (https://koinoyamai.love, 1.0)" \
          -X POST "https://discord.com/api/v10/channels/$DISCORD_CHANNEL_ID/messages" \
          -d "{
            \"embeds\": [{

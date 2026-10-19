@@ -23,8 +23,8 @@
 #   2 = 前提不成立（ディレクトリが無い等）
 set -uo pipefail
 
-PROD_DIR="${PROD_DIR:-/var/www/html/mai-push}"
-STG_DIR="${STG_DIR:-/home/yuzuki/mai-push-test}"
+PROD_DIR="${PROD_DIR:-/var/www/html/koinoyamai.love}"
+STG_DIR="${STG_DIR:-/home/yuzuki/koinoyamai.love-test}"
 QUIET=0
 [ "${1:-}" = "--quiet" ] && QUIET=1
 

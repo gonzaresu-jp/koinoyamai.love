@@ -7,9 +7,9 @@
 > 実装を探す前にまずこれを読む。構成を変えたら同ファイルも更新する。
 
 ## 1. ポート位相（最重要・間違えやすい）
-- **本番API = PORT 8080**（pm2: `mai-push-api`, `/var/www/html/mai-push/server.js`）
-- **staging API = PORT 8081**（pm2: `mai-push-api-test`, `/home/yuzuki/mai-push-test/server.js`, NODE_ENV=development）
-- **本番ワーカー = `mai-push-worker`**（pm2, `/var/www/html/mai-push/main.js`、Webhook 3001）
+- **本番API = PORT 8080**（pm2: `mai-push-api`, `/var/www/html/koinoyamai.love/server.js`）
+- **staging API = PORT 8081**（pm2: `mai-push-api-test`, `/home/yuzuki/koinoyamai.love-test/server.js`, NODE_ENV=development）
+- **本番ワーカー = `mai-push-worker`**（pm2, `/var/www/html/koinoyamai.love/main.js`、Webhook 3001）
 - `curl localhost:8081` は**staging**である。本番検証を 8081 で行うと**stagingの旧コードを本番と誤認**する（実際に起きた）。
 - 検証前に必ず `ss -ltnp | grep -E '8080|8081'` と `pm2 pid` で**ポートの実所有者PID→パス**を確認してから叩け。
 
@@ -73,14 +73,16 @@
 
 ## 6.7 admin は Tailnet 専用（2026-10-10 追加）
 - **管理画面の正規エントリは `https://elza.poitou-mora.ts.net/admin.html`（tailscale serve・tailnet のみ・自動認証）**。
-  公開ドメイン（koinoyamai.love / mai）の `/admin`・`/admin.html`・`/admin/login/` は **ts.net へ 302 リダイレクトが仕様**
+  公開ドメイン `koinoyamai.love` の `/admin`・`/admin.html`・`/admin/login/` は **ts.net へ 302 リダイレクトが仕様**
   （Ctrl+K パレットのショートカット用。`/api/admin` は **403** のまま）。
   （nginx: `allow 192.168.0.0/16` + `100.64.0.0/10` で deny 時に `error_page 403 = @to_elza_*` → 302。
   cloudflared 由来の loopback はリダイレクト。**302/403 を障害と誤診しないこと。**）
   LAN/Tailnet 直撃は従来通りローカル配信（tailscale 停動時の保険）。
   elza vhost は tailscale serve の受け皿（`127.0.0.1` 許可）＋
-  webui 静的配信（`/css/`・`/js/admin-`・`/migration.js`・fontawesome）付き。
-- LAN 保険: `http://192.168.1.72:1700/admin/login/`（WebAuthn は http 非対応のためパスワードのみ）。
+  webui 静的配信（`/css/`・`/js/admin-`・fontawesome）付き。
+- **旧ドメイン `mai.honna-yuzuki.com`（nginx :1700）は全パス301で `koinoyamai.love` へ集約（2026-10-19、例外なし）**。
+  旧 `/api`・`/auth`・`/dl`・`/pushweb`・`/admin` の例外は撤廃（旧アプリは非対応／新ドメインへ誘導）。
+- LAN 保険: `http://192.168.1.72:1717/admin/login/`（旧 `:1700` は全301のため `:1717` を使用。WebAuthn は http 非対応のためパスワードのみ）。
   `/api/` の `Host` は **`$http_host`**（`$host` に戻すとポートが落ちて POST が CSRF 403 になる）。
 - **tailscale funnel は OFF（再有効化しない）**。`funnel off` は serve config ごと消えるため、
   消えた場合は `sudo tailscale serve --bg --yes --https=443 http://127.0.0.1:80` で tailnet only に立て直す。
@@ -134,14 +136,14 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
   自動コミットによる behind は**正常と判定**（誤検出しない）。
 - **cron 登録済み**（1日1回 06:30、0.14秒。ログは `logs/drift.log`）:
   ```
-  30 6 * * * cd /var/www/html/mai-push && ./scripts/deploy/check-drift.sh --quiet >> logs/drift.log 2>&1
+  30 6 * * * cd /var/www/html/koinoyamai.love && ./scripts/deploy/check-drift.sh --quiet >> logs/drift.log 2>&1
   ```
   乖離があった場合のみログに記録される（--quiet は出力を stderr に出すため、
   乖離なしは無言で exit 0）。
 
 ### 7.5 日次データ更新（cron 実装済み・手動介入不要）
 ```
-5 0 * * * cd /var/www/html/mai-push && ./scripts/ops/update-subscribers-and-commit.sh >> logs/subscribers.log 2>&1
+5 0 * * * cd /var/www/html/koinoyamai.love && ./scripts/ops/update-subscribers-and-commit.sh >> logs/subscribers.log 2>&1
 ```
 - `scripts/ops/update-subscribers.js` で YouTube 登録者数を取得し `webui/data/*.txt` に追記、
   そのまま **commit + push** する。`webui/data` は ignore 済みだが追跡済みのため `git add -u` を使う。

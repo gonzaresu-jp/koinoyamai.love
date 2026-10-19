@@ -122,10 +122,4 @@ $image = isset($pageImage) ? $pageImage : $defaultImage;
 <!-- ヘッダー専用CSS（全ページ共通・header.php の style を分離） -->
 <link rel="stylesheet" href="/css/header.css?v=<?= @filemtime(__DIR__ . '/css/header.css') ?: time(); ?>" />
 
-<?php
-// ドメイン移行カード: 旧ドメイン(mai.honna-yuzuki.com)のときだけ読み込む。
-// JS(migration.js)側でもホストを再判定するため、静的HTMLから無条件に呼ばれても安全。
-$migHost = strtolower((string) parse_url($domain, PHP_URL_HOST));
-if ($migHost === 'mai.honna-yuzuki.com') {
-    ?><script src="/migration.js" defer></script><?php
-}
+

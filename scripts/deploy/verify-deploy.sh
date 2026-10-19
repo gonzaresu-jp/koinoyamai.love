@@ -3,7 +3,7 @@
 #
 # 使い方:
 #   bash scripts/deploy/verify-deploy.sh webui/wave.php
-#   bash scripts/deploy/verify-deploy.sh webui/index.php https://mai.honna-yuzuki.com/ [マーカー]
+#   bash scripts/deploy/verify-deploy.sh webui/index.php https://koinoyamai.love/ [マーカー]
 #
 # なぜ必要か（2026-09-26 の実事故）:
 #   nginx の open_file_cache は、置換直後の静的ファイルについて古い size を

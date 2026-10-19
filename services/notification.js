@@ -8,12 +8,12 @@ function loadVapid() {
   const path = require("path");
   try {
     ctx.vapidConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "vapid.json"), "utf8"));
-    webpush.setVapidDetails("mailto:admin@honna-yuzuki.com", ctx.vapidConfig.vapidPublicKey, ctx.vapidConfig.vapidPrivateKey);
+    webpush.setVapidDetails("mailto:admin@koinoyamai.love", ctx.vapidConfig.vapidPublicKey, ctx.vapidConfig.vapidPrivateKey);
     console.log("VAPID keys loaded");
   } catch (e) {
     console.warn("vapid.json load failed:", e.message);
     ctx.vapidConfig = { vapidPublicKey: "test-key", vapidPrivateKey: "test-key" };
-    webpush.setVapidDetails("mailto:admin@honna-yuzuki.com", ctx.vapidConfig.vapidPublicKey, ctx.vapidConfig.vapidPrivateKey);
+    webpush.setVapidDetails("mailto:admin@koinoyamai.love", ctx.vapidConfig.vapidPublicKey, ctx.vapidConfig.vapidPrivateKey);
   }
 }
 
@@ -78,7 +78,7 @@ async function sendPushNotification(subscription, payload, isTest = false) {
   }
 }
 
-const PUBLIC_URL = process.env.PUBLIC_URL || "https://mai.honna-yuzuki.com";
+const PUBLIC_URL = process.env.PUBLIC_URL || "https://koinoyamai.love";
 function normalizeAbsoluteUrl(url) {
   if (!url) return url;
   if (url.startsWith("http://") || url.startsWith("https://")) return url;

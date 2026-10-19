@@ -32,12 +32,12 @@
 
 | プロセス | PORT | bind | 実行パス | 備考 |
 |---|---|---|---|---|
-| `mai-push-api`（本番） | 8080 | 127.0.0.1 | `/var/www/html/mai-push/server.js` | nginx/cloudflared 経由 |
-| `mai-push-api-test`（staging） | 8081 | 127.0.0.1 | `/home/yuzuki/mai-push-test/server.js` | `NODE_ENV=development`・`DISABLE_NOTIFICATIONS=1` |
-| `mai-push-worker`（本番） | 3002 | 127.0.0.1 | `/var/www/html/mai-push/main.js` | スクレイパー本体 |
-| `mai-push-worker-test` | 3003 | 127.0.0.1 | `/home/yuzuki/mai-push-test/main.js` | 手動起動運用 |
+| `mai-push-api`（本番） | 8080 | 127.0.0.1 | `/var/www/html/koinoyamai.love/server.js` | nginx/cloudflared 経由 |
+| `mai-push-api-test`（staging） | 8081 | 127.0.0.1 | `/home/yuzuki/koinoyamai.love-test/server.js` | `NODE_ENV=development`・`DISABLE_NOTIFICATIONS=1` |
+| `mai-push-worker`（本番） | 3002 | 127.0.0.1 | `/var/www/html/koinoyamai.love/main.js` | スクレイパー本体 |
+| `mai-push-worker-test` | 3003 | 127.0.0.1 | `/home/yuzuki/koinoyamai.love-test/main.js` | 手動起動運用 |
 | YouTube Webhook | 3001 | 0.0.0.0 | `src/scrapers/youtube.js startWebhook` | PubSubHubbub。外部フックのため唯一 0.0.0.0 |
-| `discord-bot` | – | – | `/var/www/html/mai-push/discord-bot.js` | |
+| `discord-bot` | – | – | `/var/www/html/koinoyamai.love/discord-bot.js` | |
 
 - 定義は `ecosystem.config.js`。API は **Node v22.12.0（nvm）** 固定、ワーカーは既定 node。
 - **`curl localhost:8081` は staging**。本番検証と誤認しないこと（`AGENTS.md §1`）。検証前に `bash scripts/deploy/assert-port.sh prod|staging`。
@@ -186,7 +186,7 @@
 | `js/` | 画面別 JS。`index-*`, `admin-*`, `wave-*`, `header-auth.js`, `header-jst.js`, `pushService.js`, `palette.js` 等 |
 | `css/`, `style.css`, `sp.css` | スタイル。`css/header.css` は非 minify で `?v=filemtime` 読込 |
 | `data/` / `dl/` / `dist/` / `fontawesome-free-*` | データ・配布物・生成物 |
-| `migration.js`, `firebase-messaging-sw.js`, `manifest.json` | SW/移行/PWA |
+| `firebase-messaging-sw.js`, `manifest.json` | SW/PWA |
 
 - **CSP は `script-src 'self'`**（nginx `scripts/nginx/mai-test.conf` 等）。インライン JS 不可 → 新規 JS は `/js/*.js` に置く。
 - 公開 HTML の反映は `bash scripts/deploy/verify-deploy.sh webui/<file>` でバイト比較（`open_file_cache` 切詰め検出、`AGENTS.md §7.1`）。

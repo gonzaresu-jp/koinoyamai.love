@@ -45,7 +45,7 @@
          ===================================================== -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- api.honna-yuzuki.com など API ホストが別ドメインの場合はここに追加 -->
+    <!-- API ホストが別ドメイン（例: api.koinoyamai.love）の場合はここに追加 -->
 
     <!-- =====================================================
          スクリプト

@@ -2,7 +2,7 @@ module.exports = {
   apps: [{
     name: 'mai-push-worker',
     script: './main.js',
-    cwd: '/var/www/html/mai-push',
+    cwd: '/var/www/html/koinoyamai.love',
     max_memory_restart: '2G',
     env: {
       NODE_ENV: 'production',
@@ -14,7 +14,7 @@ module.exports = {
   {
     name: 'discord-bot',
     script: './discord-bot.js',
-    cwd: '/var/www/html/mai-push',
+    cwd: '/var/www/html/koinoyamai.love',
     // メモリ上限での自動再起動（2026-09-27 の global OOM 対策）
     max_memory_restart: '512M',
     env: {
@@ -24,7 +24,7 @@ module.exports = {
   {
     name: 'mai-push-api',
     script: './server.js',
-    cwd: '/var/www/html/mai-push',
+    cwd: '/var/www/html/koinoyamai.love',
     // sharp@0.35 は Node >= 20.9 が必須のため 22 系に固定 (system node 18 では起動クラッシュする)
     interpreter: '/home/yuzuki/.nvm/versions/node/v22.12.0/bin/node',
     env: {
@@ -41,13 +41,13 @@ module.exports = {
   {
     name: 'mai-push-api-test',
     script: './server.js',
-    cwd: '/home/yuzuki/mai-push-test',   // staging worktree（git worktree: stagingブランチ）
+    cwd: '/home/yuzuki/koinoyamai.love-test',   // staging worktree（git worktree: stagingブランチ）
     interpreter: '/home/yuzuki/.nvm/versions/node/v22.12.0/bin/node',
     env: {
       NODE_ENV: 'development',              // server.js が .env.test / 定期タスクskip判定に使用
       PORT: '8081',
       DB_FILE_NAME: 'data-test.db',         // staging用スナップショットDB
-      ADMIN_DB_PATH: '/home/yuzuki/mai-push-test/data-test.db',
+      ADMIN_DB_PATH: '/home/yuzuki/koinoyamai.love-test/data-test.db',
       DISABLE_NOTIFICATIONS: '1',           // 実push完全抑止（routes/notify.js がmimic応答）
       NOTIFY_API_URL: 'http://localhost:8081/api/notify'
     },
@@ -58,7 +58,7 @@ module.exports = {
   {
     name: 'mai-push-worker-test',
     script: './main.js',
-    cwd: '/home/yuzuki/mai-push-test',
+    cwd: '/home/yuzuki/koinoyamai.love-test',
     env: {
       NODE_ENV: 'development',
       PORT: '3003',

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# deploy-staging.sh - 指定ブランチを staging 環境（/home/yuzuki/mai-push-test）へデプロイする
+# deploy-staging.sh - 指定ブランチを staging 環境（/home/yuzuki/koinoyamai.love-test）へデプロイする
 #
 # 使い方:
 #   bash scripts/deploy/deploy-staging.sh <branch> [--worker] [--sync-db] [--dry-run]
@@ -8,7 +8,7 @@
 #     --sync-db    先に本番 data.db を data-test.db へスナップショットする
 #     --dry-run    実行せずに手順だけ表示
 #
-# 前提: staging worktree は /home/yuzuki/mai-push-test。
+# 前提: staging worktree は /home/yuzuki/koinoyamai.love-test。
 #       node_modules は 2026-09-22 から staging 独自の実体（sqlite3@6 で npm install）。
 #       .env は staging 実体（600）、本番と別値。※以前は node_modules/.env が本番への symlink だった
 
@@ -30,7 +30,7 @@ for arg in "$@"; do
 done
 
 BRANCH="${BRANCH_ORIG:-main}"
-STAGING="/home/yuzuki/mai-push-test"
+STAGING="/home/yuzuki/koinoyamai.love-test"
 PROD="$(cd "$(dirname "$0")/../.." && pwd)"
 
 # worktree の .git は「ディレクトリではなくファイル」なので -e で判定する
@@ -133,4 +133,4 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 echo "smoke OK"
-echo "完了: https://mai-test.honna-yuzuki.com で手動確認してください"
+echo "完了: https://test.koinoyamai.love で手動確認してください"

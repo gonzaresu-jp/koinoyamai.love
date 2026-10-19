@@ -24,9 +24,9 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 # 期待値（AGENTS.md §1 と整合。tree ごとに別ファイルへ hardcode しない）
 PROD_PORT=8080
-PROD_PATH="/var/www/html/mai-push/server.js"
+PROD_PATH="/var/www/html/koinoyamai.love/server.js"
 STG_PORT=8081
-STG_PATH="/home/yuzuki/mai-push-test/server.js"
+STG_PATH="/home/yuzuki/koinoyamai.love-test/server.js"
 
 die() { echo "ERROR: $*" >&2; exit 2; }
 fail() { echo "✗ FAIL: $*" >&2; exit 1; }

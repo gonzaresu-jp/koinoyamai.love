@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * render-compare-html.js — GROQ不要の自完結HTML比較レンダラ
- *   node render-compare-html.js --recent 3 --html /var/www/html/mai-push/webui/compare.html
+ *   node render-compare-html.js --recent 3 --html /var/www/html/koinoyamai.love/webui/compare.html
  *   node render-compare-html.js --vids "id1 id2" --html out.html --bucket-sec 30
  *
  * 表示: YT字幕 と 自前(Whisper)字幕 を時間バケット行×2列のテーブルで横並び比較

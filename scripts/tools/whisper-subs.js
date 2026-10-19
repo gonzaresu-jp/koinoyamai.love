@@ -11,7 +11,7 @@
 //   - yt-dlp / ffmpeg が PATH にあること（サーバーIPがYTにブロックされる場合は
 //     YTDLP_COOKIES_FILE にブラウザからエクスポートした cookies.txt を指定）
 //   - 話者分離 (speaker列) は未実装。コラボ本採用時に pyannote 等の方式確定後に埋める。
-require("dotenv").config({ path: "/var/www/html/mai-push/.env" });
+require("dotenv").config({ path: "/var/www/html/koinoyamai.love/.env" });
 const { execFile, execFileSync } = require("child_process");
 const fs = require("fs");
 const os = require("os");
