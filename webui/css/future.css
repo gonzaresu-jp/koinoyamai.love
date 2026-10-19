@@ -55,3 +55,16 @@
             margin-top: 4px;
             line-height: 1.5;
         }
+
+        .done-list li::before {
+            content: "✓";
+            color: #2e9e5b;
+        }
+
+        .done-list li strong {
+            color: #4a4a4a;
+        }
+
+        .done-list li .note {
+            color: #666;
+        }
