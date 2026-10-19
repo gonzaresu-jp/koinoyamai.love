@@ -1024,6 +1024,7 @@ public sealed partial class MainWindow : Window
                                 title: notif.title || '',
                                 body: notif.body || '',
                                 icon: notif.icon || '',
+                                image: notif.image || '',
                                 url: notif.url || ''
                             }));
                         } catch (_) {}
@@ -1059,8 +1060,11 @@ public sealed partial class MainWindow : Window
             var title = root.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
             var body  = root.TryGetProperty("body",  out var b) ? b.GetString() ?? "" : "";
             var icon  = root.TryGetProperty("icon",  out var i) ? i.GetString() ?? "" : "";
+            var image = root.TryGetProperty("image", out var im) ? im.GetString() ?? "" : "";
 
-            DispatcherQueue.TryEnqueue(() => NotificationHelper.ShowToast(title, body, icon));
+            // サムネイル（image）をヒーロー画像に使う。無ければ従来どおり icon にフォールバック。
+            var hero = string.IsNullOrEmpty(image) ? icon : image;
+            DispatcherQueue.TryEnqueue(() => NotificationHelper.ShowToast(title, body, hero));
         }
         catch { }
     }

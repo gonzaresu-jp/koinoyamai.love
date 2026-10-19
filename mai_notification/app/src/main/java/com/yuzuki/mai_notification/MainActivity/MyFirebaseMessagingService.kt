@@ -117,30 +117,33 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
 
-        // 大きなアイコン（アプリのランチャーアイコン）
-        try {
-            val launcherBitmap = BitmapFactory.decodeResource(resources, R.drawable.ic_mai_logo)
-            if (launcherBitmap != null) {
-                notificationBuilder.setLargeIcon(launcherBitmap)
-            }
-        } catch (e: Exception) {
-            Log.w("FCM", "Failed to load launcher icon: ${e.message}")
+        // サムネイル（YouTube の配信枠など）を取得。取得できれば大きなアイコンにも使い、
+        // 通知を展開しなくても右側にサムネイルが見えるようにする。
+        val heroImage = if (imageUrl != null) fetchImage(imageUrl) else null
+        if (imageUrl != null && heroImage == null) {
+            Log.w("FCM", "heroImage fetch returned null for: $imageUrl")
+        } else if (imageUrl == null) {
+            Log.d("FCM", "No imageUrl in data, using launcher icon")
         }
 
-        // ヒーロー画像（BigPictureStyle）
-        if (imageUrl != null) {
-            val heroImage = fetchImage(imageUrl)
-            if (heroImage != null) {
-                notificationBuilder.setStyle(
-                    NotificationCompat.BigPictureStyle()
-                        .bigPicture(heroImage)
-                        .bigLargeIcon(null as Bitmap?)
-                )
-            } else {
-                Log.w("FCM", "heroImage fetch returned null for: $imageUrl")
-            }
-        } else {
-            Log.d("FCM", "No imageUrl in data, skipping BigPictureStyle")
+        // 大きなアイコン: サムネイル優先、無ければアプリのランチャーアイコン
+        val largeBitmap = heroImage ?: try {
+            BitmapFactory.decodeResource(resources, R.drawable.ic_mai_logo)
+        } catch (e: Exception) {
+            Log.w("FCM", "Failed to load launcher icon: ${e.message}")
+            null
+        }
+        if (largeBitmap != null) {
+            notificationBuilder.setLargeIcon(largeBitmap)
+        }
+
+        // 展開時は BigPictureStyle で大きく表示
+        if (heroImage != null) {
+            notificationBuilder.setStyle(
+                NotificationCompat.BigPictureStyle()
+                    .bigPicture(heroImage)
+                    .bigLargeIcon(null as Bitmap?)
+            )
         }
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
