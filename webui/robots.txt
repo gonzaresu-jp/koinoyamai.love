@@ -1,7 +1,11 @@
 User-agent: *
 Allow: /
 
-# APIエンドポイント・内部データはクロール不要
+# Googlebot には全ページを許可し、サイトマップを明示
+User-agent: Googlebot
+Allow: /
+
+# API・内部データはクロール不要
 Disallow: /api/
 Disallow: /data/
 Disallow: /js/
