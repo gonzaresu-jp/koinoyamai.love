@@ -1018,12 +1018,16 @@ public sealed partial class MainWindow : Window
                             const notif = json.logs?.[0];
                             if (!notif || notif.id <= lastId) return;
                             lastId = notif.id;
+                            // 履歴の icon/image は相対パスのことがある（テスト通知など）。
+                            // トーストのヒーロー画像は絶対URIが必要なのでここで解決する。
+                            const abs = (u) => { try { return u ? new URL(u, location.origin).href : ''; } catch (_) { return ''; } };
                             window.chrome.webview.postMessage(JSON.stringify({
                                 type: 'push-notification',
                                 id: notif.id,
                                 title: notif.title || '',
                                 body: notif.body || '',
-                                icon: notif.icon || '',
+                                icon: abs(notif.icon),
+                                image: abs(notif.image),
                                 url: notif.url || ''
                             }));
                         } catch (_) {}
@@ -1058,9 +1062,11 @@ public sealed partial class MainWindow : Window
 
             var title = root.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
             var body  = root.TryGetProperty("body",  out var b) ? b.GetString() ?? "" : "";
-            var icon  = root.TryGetProperty("icon",  out var i) ? i.GetString() ?? "" : "";
+            var image = root.TryGetProperty("image", out var im) ? im.GetString() ?? "" : "";
 
-            DispatcherQueue.TryEnqueue(() => NotificationHelper.ShowToast(title, body, icon));
+            // サムネイル（image）をトーストのヒーロー画像に使う。image は絶対URL。
+            // icon は相対URL（/icon.webp）で SetHeroImage の要件（絶対URI）を満たさないためフォールバックしない。
+            DispatcherQueue.TryEnqueue(() => NotificationHelper.ShowToast(title, body, image));
         }
         catch { }
     }

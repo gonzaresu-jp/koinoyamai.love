@@ -90,8 +90,9 @@
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="mai_default" />
 
+        <!-- Android 14+ の通知委譲（既定で有効）。プレフィックスを付けるとSDKに読まれないため付けない -->
         <meta-data
-            android:name="com.google.firebase.messaging.notification_delegation_enabled"
+            android:name="firebase_messaging_notification_delegation_enabled"
             android:value="true" />
     </application>
 
