@@ -189,7 +189,7 @@
 | `firebase-messaging-sw.js`, `manifest.json` | SW/PWA |
 
 - **CSP は `script-src 'self'`**（nginx `scripts/nginx/mai-test.conf` 等）。インライン JS 不可 → 新規 JS は `/js/*.js` に置く。
-- 公開 HTML の反映は `bash scripts/deploy/verify-deploy.sh webui/<file>` でバイト比較（`open_file_cache` 切詰め検出、`AGENTS.md §7.1`）。
+- 公開 HTML の反映は `bash scripts/deploy/verify-deploy.sh webui/<file>` でバイト比較（`open_file_cache` 切詰め検出、`AGENTS.md §7.1`）。同スクリプトは配信ファイルが other 読み取り可か（php-fpm から読めるか）も検査する。
 
 ### 4.6 `scripts/`（運用）
 - **`deploy/`**: `deploy-staging.sh` / `promote.sh`（staging→prod）/ `verify-deploy.sh` / `assert-port.sh` / `check-drift.sh` / `sync-test-db.sh` / `restart.sh`

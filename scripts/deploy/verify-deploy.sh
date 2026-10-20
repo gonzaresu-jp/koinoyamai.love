@@ -18,6 +18,8 @@
 #   - 配信バイト数 < ディスク上のバイト数 → 切詰め（要待って再試行）
 #   - 配信バイト数 > ディスク上のバイト数 → 不明な余分（要調査）
 #   - 完全一致 → OK
+#   - ファイルが other 読み取り不可（mode 600 等）→ 即エラー
+#     （php-fpm/nginx から読めず 500 になる。2026-10-20 に umask 077 の git pull で実発生）
 #
 # 環境変数で上書き可:
 #   ORIGIN_BASE  (既定 http://127.0.0.1:1717)  … Cloudflare を経由しない配信元
@@ -47,6 +49,21 @@ MARKER="${3:-}"
 [ -f "$LOCAL" ] || die "ローカルファイルが見つかりません: $LOCAL"
 LOCAL_SIZE=$(wc -c < "$LOCAL" | tr -d ' ')
 echo "[verify-deploy] ローカル: $LOCAL (${LOCAL_SIZE} bytes)"
+
+# --- パーミッション検査（2026-10-20 の実事故）---
+# umask 077 のシェルで git pull / promote.sh すると、書き換わる webui/*.php が
+# mode 600 で作られ、php-fpm (www-data) から読めず 500 を返す（本番 /logs/ で実発生）。
+# バイト数比較では捕まらない（そもそも配信されない）ので、ここで機械的に弾く。
+PERM=$(stat -c '%a' "$LOCAL" 2>/dev/null || echo "-")
+if [ "$PERM" = "-" ]; then
+  echo "[verify-deploy] パーミッション検査: skip（stat で mode を取得できません）"
+elif [ $(( 8#$PERM & 8#004 )) -eq 0 ]; then
+  echo "[verify-deploy] ✗ $LOCAL は mode $PERM（other 読み取り不可）＝php-fpm/nginx から読めません" >&2
+  echo "              chmod 664 $LOCAL で復旧してください（AGENTS.md §7.1）" >&2
+  exit 1
+else
+  echo "[verify-deploy] パーミッション: mode $PERM ✓"
+fi
 
 # 公開URLが未指定ならリポジトリ相対パスから推測する
 #   webui/wave.php → /wave.php   (nginx :1717 の docroot が webui/ のため)
