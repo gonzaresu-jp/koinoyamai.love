@@ -262,8 +262,9 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     （`OnHoverTick`）や `WM_NCMOUSEMOVE` から毎フレーム要求された場合に、待ちが 400ms を超えて
     永久に延長され、**折りたたみなどが一生起きない**（タブバーが出たままで問題）。
   - 「予約済み」フラグ（`_collapsePending`）で延長を止める。フラグは
-    `StartCollapseTimer` / `CancelCollapseTimer` / `ShowTabStrip` / `ResetTabStripHidden` の
-    4経路で必ずリセットすること（リセット漏れ 있으면以後折りたたみが起きない）。
+    **予約= `StartCollapseTimer`／解除= Tick ハンドラ・`CancelCollapseTimer`・`ShowTabStrip`・
+    `ResetTabStripHidden` の4経路**で必ずリセットすること（リセット漏れがあると
+    以後折りたたみが起きない）。予約に失敗した場合もフラグを戻すこと。
 
 ### 10.1 アプリリリース手順（Windows / Android）— 2026-10-20（v1.8.3 / v1.7.2）で実施
 

@@ -1,5 +1,5 @@
 {
   "version": "1.8.5",
-  "url": "https://koinoyamai.love/dl/MaiPush-1.8.5-Setup.exe?v=1792514719",
+  "url": "https://koinoyamai.love/dl/MaiPush-1.8.5-Setup.exe?v=1792483675",
   "notes": "タブバーが出たままでになる問題を修正しました（1.8.5）。カーソルをウィンドウ上端へ移動するとタブバーが出ますが、カーソルを外すと自動的に格納されるようになりました。v1.8.4 の安定性改善（未処理例外の捕捉）も引き続き適用されています。"
 }

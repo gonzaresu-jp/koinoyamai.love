@@ -78,7 +78,12 @@ public sealed partial class MainWindow : Window
 
         ExtendsContentIntoTitleBar = true;
         StyleCaptionButtons();
-        _appWindow.Changed += (_, _) => UpdateCaptionPadding();
+        // AppWindow.Changed は UI スレッドのコールバック。例外境界で包む（§10 / Issue #10 と同じ方針）
+        _appWindow.Changed += (_, _) =>
+        {
+            try { UpdateCaptionPadding(); }
+            catch (Exception ex) { Diagnostics.Log("AppWindow.Changed", ex); }
+        };
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, UpdateDragRects);
 
         _appWindow.Closing += (_, e) =>
@@ -561,18 +566,29 @@ public sealed partial class MainWindow : Window
     {
         if (_tabStripPointerPressed) return;
         if (_collapsePending) return; // 既に予約済み（延長しない）
-        _collapsePending = true;
-        _collapseTimer?.Stop();
-        _collapseTimer = DispatcherQueue.CreateTimer();
-        _collapseTimer.Interval = TimeSpan.FromMilliseconds(400);
-        _collapseTimer.IsRepeating = false;
-        _collapseTimer.Tick += (_, _) =>
+        try
         {
+            _collapsePending = true;
+            _collapseTimer?.Stop();
+            _collapseTimer = DispatcherQueue.CreateTimer();
+            _collapseTimer.Interval = TimeSpan.FromMilliseconds(400);
+            _collapseTimer.IsRepeating = false;
+            _collapseTimer.Tick += (_, _) =>
+            {
+                _collapsePending = false;
+                // ドラッグ中は畳まない（.EndTabDrag が終了後に再予約する）
+                if (_tabStripPointerPressed) return;
+                try { CollapseTabStrip(); }
+                catch (Exception ex) { Diagnostics.Log("TabStripCollapse", ex); }
+            };
+            _collapseTimer.Start();
+        }
+        catch (Exception ex)
+        {
+            // 予約に失敗した場合、フラグを戻さないと以後折りたたまれない
             _collapsePending = false;
-            try { CollapseTabStrip(); }
-            catch (Exception ex) { Diagnostics.Log("TabStripCollapse", ex); }
-        };
-        _collapseTimer.Start();
+            Diagnostics.Log("TabStripCollapse.Start", ex);
+        }
     }
 
     private void CancelCollapseTimer()
