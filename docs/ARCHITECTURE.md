@@ -64,6 +64,9 @@
 ### 3.2 スクレイパー（`main.js` が起動）
 - 各モジュールは `init(notifyConfig)` を受け取り、検知時に `/api/notify` へ送る。
 - YouTube は Webhook(3001) + RSS ポーリング + 終了検知。Twitter/TwitCasting は `startWatcher`。Bilibili は live/dynamic。Fanbox/Twitch/ytcommunity/gipt も `main.js` から起動。
+- **Webhook（PubSubHubbub）のcallback は公開 URL + トークン**（`https://koinoyamai.love/youtube-webhook?token=...`）。
+  hub はインターネットから callback に到達できないと検証に失敗し、購読が 409 になる
+  （tailnet 専用 URL だと 18 日間 webhook が死んでいた。`AGENTS.md §6.8`）。
 - **RSS ポーリング（`runRssFallbackScan`）は PubSubHubbub の冗長化**（5分間隔）。
   YouTube 側の RSS エンドポイントは**一時的に 404 を返す**ことが観測される（同一 URL が直後に 200 になる =
   YouTube 側の不安定。IP ブロックではない。2026-10-20 実測）ため、
@@ -236,7 +239,7 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 ## 6. 設定・認証
 
 - env は環境ごとに別（`AGENTS.md §2,§3`）。テンプレは `.env.example`（公開設定・通知API・OAuth・管理者・DB/実行モード・YouTube・Push・RAG/ベクトルDB・TTS・要約・解析AI・Discord を用途別に列挙）。
-  主なキー: `NOTIFY_API_TOKEN` / `NOTIFY_HMAC_SECRET` / `INTERNAL_API_TOKEN` / `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` / `JWT_SECRET` / `SESSION_SECRET` / `PUBLIC_URL` / `COOKIE_SECURE` / `TRUST_PROXY`（他に FCM・`DB_FILE_NAME`・`DISABLE_NOTIFICATIONS`・`VECTOR_DB_*`・`TAILNET_ADMIN_SECRET`・`WEBAUTHN_*` 等）。
+  主なキー: `NOTIFY_API_TOKEN` / `NOTIFY_HMAC_SECRET` / `INTERNAL_API_TOKEN` / `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` / `JWT_SECRET` / `SESSION_SECRET` / `PUBLIC_URL` / `COOKIE_SECURE` / `TRUST_PROXY`（他に FCM・`DB_FILE_NAME`・`DISABLE_NOTIFICATIONS`・`VECTOR_DB_*`・`TAILNET_ADMIN_SECRET`・`WEBAUTHN_*`・`YOUTUBE_WEBHOOK_TOKEN` 等）。
   実装が実際に読むキーは約140個あるため、任意設定は上記コマンドで全キーを確認すること。
 - 通知 API 認証: **token + HMAC v2 + timestamp（±300秒）**。比較は `timingSafeEqual`。
 - 管理画面: 正規は **Tailnet（`elza.poitou-mora.ts.net`）で自動認証**。公開ドメインの `/admin*` は ts.net へ 302、`/api/admin` は 403（`AGENTS.md §6.7`）。

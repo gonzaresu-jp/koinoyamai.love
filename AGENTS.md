@@ -35,7 +35,7 @@
 
 ## 5. 依存関係
 - **sqlite3 は 6.0.1 に昇格済み（2026-09-22 本番反映）**。npm audit critical は解消。
-  依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト(28/28) → smoke」を通すこと。
+  依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト(35/35) → smoke」を通すこと。
 - Node バージョンは**プロセスごとに違う**（2026-10-20 実測 / `pm2 jlist`）:
   - API（`mai-push-api` / `mai-push-api-test`）= **v22.12.0**（nvm 固定・`ecosystem.config.js` の `interpreter`）
   - ワーカー（`mai-push-worker`）と `discord-bot` = **v20.18.1**（既定 node・`interpreter` 未指定）
@@ -73,7 +73,7 @@
   `lib/` に移動（nginx の alias も同dir直配信のため、移動が必須）。
 - `/api/system-info` は公開（CPU%・メモリ%・loadavg・稼働時間・RSSのみ。**ホスト名/ディスク/OS詳細は返さない**）。status ページのリソース欄は誰でも閲覧可能。
 - `/api/ask`（公開）は 5回/分＋質問500文字上限。管理者用 `/api/admin/ask` は対象外。
-- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジックを含む 28 項目）に接続済み。
+- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 35 項目）に接続済み。
 - pm2-logrotate 導入済み（20M・10世代・圧縮）。
 
 ## 6.7 admin は Tailnet 専用（2026-10-10 追加）
@@ -101,6 +101,67 @@
 - nginx へは `~/apply-admin-tailnet.sh` と `~/apply-admin-autoauth.sh`
   （アンカー文字列カウント検証付きパッチ）で反映。
   復旧用バックアップ: `/etc/nginx/nginx.conf.bak-admin-*` / `.bak-autoauth-*`。funnel/serve は tailscale CLI（要 sudo）。
+
+### 6.8 YouTube Webhook（PubSubHubbub）
+
+- **callback URL はインターネットから到達できる公開 URL であること**
+  - hub（`pubsubhubbub.appspot.com`）は callback を検証してから購読する。
+    tailnet 専用 URL（`elza.poitou-mora.ts.net`）だと検証が 504 → 購読が 409 で失敗し、
+    **webhook 経路が静かに死ぬ**（2026-10-20 実測: 最終配信 2026-10-02、購読は恒久失敗）。
+    検知は RSS / プレイリスト経路だけに依存していた
+  - 公開 callback は `https://koinoyamai.love/youtube-webhook?token=<YOUTUBE_WEBHOOK_TOKEN>`
+- **トークンで保護する（必須）**
+  - `YOUTUBE_WEBHOOK_TOKEN` が未設定なら webhook は **fail-closed（403）**。
+    公開に晒す以上、トークン無しでは第三者に通知を撃たせない
+  - hub は callback URL に `hub.mode` / `hub.challenge` 等を**追記**するため、
+    クエリの `token` はそのまま維持される
+- **nginx には公開 vhost 用のプロキシが必要**
+  - 適用は `sudo bash ~/apply-youtube-webhook.sh --apply`（dry-run なら引数なし）
+  - 適用後は `curl -i 'https://koinoyamai.love/youtube-webhook?hub.challenge=TEST'`
+    が **403**（トークンなし）であること。200 なら保護が漏れている
+- **購読は「成功から12時間ごと、失敗していれば30分後」に再試行する**
+  - 3 日周期だと hub の一時障害で最長3日そのまま続き、検知が RSS 経路に依存し続ける
+  - hub への負荷を抑えるため平时は12時間、失敗時だけ30分に短く再試行する
+  - さらに main.js の 03:00 毎日更新（`subscribeAllChannels`）でも補充される
+- **購読失敗は明示的に警告する**（`購読リクエスト成功/失敗` を件数付きでログ）。
+  以前はこの失敗がログに埋もれて 18 日 unnoticed だった
+- **検知の冗長経路（RSS + Data API プレイリスト）を必ず残す**
+  - `docs/ARCHITECTURE.md §3.2`。webhook が死んでも配信開始を取りこぼさない
+
+#### 適用手順（この順でやる。順序を誤ると購読が 409 になる）
+
+```bash
+# 1) トークンを生成して本番 .env に追記（.env は gitignore 済み）
+#    ※ .env は「重複キーは先頭勝ち」なので、既存キーのある場合は追記しない
+ENV=/var/www/html/koinoyamai.love/.env
+grep -q '^YOUTUBE_WEBHOOK_TOKEN=' "$ENV" || \
+  printf 'YOUTUBE_WEBHOOK_TOKEN=%s\n' "$(openssl rand -hex 32)" >> "$ENV"
+
+# 2) ワーカーを再起動（トークンはモジュール読み込み時に読む）
+#    先に再起動して fail-closed（403）にしてから nginx を開く
+pm2 restart mai-push-worker --update-env
+
+# 3) nginx の公開ルートを適用（hub からの到達経路が無いと購読は失敗する）
+sudo bash ~/apply-youtube-webhook.sh          # dry-run
+sudo bash ~/apply-youtube-webhook.sh --apply  # 適用（backup 付き・nginx -t 済み）
+```
+
+#### 検証（保護と正常系の両方）
+
+```bash
+# 保護: トークンなし → 403
+curl -i 'https://koinoyamai.love/youtube-webhook?hub.challenge=TEST'
+# 正常系: トークンあり → 200 + challenge がそのまま返る
+TOKEN=$(grep '^YOUTUBE_WEBHOOK_TOKEN=' /var/www/html/koinoyamai.love/.env | cut -d= -f2)
+curl -i "https://koinoyamai.love/youtube-webhook?hub.challenge=TEST&token=$TOKEN"
+# 購読の成否（成功 2/2 が出れば復旧）
+pm2 logs mai-push-worker --lines 50 | grep '購読リクエスト成功\|成功 [0-9]/'
+```
+
+- `PUBLIC_URL` は `https://koinoyamai.love` であること（未設定なら同値にフォールバック）。
+  別の値だと callback が別のホストを指し、購読は 409 になる
+- nginx のアクセスログにトークンが残らないよう、`/youtube-webhook` は `access_log off` にする
+  （`$request` にクエリ文字列が含まれるため）
 
 ## 7. 自動化スクリプト（2026-09-26 追加）— AI はこれを使う
 手動でのミスを防ぐため、以下を実装済み。**作業の対応するフェーズで必ず実行すること。**
@@ -136,7 +197,7 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 `core.hooksPath = scripts/hooks` により、push 時に自動で：
 - ステージ・コミット対象の `.js` に対し `node --check`
 - `.php` に対し `php -l`
-- 回帰テスト `npm test`（28項目、約4秒）
+- 回帰テスト `npm test`（35項目、約5秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
 ### 7.4 staging/本番のドリフト検出
@@ -384,7 +445,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - [ ] 上の表に該当するドキュメントを更新した（該当なしなら不要）
 - [ ] ユーザーに見える変更なら `webui/updatelogs.php` を更新した（`lines` を `count-lines.sh` の実測値で）
 - [ ] `node --check <file>` / `php -l <file>`（pre-push でも自動実行, `§7.3`）
-- [ ] `npm test`（回帰テスト 28 項目）
+- [ ] `npm test`（回帰テスト 35 項目）
 - [ ] 本番操作の前に `bash scripts/deploy/assert-port.sh prod|staging`（`§7.2`）
 - [ ] 感度の高い変更なら PR＋別エージェントの独立レビューを通した（`§13`）
 - [ ] 秘密情報・DB・`webui/data` を不用意にコミットしていない

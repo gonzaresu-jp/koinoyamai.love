@@ -158,3 +158,17 @@ node scripts/ops/regression-test.js --port 18099
 - `scripts/ops/regression-test.js`: sqlite3@6 昇格ゲート用回帰テスト（`--port` で起動ポート指定）。
 - staging `.env` は `DISABLE_NOTIFICATIONS=1` 固定。**この設定を 1 に戻すな**。
 - `/tmp/verify_sec.sh`・`/tmp/ensure_env.js` は旧セッションの補助スクリプト。実行前に内容と対象ポートを確認。
+
+## YouTube Webhook（公開エンドポイント・2026-10-20）
+
+- **公開 Drain**: `POST/GET https://koinoyamai.love/youtube-webhook`
+  - PubSubHubbub の hub はインターネットから callback に到達する必要があるため公開する
+  - **共有シークレット必須**: クエリの `token` が `YOUTUBE_WEBHOOK_TOKEN` と一致しない場合は **403**
+    - 比較は `crypto.timingSafeEqual`（長さ不一致は短絡）
+    - トークン未設定（fail-closed）でも 403
+    - hub はカスタムヘッダーを付けられないため、クエリのみで受け付ける
+  - 保護の補助: 受け付ける entry 数と動画ID形式（`^[A-Za-z0-9_-]{11}$`）を検証
+  - nginx 側：该パスは `access_log off` かつ `error_log ... notice`
+    （callback URL にトークンが含まれ、`$request` や debug レベルの error log に
+    残ると秘密が漏れるため）
+- **運用**: `AGENTS.md §6.8`（callback は公開 URL 必須・トークン必須・nginx 手順・検証手順）

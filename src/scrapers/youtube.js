@@ -3,6 +3,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const xml2js = require('xml2js');
 const axios = require('axios');
+const crypto = require('crypto');
 const querystring = require('querystring');
 const fs = require('fs');
 const path = require('path');
@@ -16,7 +17,23 @@ const CHANNEL_IDS = [
     'UCElHA6-5CBmgWODVWNxS8VA',
     'UCgttI8QfdWhvd3SRtCYcJzw'
 ];
-const CALLBACK_URL = 'https://elza.poitou-mora.ts.net/youtube-webhook';
+// ==== PubSubHubbub 契約 ====
+// hub（pubsubhubbub.appspot.com）はインターネットから callback に到達する
+// 必要がある。tailnet 専用 URL（elza.poitou-mora.ts.net）は hub から到達できず、
+// 購読リクエストが 409（Response Body: Bad response code 504）で失敗する。
+// 結果として webhook 経路が死に、検知は RSS/プレイリスト経路だけに依存する
+// 状態になっていた（2026-10-20 実測: 最終配信 2026-10-02、購読は恒久失敗）。
+//
+// よって callback は公開 URL を使い、共有シークレットで保護する。
+// hub は callback URL に hub.mode / hub.challenge 等を**追記**するため、
+// クエリの token はそのまま維持される。
+const PUBLIC_URL = (process.env.PUBLIC_URL || 'https://koinoyamai.love').replace(/\/+$/, '');
+const WEBHOOK_TOKEN = process.env.YOUTUBE_WEBHOOK_TOKEN || '';
+// 1リクエストで処理する entry の上限（不正 POST での大量処理防止）
+const WEBHOOK_MAX_ENTRIES = 20;
+const CALLBACK_URL = `${PUBLIC_URL}/youtube-webhook${WEBHOOK_TOKEN ? `?token=${encodeURIComponent(WEBHOOK_TOKEN)}` : ''}`;
+// ログに出す用の callback URL（トークンは伏せる）
+const CALLBACK_URL_LOG = CALLBACK_URL.replace(/([?&]token=)[^&]*/i, '$1***');
 const PUBSUBHUBBUB_HUB = 'https://pubsubhubbub.appspot.com/subscribe';
 
 let NOTIFY_CONFIG = {
@@ -287,49 +304,123 @@ async function subscribeToChannel(channelId) {
         });
         if (response.status === 204 || response.status === 202) {
             console.log(`[YouTube Sub] ✅ 購読リクエスト成功: ${channelId}.`);
-        } else {
-            console.error(`[YouTube Sub] ❌ 購読リクエスト失敗 (${channelId}). Status: ${response.status}`);
+            return true;
         }
+        console.error(`[YouTube Sub] ❌ 購読リクエスト失敗 (${channelId}). Status: ${response.status}`);
+        return false;
     } catch (error) {
         console.error(`[YouTube Sub] エラー (${channelId}):`, error.message || error);
         if (error.response) console.error('  Response Body:', error.response.data);
+        return false;
     }
 }
 
+// 購読の成否状態（再購読の判断に使う）
+let _lastSubscribeOkAt = 0;      // 最後に購読成功した時刻
+let _lastSubscribeTryAt = 0;     // 最後に購読を試した時刻
+
 async function subscribeAllChannels() {
-    console.log('[YouTube Sub] 全チャンネルの購読リクエスト/更新を開始');
-    const promises = CHANNEL_IDS.map(c => subscribeToChannel(c));
-    await Promise.allSettled(promises);
-    console.log('[YouTube Sub] 完了');
+    if (!WEBHOOK_TOKEN) {
+        // トークン未設定では callback が 403 になり、購読しても无效になる。
+        // （staging などトークンを設定しない環境で「成功しない購読」を作らない）
+        console.error('[YouTube Sub] YOUTUBE_WEBHOOK_TOKEN 未設定のため購読しません（callback は 403 になります）');
+        return 0;
+    }
+    console.log(`[YouTube Sub] 全チャンネルの購読リクエスト/更新を開始（callback: ${CALLBACK_URL_LOG}）`);
+    const results = await Promise.allSettled(CHANNEL_IDS.map(c => subscribeToChannel(c)));
+    const okCount = results.filter((r) => r.status === 'fulfilled' && r.value === true).length;
+    console.log(`[YouTube Sub] 完了（成功 ${okCount}/${CHANNEL_IDS.length}）`);
+    _lastSubscribeTryAt = Date.now();
+    if (okCount > 0) _lastSubscribeOkAt = Date.now();
+    if (okCount === 0) {
+        // 以前はこの失敗がログに埋もれて 18 日 unnoticed だった。
+        // 明示的に警告し、検知が RSS/プレイリスト経路に依存している点を tudorえる。
+        console.error(
+            '[YouTube Sub] ⚠️ 全チャンネルの購読に失敗。' +
+            ' hub 側の callback 検証が通っていない可能性があります' +
+            '（callback URL がインターネットから到達可能か / トークン不一致 / hub 障害）。' +
+            ' この間 YouTube の検知は RSS・プレイリスト経路に依存します。'
+        );
+    }
+    return okCount;
 }
 
-// 購読リース(hub.lease_seconds=5日)を考慮し、3日ごとに再購読
-// 503等の一時失敗があっても次の周期で再試行される
-const RESUBSCRIBE_INTERVAL_MS = 3 * 24 * 60 * 60 * 1000; // 3日
+// 購読の更新周期:
+//   - 通常: 12時間（hub のリース5日に対し十分短い。hub への負荷も 1日4回と少ない）
+//   - 前回失敗した場合: 30分後に再試行（自己修復を速くする）
+// 以前は 3日周期で、hub の一時障害や callback 到達不能が最長3日そのまま続き、
+// 検知が RSS/プレイリスト経路だけに依存する期間が長くなっていた（2026-10-20 実測）。
+const RESUBSCRIBE_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12時間（通常）
+const RESUBSCRIBE_RETRY_MS = 30 * 60 * 1000;         // 30分（前回の購読が失敗した場合）
+const RESUBSCRIBE_TICK_MS = 5 * 60 * 1000;            // 判断周期（5分ごとに条件判定）
+
 
 function startAutomaticResubscribe() {
     setInterval(async () => {
+        const now = Date.now();
+        const sinceOk = now - _lastSubscribeOkAt;
+        const sinceTry = now - _lastSubscribeTryAt;
+        // 成功から12時間未満なら何もしない。失敗していれば30分後に再試行
+        const needRetry = (_lastSubscribeOkAt === 0 || sinceOk >= RESUBSCRIBE_INTERVAL_MS);
+        if (!needRetry) return;
+        if (_lastSubscribeTryAt && sinceTry < RESUBSCRIBE_RETRY_MS) return;
         try {
-            await subscribeAllChannels();
+            await subscribeAllChannels();   // 状態変数は subscribeAllChannels 側で更新する
         } catch (e) {
+            _lastSubscribeTryAt = Date.now();
             console.error('[YouTube Sub] 定期再購読エラー:', e.message || e);
         }
-    }, RESUBSCRIBE_INTERVAL_MS);
-    console.log(`[YouTube Sub] 定期再購読を開始（間隔: ${RESUBSCRIBE_INTERVAL_MS / (24*60*60*1000)}日）`);
+    }, RESUBSCRIBE_TICK_MS);
+    console.log(`[YouTube Sub] 定期再購読を開始（通常 ${RESUBSCRIBE_INTERVAL_MS / 60000}分ごと / 失敗時は ${RESUBSCRIBE_RETRY_MS / 60000}分後に再試行）`);
 }
 
 /** Webhook server start */
-function startWebhook(port = 3001) {
+/**
+ * Webhook の Express アプリを作る（テストからも使えるよう分離している）。
+ * @param {Object} opts
+ * @param {string} [opts.rawLogPath] 受信 XML の生ログ先（既定 logs/youtube-webhook-raw.log）
+ * @param {string} [opts.token]       共有シークレット（既定 process.env.YOUTUBE_WEBHOOK_TOKEN）
+ */
+function createWebhookApp(opts = {}) {
     const app = express();
-    console.log('Starting YouTube Webhook server...');
+    // 公開ルートなのでフレームワークの指紋は出さない
+    app.disable('x-powered-by');
 
-    // raw log dir
-    const RAW_LOG_DIR = path.join(__dirname, '..', '..', 'logs');
-    if (!fs.existsSync(RAW_LOG_DIR)) fs.mkdirSync(RAW_LOG_DIR, { recursive: true });
-    const rawFile = path.join(RAW_LOG_DIR, 'youtube-webhook-raw.log');
+    const token = opts.token !== undefined ? opts.token : WEBHOOK_TOKEN;
+    const rawFile = opts.rawLogPath || path.join(__dirname, '..', '..', 'logs', 'youtube-webhook-raw.log');
+    const rawLogDir = path.dirname(rawFile);
+    if (!fs.existsSync(rawLogDir)) fs.mkdirSync(rawLogDir, { recursive: true });
+
+    // 拒否ログはサンプリングする（公開ルートに晒したため、1リクエスト1行は避ける）
+    let rejectCount = 0;
+    const logWebhookReject = (reason) => {
+        rejectCount++;
+        if (rejectCount === 1 || rejectCount % 100 === 0) {
+            console.warn(`[YouTube Webhook] 拒否 (${reason}) 累計 ${rejectCount} 件`);
+        }
+    };
+
+    // 共有シークレット検証（callback は公開 URL にして；第三者に通知を撃たせない）
+    // 比較は timingSafeEqual（AGENTS.md §3/§11: 自前の === 比較は禁止）
+    // hub は callback URL のクエリを引き継ぐがヘッダは付けられないため、クエリのみ受理する
+    const checkWebhookToken = (req, res, next) => {
+        if (!token) {
+            logWebhookReject('token-unset');
+            return res.sendStatus(403);
+        }
+        const provided = typeof req.query?.token === 'string' ? req.query.token : '';
+        const a = Buffer.from(provided);
+        const b = Buffer.from(token);
+        const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+        if (!ok) {
+            logWebhookReject('token-mismatch');
+            return res.sendStatus(403);
+        }
+        next();
+    };
 
     // POST handler
-    app.post('/youtube-webhook', bodyParser.text({ type: '*/*' }), async (req, res) => {
+    app.post('/youtube-webhook', checkWebhookToken, bodyParser.text({ type: '*/*' }), async (req, res) => {
         const xml = req.body;
         const nowIso = new Date().toISOString();
         fs.appendFile(rawFile, `\n--- ${nowIso} ---\n${xml}\n`, (err) => {
@@ -360,13 +451,15 @@ function startWebhook(port = 3001) {
 
         const records = loadSentRecords();
 
-        for (const entry of entries) {
+        // 1リクエストで処理する entry は上限を設ける（不正な POST での大量処理を防ぐ）
+        for (const entry of entries.slice(0, WEBHOOK_MAX_ENTRIES)) {
             const videoId = entry['yt:videoId'] && entry['yt:videoId'][0];
             let title = entry.title && entry.title[0];
             const publishedStr = entry.published && entry.published[0];
 
-            if (!videoId) {
-                console.warn('Entry missing videoId, skip.');
+            // 動画IDは YouTube の形式（11文字の [A-Za-z0-9_-]）のみ受理する
+            if (!videoId || !/^[A-Za-z0-9_-]{11}$/.test(String(videoId))) {
+                console.warn('Entry missing or invalid videoId, skip.');
                 continue;
             }
 
@@ -555,12 +648,24 @@ function startWebhook(port = 3001) {
     });
 
     // GET verification
-    app.get('/youtube-webhook', (req, res) => {
+    app.get('/youtube-webhook', checkWebhookToken, (req, res) => {
+        // 購読解除通知（hub.mode=denied）にも 2xx で返す（PubSubHubbub 仕様）
+        if (req.query['hub.mode'] === 'denied') {
+            console.log('[YouTube Webhook] hub.mode=denied（購読解除通知）');
+            return res.sendStatus(200);
+        }
         const hubChallenge = req.query['hub.challenge'];
         if (hubChallenge) return res.send(hubChallenge);
         res.sendStatus(400);
     });
 
+    return app;
+}
+
+/** Webhook サーバを起動する（createWebhookApp のラッパ） */
+function startWebhook(port = 3001) {
+    console.log('Starting YouTube Webhook server...');
+    const app = createWebhookApp();
     return new Promise((resolve) => {
         app.listen(port, () => {
             console.log(`Webhook listening on port ${port}`);
@@ -988,6 +1093,8 @@ module.exports = {
     // 監視・検証用（RSS 取得と代替ソースの挙動確認）
     fetchRssVideoIds,
     fetchPlaylistVideoIds,
+    // 監視・検証用（webhook のトークン検証。回帰テストから使う）
+    createWebhookApp,
     init,
     startWebhook,
     subscribeAllChannels,

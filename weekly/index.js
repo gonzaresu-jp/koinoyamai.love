@@ -4,7 +4,12 @@ const twitcasting = require('./twitcasting');
 const youtube = require('./youtube');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
-const db = new sqlite3.Database(path.join(__dirname, '..', 'data.db'));
+// DB は環境ごとに分ける（main.js / server.js と同じ規則）。
+// 従来は data.db 固定で、staging では API が読む data-test.db と別の DB に
+// 週間スケジュールを別 DB に書いていた（回帰テストでも tree に data.db を作っていた）。
+const db = new sqlite3.Database(
+    path.join(__dirname, '..', process.env.DB_FILE_NAME || 'data.db')
+);
 
 const YOUTUBE_LOOKAHEAD_MS     = 14 * 24 * 60 * 60 * 1000; // 2週間
 const NEAR_DUPLICATE_WINDOW_MS = 10 * 60 * 1000;            // ±10分
