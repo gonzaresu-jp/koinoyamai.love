@@ -257,12 +257,19 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - **Release publish は self-contained（csproj の `<SelfContained>`）**
   - framework-dependent publish でインストールすると、グローバル .NET 構成が揃わない環境・
     InstallDelete 後のタイミングで「No frameworks were found」で自動起動失敗する。
+- **待ちタイマーは連打で延長しないこと（v1.8.5 教訓, Issue #14）**
+  - `DispatcherQueueTimer` を**毎回作り直して** `Stop()`→`Start()` すると、80ms 周期のポーリング
+    （`OnHoverTick`）や `WM_NCMOUSEMOVE` から毎フレーム要求された場合に、待ちが 400ms を超えて
+    永久に延長され、**折りたたみなどが一生起きない**（タブバーが出たままで問題）。
+  - 「予約済み」フラグ（`_collapsePending`）で延長を止める。フラグは
+    `StartCollapseTimer` / `CancelCollapseTimer` / `ShowTabStrip` / `ResetTabStripHidden` の
+    4経路で必ずリセットすること（リセット漏れ 있으면以後折りたたみが起きない）。
 
 ### 10.1 アプリリリース手順（Windows / Android）— 2026-10-20（v1.8.3 / v1.7.2）で実施
 
 - **バージョンは3箇所を揃える（Windows）**
   - `MaiPushWinUI.csproj` の `<Version>` / `installer.iss` の `#define MyAppVersion` /
-    `UpdateChecker.cs` の `CurrentVersion`（`new(1, 8, 4)` のようにリリース版と揃える）。
+    `UpdateChecker.cs` の `CurrentVersion`（`new(1, 8, 5)` のようにリリース版と揃える）。
   - `UpdateChecker.cs` を忘れると**最新版なのに「アップデートがあります」通知が出る**。
 - **Windows ビルド**
   - `dotnet publish MaiPushWinUI.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained true`
@@ -362,7 +369,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
+最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10 待ちタイマーの連打による延長禁止（v1.8.5 / Issue #14）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）
 最終更新: 2026-10-13（§10 WinUI ネットワーク起動禁止を追記）
