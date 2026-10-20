@@ -171,4 +171,8 @@ node scripts/ops/regression-test.js --port 18099
   - nginx 側：该パスは `access_log off` かつ `error_log ... notice`
     （callback URL にトークンが含まれ、`$request` や debug レベルの error log に
     残ると秘密が漏れるため）
+  - **注意**: `location` 単位の `error_log` では止まらない。nginx はルーティング前の
+    http フェーズでリクエスト行を debug レベルで記録するため、**http レベルの
+    `error_log` を debug 以上にしないことが必須**（2026-10-21 実測・適用済み）。
+    漏れた場合は `bash ~/rotate-youtube-webhook-token.sh` でローテーションする
 - **運用**: `AGENTS.md §6.8`（callback は公開 URL 必須・トークン必須・nginx 手順・検証手順）

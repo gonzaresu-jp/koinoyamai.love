@@ -162,6 +162,19 @@ pm2 logs mai-push-worker --lines 50 | grep '購読リクエスト成功\|成功 
   別の値だと callback が別のホストを指し、購読は 409 になる
 - nginx のアクセスログにトークンが残らないよう、`/youtube-webhook` は `access_log off` にする
   （`$request` にクエリ文字列が含まれるため）
+- **⚠️ `location` 単位の `error_log` では止まらない（2026-10-21 実測）**
+  - nginx は**ルーティング前の http フェーズ**でリクエスト行を debug レベルで記録するため、
+    `location` に `error_log ... notice` を入れても**リクエスト行（?=トークン）が error.log に残る**
+  - 必須は **http レベルの `error_log` を debug 以上にしないこと**
+    （`error_log /var/log/nginx/error.log notice;` にする。debug のままだと全リクエストの
+    クエリ文字列が平文で残り、ログも肥大する。2026-10-21 適用済み）
+  - 漏れたトークンは**ローテーションする**（`bash ~/rotate-youtube-webhook-token.sh`）。
+    ログをローテートしただけでは、漏出済みトークンは有効なまま
+- 補助スクリプト（`~/` に置いている）:
+  - `apply-youtube-webhook.sh` … 公開ルートの適用（dry-run / 適用。冪等・失敗時は自動復元）
+  - `verify-youtube-webhook.sh` … 復旧確認（403 / 200+TEST / 購読 2/2 / ログ非漏出）
+  - `rotate-youtube-webhook-token.sh` … トークンローテーション（.env 差し替え→再起動→再購読）
+  - `fix-nginx-token-leak.sh` … http レベルの error_log を debug→notice ＋ ログローテート（sudo）
 
 ## 7. 自動化スクリプト（2026-09-26 追加）— AI はこれを使う
 手動でのミスを防ぐため、以下を実装済み。**作業の対応するフェーズで必ず実行すること。**
