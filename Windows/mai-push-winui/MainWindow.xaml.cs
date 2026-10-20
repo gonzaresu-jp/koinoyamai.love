@@ -110,7 +110,7 @@ public sealed partial class MainWindow : Window
     private void UpdateCaptionPadding()
     {
         var inset = _appWindow.TitleBar?.RightInset ?? 138;
-        DispatcherQueue.TryEnqueue(() =>
+        EnqueueUi("CaptionPadding", () =>
         {
             CaptionPadding.Width = inset;
             UpdateDragRects();
@@ -170,6 +170,12 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern uint GetDpiForWindow(IntPtr hwnd);
     [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")]
     private static extern IntPtr CreatePopupMenu();
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern bool AppendMenuW(IntPtr hMenu, uint uFlags, IntPtr uIDNewItem, string? lpNewItem);
@@ -198,10 +204,64 @@ public sealed partial class MainWindow : Window
 
     private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
+        // ネイティブ → マネージドのコールバック境界から例外を出さない。
+        // WndProc から例外が抜けるとプロセスが落ちる（Issue #10 の stowed exception と同系統）。
+        try
+        {
+            return WndProcCore(hWnd, msg, wParam, lParam);
+        }
+        catch (Exception ex)
+        {
+            // WM_NCHITTEST / WM_SETCURSOR はマウス移動中に毎秒100回以上来る。
+            // ここで毎回同期ログを書くと UI スレッドが詰まるので、記録は 5 秒に1回へ制限する。
+            LogWndProcFault(ex);
+            try { return CallWindowProc(_prevWndProc, hWnd, msg, wParam, lParam); }
+            catch
+            {
+                // HTCLIENT(=1) を返しておく（0 は HTNOWHERE で入力が効かなくなる）
+                return msg == WM_NCHITTEST ? (IntPtr)HTCLIENT : IntPtr.Zero;
+            }
+        }
+    }
+
+    private long _lastWndProcLogMs;
+    private int _wndProcFaultSuppressed;
+
+    /// <summary>WndProc の例外ログを 5 秒に1回へ制限する（メッセージポンプの詰まり防止）</summary>
+    private void LogWndProcFault(Exception ex)
+    {
+        long now = Environment.TickCount64;
+        if (_lastWndProcLogMs != 0 && now - _lastWndProcLogMs < 5000)
+        {
+            _wndProcFaultSuppressed++;
+            return;
+        }
+        int suppressed = _wndProcFaultSuppressed;
+        _lastWndProcLogMs = now;
+        _wndProcFaultSuppressed = 0;
+        // 抑制した件数も残す（同じ例外の連発か、別の不具合が増えたかを後から判別できるように）
+        var prefix = suppressed > 0
+            ? $"({suppressed} faults suppressed in the last 5s){Environment.NewLine}"
+            : "";
+        Diagnostics.Log("WndProc", prefix + ex);
+    }
+
+    /// <summary>UI スレッドへ投げる処理を例外境界で包む（DispatcherQueue のコールバックで落とさない）</summary>
+    private void EnqueueUi(string source, Action action)
+    {
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            try { action(); }
+            catch (Exception ex) { Diagnostics.Log(source, ex); }
+        });
+    }
+
+    private IntPtr WndProcCore(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
+    {
         if (msg == WM_SYSCOMMAND && (wParam.ToInt32() & 0xFFF0) == SC_MINIMIZE)
         {
             // 最小化ボタン → タスクバーに残さずトレイへ格納
-            DispatcherQueue.TryEnqueue(HideToTray);
+            EnqueueUi("WndProc.Minimize", HideToTray);
             return IntPtr.Zero;
         }
         if (msg == WM_NCMOUSEMOVE)
@@ -210,23 +270,23 @@ public sealed partial class MainWindow : Window
             int ncHit = wParam.ToInt32();
             if (ncHit is HTCLOSE or HTMINBUTTON or HTMAXBUTTON)
             {
-                if (_tabStripVisible) DispatcherQueue.TryEnqueue(StartCollapseTimer);
+                if (_tabStripVisible) EnqueueUi("WndProc.NcMouseMove", StartCollapseTimer);
                 goto fallback;
             }
             // lParam は画面座標 → クライアント座標に変換
             short ncx = (short)(lParam.ToInt64() & 0xFFFF);
             short ncy = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
             var ncp = new POINT { X = ncx, Y = ncy };
-            ScreenToClient(hWnd, ref ncp);
+            if (!ScreenToClient(hWnd, ref ncp)) goto fallback;
             uint rawDpiNc = GetDpiForWindow(_hwnd);
             double dpiNc = rawDpiNc > 0 ? rawDpiNc / 96.0 : 1.0;
             bool inStrip = ncp.Y >= -(int)(10 * dpiNc) && ncp.Y < (int)(TabStripTotal * dpiNc);
             if (inStrip && !_tabStripVisible)
-                DispatcherQueue.TryEnqueue(ShowTabStrip);
+                EnqueueUi("WndProc.NcMouseMove.Show", ShowTabStrip);
             else if (inStrip && _tabStripVisible)
-                DispatcherQueue.TryEnqueue(CancelCollapseTimer);
+                EnqueueUi("WndProc.NcMouseMove.Cancel", CancelCollapseTimer);
             else if (!inStrip && _tabStripVisible)
-                DispatcherQueue.TryEnqueue(StartCollapseTimer);
+                EnqueueUi("WndProc.NcMouseMove.Collapse", StartCollapseTimer);
         }
         if (msg == WM_NCHITTEST)
         {
@@ -239,7 +299,8 @@ public sealed partial class MainWindow : Window
             short sx = (short)(lParam.ToInt64() & 0xFFFF);
             short sy = (short)((lParam.ToInt64() >> 16) & 0xFFFF);
             var cp = new POINT { X = sx, Y = sy };
-            ScreenToClient(hWnd, ref cp);
+            // 変換に失敗したら座標は信用できない（screen 座標のまま判定すると HTCAPTION を誤返却する）
+            if (!ScreenToClient(hWnd, ref cp)) return (IntPtr)result;
             uint rawDpi = GetDpiForWindow(_hwnd);
             double dpi = rawDpi > 0 ? rawDpi / 96.0 : 1.0;
 
@@ -264,7 +325,7 @@ public sealed partial class MainWindow : Window
         if (msg == WM_SETCURSOR && _tabStripVisible)
         {
             if (!GetCursorPos(out var cur)) goto fallback;
-            ScreenToClient(_hwnd, ref cur);
+            if (!ScreenToClient(_hwnd, ref cur)) goto fallback;
             uint rawDpi2 = GetDpiForWindow(_hwnd);
             double dpi2 = rawDpi2 > 0 ? rawDpi2 / 96.0 : 1.0;
             if (cur.Y >= (int)(TabStripDragZone * dpi2) && cur.Y < (int)(TabStripTotal * dpi2) && cur.X <= _tabAreaRight)
@@ -279,30 +340,145 @@ public sealed partial class MainWindow : Window
 
     // ---- タブストリップ ホバー検出（ポーリング）----
 
+    // ポーリングタイマーはフィールドで保持する（異常時・ウィンドウ破棄時に確実に止めるため）
+    private DispatcherQueueTimer? _hoverTimer;
+    // 異常停止後に再開しない（80ms 周期で例外が出続けるとログが溢れるため）
+    private bool _hoverPollerStopped;
+
     private void StartHoverPoller()
     {
+        _hoverPollerStopped = false;
+        _hoverTimer?.Stop();
+
         var timer = DispatcherQueue.CreateTimer();
+        _hoverTimer = timer;
         timer.Interval = TimeSpan.FromMilliseconds(80);
         timer.IsRepeating = true;
         timer.Tick += (_, _) =>
         {
-            if (!GetCursorPos(out var pt)) return;
-            ScreenToClient(_hwnd, ref pt);
-            uint rawDpiP = GetDpiForWindow(_hwnd);
-            double dpi = rawDpiP > 0 ? rawDpiP / 96.0 : 1.0;
-            int triggerTop    = -(int)(10 * dpi); // 上端より 10px 上まで検知
-            int triggerBottom =  (int)( 5 * dpi); // 上端から 5px 以内のみ表示トリガー（ドラッグゾーンでは出ない）
-            int stayBottom    =  (int)(TabStripTotal * dpi); // 表示中はストリップ全体で維持
-
-            bool inTrigger = pt.Y >= triggerTop && pt.Y < triggerBottom;
-            bool inStrip   = pt.Y >= triggerTop && pt.Y < stayBottom;
-
-            if (inTrigger && !_tabStripVisible) ShowTabStrip();
-            else if (!inStrip && _tabStripVisible) StartCollapseTimer();
-            else if (inStrip && _tabStripVisible) CancelCollapseTimer();
+            // Tick は DispatcherQueue のコールバック境界で実行されるため、ここから例外が
+            // 抜けると未処理例外＝stowed exception (0xc000027b) になりプロセスごと落ちうる。
+            // 例外は必ずハンドラ内で止め、原因調査用の状態をログに残してポーリングを停止する（Issue #10）。
+            try
+            {
+                OnHoverTick();
+            }
+            catch (Exception ex)
+            {
+                StopHoverPoller("hover-tick", ex);
+            }
         };
         // 起動直後にカーソルがウィンドウ上部にいてもストリップが出ないよう遅延起動
-        _ = Task.Delay(600).ContinueWith(_ => DispatcherQueue.TryEnqueue(timer.Start));
+        _ = Task.Delay(600).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
+        {
+            try
+            {
+                if (_hoverPollerStopped || !IsWindowAlive()) return;
+                timer.Start();
+            }
+            catch (Exception ex)
+            {
+                StopHoverPoller("hover-start", ex);
+            }
+        }));
+    }
+
+    /// <summary>ホバーポーリング 1 フレーム分。ウィンドウが無効/非表示ならストリップを閉じたままにする。</summary>
+    private void OnHoverTick()
+    {
+        if (!IsWindowAlive())
+        {
+            // ウィンドウ破棄後もタイマーが走り続けるケース → 参照せずに停止する
+            StopHoverPoller("hwnd-invalid", null);
+            return;
+        }
+        if (!IsWindowVisible(_hwnd) || IsIconic(_hwnd))
+        {
+            // トレイ格納中・最小化中はストリップを出さない／残さない
+            // （最小化でも IsWindowVisible は true になるため IsIconic も見る）
+            ResetTabStripHidden();
+            return;
+        }
+
+        if (!GetCursorPos(out var pt)) return;
+        if (!ScreenToClient(_hwnd, ref pt)) return;
+        uint rawDpiP = GetDpiForWindow(_hwnd);
+        double dpi = rawDpiP > 0 ? rawDpiP / 96.0 : 1.0;
+        int triggerTop    = -(int)(10 * dpi); // 上端より 10px 上まで検知
+        int triggerBottom =  (int)( 5 * dpi); // 上端から 5px 以内のみ表示トリガー（ドラッグゾーンでは出ない）
+        int stayBottom    =  (int)(TabStripTotal * dpi); // 表示中はストリップ全体で維持
+
+        bool inTrigger = pt.Y >= triggerTop && pt.Y < triggerBottom;
+        bool inStrip   = pt.Y >= triggerTop && pt.Y < stayBottom;
+
+        if (inTrigger && !_tabStripVisible) ShowTabStrip();
+        else if (!inStrip && _tabStripVisible) StartCollapseTimer();
+        else if (inStrip && _tabStripVisible) CancelCollapseTimer();
+    }
+
+    private bool IsWindowAlive() => _hwnd != IntPtr.Zero && IsWindow(_hwnd);
+
+    /// <summary>ストリップをアニメーションなしで閉じた状態に戻す（非表示・最小化中のみ使用）</summary>
+    private void ResetTabStripHidden()
+    {
+        // 非表示になる直前にタブをドラッグしていた場合、PointerCaptureLost が届かず
+        // _tabStripPointerPressed が立ったままになり、以後 StartCollapseTimer が効かなくなる。
+        // ここでドラッグ状態を畳んでおく（ウィンドウは実際に隠れているので安全）。
+        if (_dragTab != null || _isDragging || _tabStripPointerPressed)
+            ClearDragState();
+        if (_tabStripVisible || Math.Abs(_tabStripTransform.Y + TabStripTotal) > 0.01)
+        {
+            _animTimer?.Stop();
+            _tabStripVisible = false;
+            _tabStripTransform.Y = -TabStripTotal;
+        }
+        // 停止は最後に行う（ClearDragState 内のキャプチャ解放が EndTabDrag 経由で
+        // 折りたたみタイマーを起動しうるため）
+        _showTimer?.Stop();
+        _collapseTimer?.Stop();
+    }
+
+    /// <summary>ポーリングを停止し、例外時は型・スタック・ウィンドウ状態をログに残す</summary>
+    private void StopHoverPoller(string reason, Exception? ex)
+    {
+        try
+        {
+            _hoverPollerStopped = true;
+            _hoverTimer?.Stop();
+            _hoverTimer = null;
+            var state = DescribeWindowState();
+            if (ex is null) Diagnostics.Log("HoverPoller", $"stopped({reason}) {state}");
+            else Diagnostics.Log("HoverPoller", $"stopped({reason}) {state}{Environment.NewLine}{ex}");
+        }
+        catch { }
+    }
+
+    /// <summary>例外発生時のウィンドウ/カーソル状態（再現条件の特定用, Issue #10）</summary>
+    private string DescribeWindowState()
+    {
+        try
+        {
+            bool alive = IsWindowAlive();
+            bool visible = alive && IsWindowVisible(_hwnd);
+            bool minimized = alive && IsIconic(_hwnd);
+            uint rawDpi = alive ? GetDpiForWindow(_hwnd) : 0;
+            double dpi = rawDpi > 0 ? rawDpi / 96.0 : 1.0;
+            var cursor = "unavailable";
+            if (GetCursorPos(out var cp))
+            {
+                cursor = $"{cp.X},{cp.Y}(screen)";
+                var local = new POINT { X = cp.X, Y = cp.Y };
+                if (alive && ScreenToClient(_hwnd, ref local))
+                    cursor += $"/{local.X},{local.Y}(client)";
+            }
+            return $"hwnd=0x{_hwnd.ToInt64():X} alive={alive} visible={visible} minimized={minimized} " +
+                   $"dpi={rawDpi}({dpi:0.##}x) stripVisible={_tabStripVisible} " +
+                   $"stripY={_tabStripTransform.Y:0.#} pointerPressed={_tabStripPointerPressed} cursor={cursor}";
+        }
+        catch (Exception ex)
+        {
+            return $"(state unavailable: {ex.GetType().Name})";
+        }
     }
 
     // ---- タブストリップ スライドイン/アウト ----
@@ -321,16 +497,26 @@ public sealed partial class MainWindow : Window
             _animTimer.IsRepeating = true;
             _animTimer.Tick += (_, _) =>
             {
-                double t = (double)(Environment.TickCount64 - _animStartMs) / AnimDurationMs;
-                if (t >= 1.0)
+                // DispatcherQueue のコールバック境界で例外を出さない（Issue #10 と同系統）
+                try
                 {
-                    _tabStripTransform.Y = _animToY;
-                    _animTimer?.Stop();
-                    return;
+                    double t = (double)(Environment.TickCount64 - _animStartMs) / AnimDurationMs;
+                    if (t >= 1.0)
+                    {
+                        _tabStripTransform.Y = _animToY;
+                        _animTimer?.Stop();
+                        return;
+                    }
+                    // ease-out cubic: 速く出てゆっくり止まる
+                    double eased = 1.0 - Math.Pow(1.0 - t, 3.0);
+                    _tabStripTransform.Y = _animFromY + (_animToY - _animFromY) * eased;
                 }
-                // ease-out cubic: 速く出てゆっくり止まる
-                double eased = 1.0 - Math.Pow(1.0 - t, 3.0);
-                _tabStripTransform.Y = _animFromY + (_animToY - _animFromY) * eased;
+                catch (Exception ex)
+                {
+                    _animTimer?.Stop();
+                    try { _tabStripTransform.Y = _animToY; } catch { }
+                    Diagnostics.Log("TabStripAnim", ex);
+                }
             };
         }
         _animTimer.Start();
@@ -358,7 +544,11 @@ public sealed partial class MainWindow : Window
         _collapseTimer = DispatcherQueue.CreateTimer();
         _collapseTimer.Interval = TimeSpan.FromMilliseconds(400);
         _collapseTimer.IsRepeating = false;
-        _collapseTimer.Tick += (_, _) => CollapseTabStrip();
+        _collapseTimer.Tick += (_, _) =>
+        {
+            try { CollapseTabStrip(); }
+            catch (Exception ex) { Diagnostics.Log("TabStripCollapse", ex); }
+        };
         _collapseTimer.Start();
     }
 
@@ -371,7 +561,11 @@ public sealed partial class MainWindow : Window
         _showTimer = DispatcherQueue.CreateTimer();
         _showTimer.Interval = TimeSpan.FromMilliseconds(250);
         _showTimer.IsRepeating = false;
-        _showTimer.Tick += (_, _) => ShowTabStrip();
+        _showTimer.Tick += (_, _) =>
+        {
+            try { ShowTabStrip(); }
+            catch (Exception ex) { Diagnostics.Log("TabStripShow", ex); }
+        };
         _showTimer.Start();
     }
 
@@ -496,12 +690,7 @@ public sealed partial class MainWindow : Window
 
     private void EndTabDrag()
     {
-        try { Tabs.ReleasePointerCaptures(); } catch { }
-        DragGhost.Visibility = Visibility.Collapsed;
-        if (_dragTab != null) _dragTab.Opacity = 1.0;
-        _dragTab = null;
-        _isDragging = false;
-        _tabStripPointerPressed = false;
+        ClearDragState();
         // ドラッグ終了後にカーソルが strip 外にあれば折りたたみタイマーを起動
         if (GetCursorPos(out var pt))
         {
@@ -509,6 +698,17 @@ public sealed partial class MainWindow : Window
             double dpi = GetDpiForWindow(_hwnd) / 96.0;
             if (pt.Y >= (int)(TabStripTotal * dpi)) StartCollapseTimer();
         }
+    }
+
+    /// <summary>タブドラッグ状態を畳む（キャプチャ解除・ゴースト非表示・不透明度復元）</summary>
+    private void ClearDragState()
+    {
+        try { Tabs.ReleasePointerCaptures(); } catch { }
+        DragGhost.Visibility = Visibility.Collapsed;
+        if (_dragTab != null) _dragTab.Opacity = 1.0;
+        _dragTab = null;
+        _isDragging = false;
+        _tabStripPointerPressed = false;
     }
 
     // TabViewItem の左端 X を Tabs 相対論理座標で返す（ActualOffset 累積）
