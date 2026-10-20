@@ -239,6 +239,54 @@ async function main() {
     ok("scraper_status UPSERT + SELECT", scraper.length === 1 && scraper[0].status === "success");
     db.close();
 
+    // --- 7. YouTube フィード補助ロジック（RSS / Data API 代替ソース） ---
+    // src/core/youtube-feed.js はネットワーク・DB 非依存の純粋モジュールなので
+    // require しても副作用がない（src/scrapers/youtube.js は require すると
+    // weekly → services/context 経由で data.db を開いてしまうため	require しない）
+    console.log("[7] YouTube feed helpers");
+    const feed = require(path.join(projectDir, "src", "core", "youtube-feed.js"));
+    ok("deriveUploadsPlaylistId", feed.deriveUploadsPlaylistId("UCgttI8QfdWhvd3SRtCYcJzw") === "UUgttI8QfdWhvd3SRtCYcJzw",
+        feed.deriveUploadsPlaylistId("UCgttI8QfdWhvd3SRtCYcJzw"));
+    ok("deriveUploadsPlaylistId (空値)", feed.deriveUploadsPlaylistId("") === null);
+
+    const RSS_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+  <entry><id>yt:video:VID001</id><yt:videoId>VID001</yt:videoId><yt:channelId>UCgttI8QfdWhvd3SRtCYcJzw</yt:channelId>
+    <title>テスト配信A</title><published>2026-10-20T08:49:41+00:00</published></entry>
+  <entry><id>yt:video:VID002</id><yt:videoId>VID002</yt:videoId>
+    <title>テスト配信B</title><published>2026-10-20T09:00:00+00:00</published></entry>
+</feed>`;
+    const rssItems = await feed.parseRssEntries(RSS_XML, 15);
+    ok("parseRssEntries (videoId/published/title)",
+        rssItems.length === 2 && rssItems[0].videoId === "VID001" &&
+        rssItems[0].published === "2026-10-20T08:49:41+00:00" && rssItems[0].title === "テスト配信A",
+        JSON.stringify(rssItems[0]));
+    ok("parseRssEntries (maxItems)", (await feed.parseRssEntries(RSS_XML, 1)).length === 1);
+
+    const PLAYLIST_JSON = {
+        items: [
+            {
+                snippet: { publishedAt: "2026-10-20T08:49:41Z", title: "テスト配信A", resourceId: { videoId: "VID001" } },
+                contentDetails: { videoPublishedDate: "2026-10-20T08:49:41Z" }
+            },
+            {
+                snippet: { publishedAt: "2026-10-20T09:00:00Z", title: "テスト配信B", resourceId: { videoId: "VID002" } },
+                contentDetails: {}
+            }
+        ]
+    };
+    const plItems = feed.parsePlaylistItems(PLAYLIST_JSON, 15);
+    ok("parsePlaylistItems (RSS と同じ形)",
+        plItems.length === 2 && plItems[0].videoId === "VID001" && plItems[0].title === "テスト配信A" &&
+        plItems[1].videoId === "VID002" && typeof plItems[0].published === "string",
+        JSON.stringify(plItems[0]));
+    ok("parsePlaylistItems (空レスポンス)", feed.parsePlaylistItems({}, 15).length === 0);
+
+    // RSS とプレイリストの動画IDが一致すること（＝代替ソースが主経路と等価であることの前提）
+    const rssIds = rssItems.map((x) => x.videoId).sort().join(",");
+    const plIds = plItems.map((x) => x.videoId).sort().join(",");
+    ok("RSS とプレイリストの videoId 一致", rssIds === plIds, `${rssIds} vs ${plIds}`);
+
     console.log(`\n結果: ${passed} passed, ${failed} failed`);
   } catch (e) {
     failed++;

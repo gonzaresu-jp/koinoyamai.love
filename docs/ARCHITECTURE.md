@@ -64,6 +64,14 @@
 ### 3.2 スクレイパー（`main.js` が起動）
 - 各モジュールは `init(notifyConfig)` を受け取り、検知時に `/api/notify` へ送る。
 - YouTube は Webhook(3001) + RSS ポーリング + 終了検知。Twitter/TwitCasting は `startWatcher`。Bilibili は live/dynamic。Fanbox/Twitch/ytcommunity/gipt も `main.js` から起動。
+- **RSS ポーリング（`runRssFallbackScan`）は PubSubHubbub の冗長化**（5分間隔）。
+  YouTube 側の RSS エンドポイントは**一時的に 404 を返す**ことが観測される（同一 URL が直後に 200 になる =
+  YouTube 側の不安定。IP ブロックではない。2026-10-20 実測）ため、
+  (1) 取得は3回リトライ、(2) 失敗時は **Data API のアップロードプレイリスト**
+  （channelId の先頭 "UC" を "UU" に置換したID / 1チャンネル 1 unit）へ切替、
+  (3) エラーログは同一チャンネル10分に1回へ抑制。代替ソースは RSS と同一の動画IDを返す（実測 15/15 一致）。
+  同じ RSS 取得は `weekly/youtube.js`（API プロセスの週間スケジュール更新）にもあり、そちらも
+  リトライと連発抑制を入れてある。共通ロジックは `src/core/youtube-feed.js`（副作用なし）。
 - 検知後、`src/scrapers/youtube.js sendInternalUrl()` が **nassy(192.168.1.70:1700)** へ動画DL→字幕→チャプターを依頼（`AGENTS.md §8`）。
 
 ### 3.3 週間スケジュール / 予定抽出
@@ -119,6 +127,7 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 | `schedule-drift-monitor.js` | スケジュール乖離の監視 |
 | `user-routes.js` | ユーザー系ルーター束ね（`register(app, db, authLimiter)`） |
 | `auth.js` | 認証ヘルパー（`routes/user-*.js`・`routes/android.js` が使用） |
+| `youtube-feed.js` | YouTube フィードの純粋ロジック（RSS/プレイリスト解析・プレイリストID導出。ネットワーク・DB 非依存で回帰テストから require できる） |
 
 ### 4.2 `routes/`（Express ルーター。登録形は3種: `register(app)` / `register(app, db)` / `register(app, db, authLimiter)`）
 | ファイル | 主なエンドポイント |

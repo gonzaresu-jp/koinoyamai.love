@@ -35,7 +35,7 @@
 
 ## 5. 依存関係
 - **sqlite3 は 6.0.1 に昇格済み（2026-09-22 本番反映）**。npm audit critical は解消。
-  依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト(21/21) → smoke」を通すこと。
+  依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト(28/28) → smoke」を通すこと。
 - Node バージョンは**プロセスごとに違う**（2026-10-20 実測 / `pm2 jlist`）:
   - API（`mai-push-api` / `mai-push-api-test`）= **v22.12.0**（nvm 固定・`ecosystem.config.js` の `interpreter`）
   - ワーカー（`mai-push-worker`）と `discord-bot` = **v20.18.1**（既定 node・`interpreter` 未指定）
@@ -73,7 +73,7 @@
   `lib/` に移動（nginx の alias も同dir直配信のため、移動が必須）。
 - `/api/system-info` は公開（CPU%・メモリ%・loadavg・稼働時間・RSSのみ。**ホスト名/ディスク/OS詳細は返さない**）。status ページのリソース欄は誰でも閲覧可能。
 - `/api/ask`（公開）は 5回/分＋質問500文字上限。管理者用 `/api/admin/ask` は対象外。
-- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証含む 21 項目）に接続済み。
+- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジックを含む 28 項目）に接続済み。
 - pm2-logrotate 導入済み（20M・10世代・圧縮）。
 
 ## 6.7 admin は Tailnet 専用（2026-10-10 追加）
@@ -136,7 +136,7 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 `core.hooksPath = scripts/hooks` により、push 時に自動で：
 - ステージ・コミット対象の `.js` に対し `node --check`
 - `.php` に対し `php -l`
-- 回帰テスト `npm test`（21項目、約4秒）
+- 回帰テスト `npm test`（28項目、約4秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
 ### 7.4 staging/本番のドリフト検出
@@ -384,7 +384,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - [ ] 上の表に該当するドキュメントを更新した（該当なしなら不要）
 - [ ] ユーザーに見える変更なら `webui/updatelogs.php` を更新した（`lines` を `count-lines.sh` の実測値で）
 - [ ] `node --check <file>` / `php -l <file>`（pre-push でも自動実行, `§7.3`）
-- [ ] `npm test`（回帰テスト 21 項目）
+- [ ] `npm test`（回帰テスト 28 項目）
 - [ ] 本番操作の前に `bash scripts/deploy/assert-port.sh prod|staging`（`§7.2`）
 - [ ] 感度の高い変更なら PR＋別エージェントの独立レビューを通した（`§13`）
 - [ ] 秘密情報・DB・`webui/data` を不用意にコミットしていない
