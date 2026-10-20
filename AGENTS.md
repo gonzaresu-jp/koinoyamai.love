@@ -139,6 +139,9 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
   順で自動解決する（2026-10-20）。worktree を移設しても誤検知しない。
   ※ staging の **実行実体**は pm2/nginx の参照先（`/home/yuzuki/koinoyamai.love-test`）であり、
   git worktree の場所とは独立しうる（§1 のポート位相検証と併用すること）。
+  2026-10-20: Orca が別パスに作った `staging` worktree を削除し、実行実体と同じ
+  `/home/yuzuki/koinoyamai.love-test` を `staging` ブランチに戻して一致させた。
+  （`.env`・`data-test.db` はこのディレクトリにしか無いため、worktree だけを移すと staging が壊れる）
 - 毎晩 00:05 の `update-subscribers-and-commit.sh` が作る `webui/data` のみの
   自動コミットによる behind は**正常と判定**（誤検出しない）。
 - **cron 登録済み**（1日1回 06:30、0.14秒。ログは `logs/drift.log`）:
