@@ -19,6 +19,10 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
     companion object {
         private const val BASE_URL = "https://koinoyamai.love"
+        // 展開時の BigPicture 用の最大幅（1280px のサムネイルをそのまま保持しない）
+        private const val BIG_PICTURE_MAX_WIDTH = 1024
+        // 折りたたみ時に表示される大きなアイコンの最大幅
+        private const val LARGE_ICON_MAX_WIDTH = 256
     }
 
     // スマホごとに割り当てられるFCMのID（トークン）が更新された時に呼ばれます
@@ -62,9 +66,18 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         }
     }
 
-    private fun fetchImage(imageUrl: String?): Bitmap? {
+    /**
+     * 画像を取得し、maxWidth 以下に縮小した Bitmap を返す。
+     * 通知の Binder パーセル肥大（TransactionTooLargeException）とメモリ圧迫を避けるため、
+     * デコード時点で inSampleSize を使い、必要なら等倍縮小する。
+     */
+    private fun fetchImage(imageUrl: String?, maxWidth: Int): Bitmap? {
         val resolved = normalizeUrl(imageUrl) ?: return null
-        Log.d("FCM", "fetchImage: $resolved")
+        if (!resolved.startsWith("https://")) {
+            Log.w("FCM", "fetchImage: non-https URL skipped: $resolved")
+            return null
+        }
+        Log.d("FCM", "fetchImage: $resolved (maxWidth=$maxWidth)")
         return try {
             val conn = (URL(resolved).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 8000
@@ -75,14 +88,38 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             conn.connect()
             val code = conn.responseCode
             Log.d("FCM", "fetchImage response=$code contentType=${conn.contentType}")
-            if (code in 200..299) {
-                val bitmap = conn.inputStream.use { BitmapFactory.decodeStream(it) }
-                Log.d("FCM", "fetchImage bitmap=${bitmap?.width}x${bitmap?.height}")
-                bitmap
-            } else {
+            if (code !in 200..299) {
                 Log.w("FCM", "fetchImage HTTP $code")
-                null
+                conn.disconnect()
+                return null
             }
+            val bytes = conn.inputStream.use { it.readBytes() }
+            conn.disconnect()
+
+            // まず寸法だけ読み、inSampleSize を決める
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0) {
+                Log.w("FCM", "fetchImage: invalid image bounds")
+                return null
+            }
+            var sample = 1
+            while (bounds.outWidth / (sample * 2) >= maxWidth) sample *= 2
+            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+
+            var bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+            if (bitmap != null && bitmap.width > maxWidth) {
+                val scaled = Bitmap.createScaledBitmap(
+                    bitmap,
+                    maxWidth,
+                    (bitmap.height * maxWidth / bitmap.width).coerceAtLeast(1),
+                    true
+                )
+                if (scaled != bitmap) bitmap.recycle()
+                bitmap = scaled
+            }
+            Log.d("FCM", "fetchImage bitmap=${bitmap?.width}x${bitmap?.height}")
+            bitmap
         } catch (e: Exception) {
             Log.w("FCM", "fetchImage failed: ${e.message}", e)
             null
@@ -119,15 +156,30 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
         // サムネイル（YouTube の配信枠など）を取得。取得できれば大きなアイコンにも使い、
         // 通知を展開しなくても右側にサムネイルが見えるようにする。
-        val heroImage = if (imageUrl != null) fetchImage(imageUrl) else null
+        // 注意: この描画は onMessageReceived が呼ばれる場合のみ（フォアグラウンド、または
+        // Android 14+ の notification_delegation_enabled）。14 未満のバックグラウンドでは
+        // OS が android.notification.image を使って描画するため、折りたたみ時の大きなアイコンは
+        // アプリアイコンのままになる（展開すればサムネイルは表示される）。
+        val heroImage = if (imageUrl != null) fetchImage(imageUrl, BIG_PICTURE_MAX_WIDTH) else null
         if (imageUrl != null && heroImage == null) {
             Log.w("FCM", "heroImage fetch returned null for: $imageUrl")
         } else if (imageUrl == null) {
             Log.d("FCM", "No imageUrl in data, using launcher icon")
         }
 
-        // 大きなアイコン: サムネイル優先、無ければアプリのランチャーアイコン
-        val largeBitmap = heroImage ?: try {
+        // 大きなアイコン: サムネイルを縮小して使用（パーセル肥大を避ける）。無ければランチャーアイコン
+        val largeBitmap = heroImage?.let { hero ->
+            if (hero.width > LARGE_ICON_MAX_WIDTH) {
+                Bitmap.createScaledBitmap(
+                    hero,
+                    LARGE_ICON_MAX_WIDTH,
+                    (hero.height * LARGE_ICON_MAX_WIDTH / hero.width).coerceAtLeast(1),
+                    true
+                )
+            } else {
+                hero
+            }
+        } ?: try {
             BitmapFactory.decodeResource(resources, R.drawable.ic_mai_logo)
         } catch (e: Exception) {
             Log.w("FCM", "Failed to load launcher icon: ${e.message}")

@@ -1059,12 +1059,11 @@ public sealed partial class MainWindow : Window
 
             var title = root.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
             var body  = root.TryGetProperty("body",  out var b) ? b.GetString() ?? "" : "";
-            var icon  = root.TryGetProperty("icon",  out var i) ? i.GetString() ?? "" : "";
             var image = root.TryGetProperty("image", out var im) ? im.GetString() ?? "" : "";
 
-            // サムネイル（image）をヒーロー画像に使う。無ければ従来どおり icon にフォールバック。
-            var hero = string.IsNullOrEmpty(image) ? icon : image;
-            DispatcherQueue.TryEnqueue(() => NotificationHelper.ShowToast(title, body, hero));
+            // サムネイル（image）をトーストのヒーロー画像に使う。image は絶対URL。
+            // icon は相対URL（/icon.webp）で SetHeroImage の要件（絶対URI）を満たさないためフォールバックしない。
+            DispatcherQueue.TryEnqueue(() => NotificationHelper.ShowToast(title, body, image));
         }
         catch { }
     }
