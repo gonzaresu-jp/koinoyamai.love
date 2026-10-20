@@ -90,3 +90,17 @@ kernel.errors.txt
 # /admin は login.html のみ追跡（旧複製 admin.js/webauthn.js は lib/ へ移設済み）
 admin/admin.js
 admin/webauthn.js
+
+# ローカル残骸の誤コミット防止 (2026-10-20 追加)
+# 背景: 未追跡ファイルが 2 つの自動処理を止めていた
+#   1) promote.sh は `git status --porcelain` が空でなければ本番昇格を中止する
+#   2) scripts/ops/update-subscribers-and-commit.sh は webui/data 以外に未コミット変更が
+#      あると日次データ更新を commit せず保留する（AGENTS.md §7.5）
+# 注意: gitignore のコメントは「行全体」だけ。インライン（行末の # ...）は
+#       パターンの一部になるので必ず前行に置くこと。
+# 日付付きバックアップ（例: robots.txt.bak-20261011-1445）
+*.bak-*
+# .env のローカル退避（秘密値を含むため追跡しない）
+.env.bak*
+# WinUI のビルド出力（正規は %LOCALAPPDATA%、§10.1）
+Windows/mai-push-winui/publish/
