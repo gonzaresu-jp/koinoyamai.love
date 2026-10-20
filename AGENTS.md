@@ -210,6 +210,7 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 `core.hooksPath = scripts/hooks` により、push 時に自動で：
 - ステージ・コミット対象の `.js` に対し `node --check`
 - `.php` に対し `php -l`
+- アプリバージョンの3箇所整合（`scripts/ops/check-app-version.sh`・`SKIP_PREPUSH_VERSION=1` でスキップ可）
 - 回帰テスト `npm test`（35項目、約5秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
@@ -374,6 +375,13 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - `MaiPushWinUI.csproj` の `<Version>` / `installer.iss` の `#define MyAppVersion` /
     `UpdateChecker.cs` の `CurrentVersion`（`new(1, 8, 5)` のようにリリース版と揃える）。
   - `UpdateChecker.cs` を忘れると**最新版なのに「アップデートがあります」通知が出る**。
+  - **機械検査が_parse可能になった**（2026-10-21 追加）:
+    ```bash
+    bash scripts/ops/check-app-version.sh    # 3箇所の整合（不一致で exit 1）
+    ```
+    - pre-push フックにも組み込み済み（`SKIP_PREPUSH_VERSION=1` でスキップ可）
+    - GitHub Actions（`.github/workflows/app-version-consistency.yml`）でも main へ push 時に検査
+    - ビルド成果物を公開 repo に載せない運用なので、**CI 検査が唯一の守り**となる
 - **Windows ビルド**
   - `dotnet publish MaiPushWinUI.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained true`
     → `$(LOCALAPPDATA)\MaiPushWinUI\publish\`（csproj の `PublishDir` が固定）。

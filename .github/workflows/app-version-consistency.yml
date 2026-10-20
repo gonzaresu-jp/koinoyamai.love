@@ -1,0 +1,35 @@
+name: app-version-consistency
+
+# Windows アプリのバージョン3箇所の整合チェック（AGENTS.md §10.1）
+#
+# なぜ必要か:
+#   バージョンは csproj / installer.iss / UpdateChecker.cs の3箇所に分散しており、
+#   1箇所だけ更新すると「最新版なのに更新通知が出ない」事故になる。
+#   ビルド成果物を公開リポジトリに載せない運用なので、CI で機械的に守る。
+#
+# 対象:
+#   - pull_request（main 宛て）と push(main / リリースブランチ)
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: バージョン3箇所の整合
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: バージョン整合チェック
+        run: bash scripts/ops/check-app-version.sh
+
+      - name: 構文チェック（JS / PHP）
+        run: |
+          set -euo pipefail
+          find . -path ./node_modules -prune -o -name '*.js' -not -path './webui/dist/*' -print0 \
+            | xargs -0 -n1 -P4 node --check
+          find webui -name '*.php' -print0 | xargs -0 -n1 -P4 php -l

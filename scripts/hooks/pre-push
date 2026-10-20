@@ -100,7 +100,21 @@ if [ $fail -ne 0 ]; then
   exit 1
 fi
 
-# --- 3. 回帰テスト ---
+# --- 3. アプリバージョンの3箇所整合（AGENTS.md §10.1） ---
+# 1箇所だけ更新すると「最新版なのに更新通知が出ない/出る」事故になる。
+if [ "${SKIP_PREPUSH_VERSION:-0}" != "1" ]; then
+  echo "[pre-push] アプリバージョンの整合を確認"
+  if bash scripts/ops/check-app-version.sh; then
+    echo "${GRN}[pre-push] ✓ バージョン整合 pass${RST}"
+  else
+    echo "${RED}[pre-push] ✗ バージョン整合 failed${RST}"
+    fail=1
+  fi
+else
+  echo "${YLW}[pre-push] SKIP_PREPUSH_VERSION=1 によりバージョン整合をスキップ${RST}"
+fi
+
+# --- 4. 回帰テスト ---
 if [ "${SKIP_PREPUSH_REGRESSION:-0}" = "1" ]; then
   echo "${YLW}[pre-push] SKIP_PREPUSH_REGRESSION=1 により回帰テストをスキップ${RST}"
   exit 0
