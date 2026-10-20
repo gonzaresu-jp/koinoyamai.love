@@ -27,6 +27,8 @@ app.set("trust proxy", "loopback");
 
 const dbPath = path.join(__dirname, process.env.DB_FILE_NAME || "data.db");
 const db = new sqlite3.Database(dbPath);
+// 書き込みロック競合を待つ（AGENTS.md §11: DB 書込ロック耐性）
+db.configure("busyTimeout", 5000);
 ctx.db = db;
 
 discordAlert.attachGlobalCrashHandlers();

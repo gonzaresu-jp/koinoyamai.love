@@ -208,6 +208,8 @@ function getCollabDb() {
     if (!_collabDb) {
         const dbPath = path.join(__dirname, '..', '..', process.env.DB_FILE_NAME || 'data.db');
         _collabDb = new sqlite3.Database(dbPath);
+    // 書き込みロック競合を待つ（AGENTS.md §11）
+    _collabDb.configure("busyTimeout", 5000);
     }
     return _collabDb;
 }

@@ -10,6 +10,10 @@ const path = require('path');
 const db = new sqlite3.Database(
     path.join(__dirname, '..', process.env.DB_FILE_NAME || 'data.db')
 );
+// 書き込みロックの競合を待つ（AGENTS.md §11: DB 書込ロック耐性）。
+// これが無いと、同一 DB に別接続で書き込んでいる最中に
+// SQLITE_BUSY で落ちて「Uncaught Exception」になる（2026-10-21 回帰テストで実測）。
+db.configure('busyTimeout', 5000);
 
 const YOUTUBE_LOOKAHEAD_MS     = 14 * 24 * 60 * 60 * 1000; // 2週間
 const NEAR_DUPLICATE_WINDOW_MS = 10 * 60 * 1000;            // ±10分

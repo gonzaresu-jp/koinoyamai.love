@@ -3,15 +3,25 @@ const ctx = require("./context");
 function initDatabase() {
   const db = ctx.db;
   db.serialize(() => {
-    db.run("PRAGMA busy_timeout = 5000");
-    db.run("PRAGMA journal_mode = WAL");
-    db.run("PRAGMA synchronous = NORMAL");
-    db.run("PRAGMA temp_store = MEMORY");
+    // PRAGMA はコールバックを渡さないと、SQLITE_BUSY などのエラーが
+    // uncaught exception としてプロセスを落とす（node-sqlite3 の仕様）。
+    // 特に journal_mode=WAL は排他ロックを取りに行くため、
+    // 別接続が同じ DB を開いている瞬間（weekly/index.js など）に
+    // SQLITE_BUSY になりうる（2026-10-21 回帰テストで実測・API が起動直後に落ちる）。
+    db.run("PRAGMA busy_timeout = 5000", (err) => { if (err) console.error("busy_timeout err:", err.message); });
+    db.run("PRAGMA journal_mode = WAL", (err) => { if (err) console.error("journal_mode err:", err.message); });
+    db.run("PRAGMA synchronous = NORMAL", (err) => { if (err) console.error("synchronous err:", err.message); });
+    db.run("PRAGMA temp_store = MEMORY", (err) => { if (err) console.error("temp_store err:", err.message); });
 
+    // tweet_id / image も含める（既存 DB 用の遅延 ALTER にも残す）。
+    // 含めない場合、新規 DB では ALTER が終わる前に
+    // services/history.js の `n.image` 参照が走って
+    // 「no such column: image」で落ちうる（2026-10-21 回帰テストで実測）。
     db.run(`CREATE TABLE IF NOT EXISTS notifications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT, body TEXT, url TEXT, icon TEXT,
       platform TEXT, status TEXT DEFAULT 'success',
+      tweet_id TEXT, image TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP, data TEXT
     )`, (err) => { if (err) console.error("notifications create err:", err.message); });
 

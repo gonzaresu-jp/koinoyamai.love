@@ -380,7 +380,8 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     bash scripts/ops/check-app-version.sh    # 3箇所の整合（不一致で exit 1）
     ```
     - pre-push フックにも組み込み済み（`SKIP_PREPUSH_VERSION=1` でスキップ可）
-    - GitHub Actions（`.github/workflows/app-version-consistency.yml`）でも main へ push 時に検査
+    - GitHub Actions（`.github/workflows/ci.yml`）でも main へ push / PR 時に検査
+      （バージョン整合・JS/PHP 構文・回帰テスト。Windows セッションからの push にも効く）
     - ビルド成果物を公開 repo に載せない運用なので、**CI 検査が唯一の守り**となる
 - **Windows ビルド**
   - `dotnet publish MaiPushWinUI.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained true`

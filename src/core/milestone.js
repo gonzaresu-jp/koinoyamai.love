@@ -8,6 +8,8 @@ const path = require('path');
 class MilestoneScheduler {
   constructor(dbPath, vapidConfig) {
     this.db = new sqlite3.Database(dbPath);
+    // 書き込みロック競合を待つ（AGENTS.md §11）
+    this.db.configure("busyTimeout", 5000);
     this.vapidConfig = vapidConfig;
     this.checkInterval = 60 * 1000; // 1分ごとにチェック
     this.lastCheckedDate = null;

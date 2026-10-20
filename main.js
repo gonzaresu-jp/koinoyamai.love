@@ -203,11 +203,15 @@ async function main() {
   // データベース初期化
   const dbPath = path.join(__dirname, process.env.DB_FILE_NAME || "data.db");
   db = new sqlite3.Database(dbPath);
+  // 書き込みロック競合を待つ（AGENTS.md §11）
+  db.configure("busyTimeout", 5000);
   db.serialize(() => {
-    db.run("PRAGMA busy_timeout = 5000");
-    db.run("PRAGMA journal_mode = WAL");
-    db.run("PRAGMA synchronous = NORMAL");
-    db.run("PRAGMA temp_store = MEMORY");
+    // PRAGMA はコールバック無しだと SQLITE_BUSY などが uncaught exception になり
+    // プロセスを落とす（node-sqlite3 の仕様）。AGENTS.md §11 のロック耐性に対応。
+    db.run("PRAGMA busy_timeout = 5000", (err) => { if (err) console.error("busy_timeout err:", err.message); });
+    db.run("PRAGMA journal_mode = WAL", (err) => { if (err) console.error("journal_mode err:", err.message); });
+    db.run("PRAGMA synchronous = NORMAL", (err) => { if (err) console.error("synchronous err:", err.message); });
+    db.run("PRAGMA temp_store = MEMORY", (err) => { if (err) console.error("temp_store err:", err.message); });
     db.run(
       `CREATE TABLE IF NOT EXISTS scraper_status (
       id TEXT PRIMARY KEY,

@@ -26,15 +26,19 @@ const sqlite3 = require("sqlite3");
 
 const args = process.argv.slice(2);
 const portIdx = args.indexOf("--port");
-const PORT = portIdx >= 0 ? Number(args[portIdx + 1]) || 18099 : 18099;
-const BASE = `http://127.0.0.1:${PORT}`;
+const REQUESTED_PORT = portIdx >= 0 ? Number(args[portIdx + 1]) || 18099 : 0;
+// 固定ポート 18099 は同時実行（CI と手動、pre-push と手動など）で衝突して
+// テストが不安定になる（2026-10-21 実測: pre-push が flake で落ちた）。
+// 明示指定がないときは空きポートを採る。
+let PORT = REQUESTED_PORT || 18099;
+let BASE = `http://127.0.0.1:${PORT}`;
 
 // ---- 本番 Leak ガード ----
 // 本番(8080) の .env は DISABLE_NOTIFICATIONS=0 であり、通知抑止が効かない。
 // 誤って本番に対して --port 8080 を指定して実行すると、[2] の完全認証ケースで
 // 実ユーザー全員にテスト通知が届いてしまう。それを機械的に防ぐ。
 const PROD_PORTS = [8080];
-if (PROD_PORTS.includes(PORT)) {
+if (REQUESTED_PORT && PROD_PORTS.includes(REQUESTED_PORT)) {
   console.error("╔════════════════════════════════════════════════════════╗");
   console.error("║ ✗ 本番ポートが検査対象に指定されています                                 ║");
   console.error("║   本番(8080) は DISABLE_NOTIFICATIONS=0 のため、             ║");
@@ -47,7 +51,10 @@ if (PROD_PORTS.includes(PORT)) {
 
 const TOKEN = "regression-test-token-" + crypto.randomBytes(8).toString("hex");
 const HMAC_SECRET = "regression-test-hmac-" + crypto.randomBytes(8).toString("hex");
-const DB_NAME = `regression-test-${Date.now()}.db`;
+// 同じミリ秒に2つ起動されると名前が被り、一時DBを共有して flaky になる
+// （2026-10-21 実測: 同時実行で通知テーブルの SELECT が4行返って失敗）。
+// PID と乱数片を混ぜて一意にする。
+const DB_NAME = `regression-test-${Date.now()}-${process.pid}-${crypto.randomBytes(4).toString('hex')}.db`;
 
 let passed = 0;
 let failed = 0;
@@ -109,6 +116,19 @@ function openSse() {
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
+/** 空きポートを1つ確保して返す（テストのlisten衝突を避ける） */
+function findFreePort() {
+    return new Promise((resolve, reject) => {
+        const net = require("net");
+        const srv = net.createServer();
+        srv.on("error", reject);
+        srv.listen(0, "127.0.0.1", () => {
+            const p = srv.address().port;
+            srv.close(() => resolve(p));
+        });
+    });
+}
+
 function dbAll(db, sql, params = []) {
   return new Promise((resolve, reject) => db.all(sql, params, (e, r) => (e ? reject(e) : resolve(r))));
 }
@@ -130,6 +150,11 @@ async function waitForHealth(child) {
 
 async function main() {
   const projectDir = path.resolve(__dirname, "../..");
+  if (!REQUESTED_PORT) {
+    PORT = await findFreePort();
+    BASE = `http://127.0.0.1:${PORT}`;
+    console.log(`[regression-test] 使用ポート: ${PORT}（空きポートを自動確保）`);
+  }
   const dbPath = path.join(projectDir, DB_NAME);
   for (const suffix of ["", "-wal", "-shm"]) {
     try { fs.unlinkSync(dbPath + suffix); } catch (_) {}
@@ -226,8 +251,25 @@ async function main() {
     sseHandles.push(reopen);
 
     // --- 6. sqlite3 ドライバ直叩き（昇格時の主要回帰ポイント） ---
+    // サーバが稼働している同じ DB に書くと
+    // ・サーバ側の書き込みとロックが競合して SQLITE_BUSY（サーバが uncaught で落ちる）
+    // ・テスト側の接続に busy_timeout が無いため即失敗する
+    // といった不安定要因になるので、ドライバ確認は**別の一時DB**で行う。
     console.log("[6] sqlite3 INSERT/SELECT/lastID");
-    const db = new sqlite3.Database(dbPath);
+    const driverDbPath = path.join(projectDir, `regression-driver-${process.pid}-${crypto.randomBytes(4).toString('hex')}.db`);
+    const db = new sqlite3.Database(driverDbPath);
+    await dbRun(db, "PRAGMA busy_timeout = 5000");
+    // 検証で触る3テーブルの最小スキーマ（サーバのスキーマとは独立に持つ）
+    await dbRun(db, `CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, body TEXT, url TEXT, icon TEXT,
+      platform TEXT, status TEXT DEFAULT 'success', tweet_id TEXT, image TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP, data TEXT)`);
+    await dbRun(db, `CREATE TABLE IF NOT EXISTS subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, client_id TEXT NOT NULL UNIQUE,
+      endpoint TEXT NOT NULL UNIQUE, subscription_json TEXT, settings_json TEXT DEFAULT '{}',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`);
+    await dbRun(db, `CREATE TABLE IF NOT EXISTS scraper_status (
+      id TEXT PRIMARY KEY, name TEXT, status TEXT, message TEXT, last_run TEXT, updated_at TEXT)`);
     const ins1 = await dbRun(db, "INSERT INTO notifications (title, body, url, platform, status) VALUES (?, ?, ?, ?, ?)", ["reg-t1", "b1", "https://example.com", "reg-test", "success"]);
     ok("notifications lastID", Number.isInteger(ins1.lastID) && ins1.lastID > 0, `lastID=${ins1.lastID}`);
     await dbRun(db, "INSERT INTO notifications (title, body, platform, status) VALUES (?, ?, ?, ?)", ["reg-t2", "b2", "reg-test", "success"]);
@@ -241,6 +283,9 @@ async function main() {
     const scraper = await dbAll(db, "SELECT * FROM scraper_status WHERE id = ?", ["reg-scraper"]);
     ok("scraper_status UPSERT + SELECT", scraper.length === 1 && scraper[0].status === "success");
     db.close();
+    for (const suffix of ["", "-wal", "-shm"]) {
+        try { fs.unlinkSync(driverDbPath + suffix); } catch (_) {}
+    }
 
     // --- 7. YouTube フィード補助ロジック（RSS / Data API 代替ソース） ---
     // src/core/youtube-feed.js はネットワーク・DB 非依存の純粋モジュールなので

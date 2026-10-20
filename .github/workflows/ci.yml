@@ -1,0 +1,49 @@
+name: ci
+
+# 公開リポジトリの機械検査（AGENTS.md §7.3 / §10.1）
+#
+# 1) Windows アプリのバージョン3箇所の整合
+#    バージョンは csproj / installer.iss / UpdateChecker.cs に分散しており、
+#    1箇所だけ更新すると「最新版なのに更新通知が出ない/出る」事故になる。
+#    ビルド成果物を公開 repo に載せない運用なので、CI で守る。
+# 2) JS / PHP の構文チェック
+# 3) 回帰テスト（scripts/ops/regression-test.js）
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: 静的検査・回帰テスト
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 依存インストール
+        run: npm ci
+
+      - name: バージョン整合チェック
+        run: bash scripts/ops/check-app-version.sh
+
+      - name: 構文チェック（JS / PHP）
+        run: |
+          set -euo pipefail
+          find . -path ./node_modules -prune -o -name '*.js' -not -path './webui/dist/*' -print0 \
+            | xargs -0 -n1 -P4 node --check
+          find webui -name '*.php' -print0 | xargs -0 -n1 -P4 php -l
+
+      - name: VAPID 鍵を生成（テスト用のローカルファイル）
+        run: |
+          node -e "const wp=require('web-push');const k=wp.generateVAPIDKeys();require('fs').writeFileSync('vapid.json',JSON.stringify(k));"
+
+      - name: 回帰テスト
+        run: npm test
