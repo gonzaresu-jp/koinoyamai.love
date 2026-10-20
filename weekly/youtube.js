@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { parseStringPromise } = require('xml2js');
+const { parseRssEntries } = require('../src/core/youtube-feed');
 
 const API_KEY = process.env.YOUTUBE_API_KEY || '';
 const CHANNEL_IDS_RAW = process.env.YOUTUBE_CHANNEL_ID || '';
@@ -14,25 +14,53 @@ if (!CHANNEL_IDS.length) {
 
 const RSS_URL = 'https://www.youtube.com/feeds/videos.xml?channel_id=';
 const MAX_RSS_ITEMS = 15;
+// RSS は YouTube 側が一時的に 404/500 を返すことがある（2026-10-20 実測）。
+// そのままでは週間スケジュールの更新を取りこぼすため、リトライする。
+const RSS_FETCH_ATTEMPTS = 3;
+const RSS_RETRY_DELAY_MS = 2000;
+// 同一チャンネルのエラーログは10分に1回（連発抑制）
+const RSS_ERROR_LOG_INTERVAL_MS = 10 * 60 * 1000;
+const _rssErrorLogAt = new Map();
+const _rssErrorSuppressed = new Map();
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function logRssError(channelId, err) {
+    const now = Date.now();
+    const last = _rssErrorLogAt.get(channelId) || 0;
+    if (now - last < RSS_ERROR_LOG_INTERVAL_MS) {
+        _rssErrorSuppressed.set(channelId, (_rssErrorSuppressed.get(channelId) || 0) + 1);
+        return;
+    }
+    const suppressed = _rssErrorSuppressed.get(channelId) || 0;
+    _rssErrorSuppressed.set(channelId, 0);
+    _rssErrorLogAt.set(channelId, now);
+    const suffix = suppressed > 0 ? `（前回ログ以降に${suppressed}件抑制）` : '';
+    console.error(`[YouTube RSS] Error for ${channelId}（${RSS_FETCH_ATTEMPTS}回試行後）: ${err.message || err}${suffix}`);
+}
 
 /**
  * RSSフィードから動画ID一覧を取得（クォータ消費なし）
+ * 失敗時は空配列を返す（呼び出し元はそのまま継続する）
  */
 async function fetchRssVideoIds(channelId) {
-    try {
-        const resp = await axios.get(`${RSS_URL}${channelId}`, { timeout: 10000 });
-        const parsed = await parseStringPromise(resp.data);
-        const entries = parsed?.feed?.entry || [];
-        const ids = [];
-        for (const entry of entries.slice(0, MAX_RSS_ITEMS)) {
-            const videoId = entry?.['yt:videoId']?.[0];
-            if (videoId) ids.push(videoId);
+    for (let attempt = 1; attempt <= RSS_FETCH_ATTEMPTS; attempt++) {
+        try {
+            const resp = await axios.get(`${RSS_URL}${channelId}`, { timeout: 10000 });
+            const entries = await parseRssEntries(resp.data, MAX_RSS_ITEMS);
+            return entries.map((e) => e.videoId);
+        } catch (err) {
+            if (attempt < RSS_FETCH_ATTEMPTS) {
+                await sleep(RSS_RETRY_DELAY_MS * attempt);
+                continue;
+            }
+            logRssError(channelId, err);
+            return [];
         }
-        return ids;
-    } catch (err) {
-        console.error(`[YouTube RSS] Error for ${channelId}:`, err.message || err);
-        return [];
     }
+    return [];
 }
 
 /**

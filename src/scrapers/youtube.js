@@ -9,6 +9,7 @@ const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 
 const { parseStringPromise } = require('xml2js');
+const { deriveUploadsPlaylistId, parseRssEntries, parsePlaylistItems } = require('../core/youtube-feed');
 const { upsertEvent } = require('../../weekly');
 
 const CHANNEL_IDS = [
@@ -667,6 +668,12 @@ async function pollForEndedLives() {
 // ========= RSSポーリング（PubSubHubbub障害時の検知冗長化） =========
 // Webhook配信が遅延・停止した場合でも、配信枠（予定）と配信開始（ライブ）を通知するためのフォールバック。
 // RSSフィードは無料（クォータ消費なし）、videos API はバッチ化して1フェッチ=1unitに抑える。
+//
+// 2026-10-20 改修: YouTube 側の RSS エンドポイントが**一時的に 404 を返す**ことが
+// 観測された（同一 URL が直後に 200 になる= YouTube 側の不稳定。IP ブロックではない）。
+// そのままではその窓の間、PubSubHubbub webhook も止まっていた場合に配信開始を取りこぼす。
+// そこで (1) 取得のリトライ、(2) 失敗時の Data API アップロードプレイリストへの切替、
+// (3) エラーログの連発抑制 を入れた。
 const RSS_URL = 'https://www.youtube.com/feeds/videos.xml?channel_id=';
 const RSS_MAX_ITEMS = 15;
 const RSS_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5分おき
@@ -674,25 +681,77 @@ const RSS_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5分おき
 const RSS_PLANNED_FRESH_MS = 90 * 60 * 1000;
 // ライブ開始チェックは予定時刻の15分前から開始する
 const RSS_LIVE_CHECK_AHEAD_MS = 15 * 60 * 1000;
+// RSS 取得のリトライ回数（1回目失敗後に 2回まで再試行）
+const RSS_FETCH_ATTEMPTS = 3;
+const RSS_RETRY_DELAY_MS = 2000;
+// 同じチャンネルの RSS エラーログはこの間隔以上で1回だけ（連発抑制）
+const RSS_ERROR_LOG_INTERVAL_MS = 10 * 60 * 1000;
+const _rssErrorLogAt = new Map();      // key -> 最後にログした時刻
+const _rssErrorSuppressed = new Map(); // key -> 抑制した件数
 
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** RSS 取得エラーのログ（同一キーは10分に1回＋抑制件数を併記） */
+function logRssError(key, err) {
+    const now = Date.now();
+    const last = _rssErrorLogAt.get(key) || 0;
+    if (now - last < RSS_ERROR_LOG_INTERVAL_MS) {
+        _rssErrorSuppressed.set(key, (_rssErrorSuppressed.get(key) || 0) + 1);
+        return;
+    }
+    const suppressed = _rssErrorSuppressed.get(key) || 0;
+    _rssErrorSuppressed.set(key, 0);
+    _rssErrorLogAt.set(key, now);
+    const suffix = suppressed > 0 ? `（前回ログ以降に${suppressed}件抑制）` : '';
+    console.error(`[YouTube RSS] Error for ${key}（${RSS_FETCH_ATTEMPTS}回試行後）: ${err.message || err}${suffix}`);
+}
+
+/**
+ * RSS フィードから直近の videoId を取得する。
+ * 成功時: 配列（空でも成功）／失敗時: null（「空フィード」と区別するため）
+ */
 async function fetchRssVideoIds(channelId) {
-    try {
-        const resp = await axios.get(`${RSS_URL}${channelId}`, { timeout: 10000 });
-        const parsed = await parseStringPromise(resp.data);
-        const entries = parsed?.feed?.entry || [];
-        const list = [];
-        for (const entry of entries.slice(0, RSS_MAX_ITEMS)) {
-            const videoId = entry?.['yt:videoId']?.[0];
-            if (!videoId) continue;
-            list.push({
-                videoId,
-                published: entry?.published?.[0] || null,
-                title: entry?.title?.[0] || null
-            });
+    for (let attempt = 1; attempt <= RSS_FETCH_ATTEMPTS; attempt++) {
+        try {
+            const resp = await axios.get(`${RSS_URL}${channelId}`, { timeout: 10000 });
+            return await parseRssEntries(resp.data, RSS_MAX_ITEMS);
+        } catch (err) {
+            if (attempt < RSS_FETCH_ATTEMPTS) {
+                await sleep(RSS_RETRY_DELAY_MS * attempt);
+                continue;
+            }
+            logRssError(channelId, err);
+            return null;
         }
-        return list;
-    } catch (err) {
-        console.error(`[YouTube RSS] Error for ${channelId}:`, err.message || err);
+    }
+    return null;
+}
+
+/**
+ * RSS の代替ソース: Data API のアップロードプレイリスト（プレイリストID = "UU" + channelId）。
+ * 1 コール = 1 unit。RSS が失敗したスキャンだけが呼ぶので通常はクォータを消費しない。
+ * 動画IDと公開日時が取れるので、RSS と同じ「新着検知 → videos API で状態確認」の流れになる。
+ */
+async function fetchPlaylistVideoIds(channelId) {
+    if (!API_KEY) {
+        console.warn('[YouTube RSS] YOUTUBE_API_KEY が未設定のためプレイリスト代替は使えません');
+        return [];
+    }
+    try {
+        const resp = await axios.get('https://www.googleapis.com/youtube/v3/playlistItems', {
+            params: {
+                playlistId: deriveUploadsPlaylistId(channelId),
+                maxResults: RSS_MAX_ITEMS,
+                part: 'contentDetails,snippet',
+                key: API_KEY
+            },
+            timeout: 10000
+        });
+        return parsePlaylistItems(resp.data, RSS_MAX_ITEMS);
+    } catch (e) {
+        logRssError(`${channelId}(playlist)`, e);
         return [];
     }
 }
@@ -800,18 +859,38 @@ function plannedDueForLiveCheck(rec, now) {
     return !isNaN(p) && (now - p) < 24 * 60 * 60 * 1000;
 }
 
+// スキャンの重複実行を防ぐ（前回のスキャン中最中はスキップ）。
+// 重複すると sent_records.json の read-modify-write が競合し、
+// 同じ動画を二重通知する可能性がある。
+let _rssScanInFlight = false;
+
 async function runRssFallbackScan() {
+    if (_rssScanInFlight) {
+        console.warn('[YouTube RSS] scan skipped (previous scan still running)');
+        return;
+    }
+    _rssScanInFlight = true;
     try {
         const records = loadSentRecords();
         const now = Date.now();
 
-        // 1) RSSフィードから直近のvideoIdを収集（クォータ消費なし）
+        // 1) 直近のvideoIdを収集（RSS が失敗したら Data API のプレイリストで代替）
         const seen = new Map();
+        let usedPlaylistFallback = false;
         for (const channelId of CHANNEL_IDS) {
-            const entries = await fetchRssVideoIds(channelId);
+            let entries = await fetchRssVideoIds(channelId);
+            if (entries === null) {
+                // RSS 取得失敗（YouTube 側の一時的な 404 等）→ アップロードプレイリストへ切替
+                entries = await fetchPlaylistVideoIds(channelId);
+                if (entries.length > 0) usedPlaylistFallback = true;
+            }
             for (const e of entries) {
                 if (!seen.has(e.videoId)) seen.set(e.videoId, e);
             }
+        }
+        if (usedPlaylistFallback) {
+            // 5分ごとに出るとログが埋まるので、RSS 本体と同じ 10分間隔の抑制に載せる
+            logRssError('fallback', new Error('RSS unavailable → Data API (uploads playlist) fallback used'));
         }
         if (seen.size === 0) return;
 
@@ -878,6 +957,8 @@ async function runRssFallbackScan() {
         if (changed) saveSentRecords(records);
     } catch (e) {
         console.error('[YouTube RSS] fallback scan error:', e.message || e);
+    } finally {
+        _rssScanInFlight = false;
     }
 }
 
@@ -901,6 +982,12 @@ module.exports = {
     pollForEndedLives,
     pollForEndedCollabs,
     runRssFallbackScan,
+    // src/core/schedule-drift-monitor.js が要求している（従来 export されておらず
+    // 実行時 TypeError になっていたため追加）
+    fetchVideoStatus,
+    // 監視・検証用（RSS 取得と代替ソースの挙動確認）
+    fetchRssVideoIds,
+    fetchPlaylistVideoIds,
     init,
     startWebhook,
     subscribeAllChannels,
