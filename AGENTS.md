@@ -102,6 +102,30 @@
   （アンカー文字列カウント検証付きパッチ）で反映。
   復旧用バックアップ: `/etc/nginx/nginx.conf.bak-admin-*` / `.bak-autoauth-*`。funnel/serve は tailscale CLI（要 sudo）。
 
+### 6.8 YouTube Webhook（PubSubHubbub）
+
+- **callback URL はインターネットから到達できる公開 URL であること**
+  - hub（`pubsubhubbub.appspot.com`）は callback を検証してから購読する。
+    tailnet 専用 URL（`elza.poitou-mora.ts.net`）だと検証が 504 → 購読が 409 で失敗し、
+    **webhook 経路が静かに死ぬ**（2026-10-20 実測: 最終配信 2026-10-02、購読は恒久失敗）。
+    検知は RSS / プレイリスト経路だけに依存していた
+  - 公開 callback は `https://koinoyamai.love/youtube-webhook?token=<YOUTUBE_WEBHOOK_TOKEN>`
+- **トークンで保護する（必須）**
+  - `YOUTUBE_WEBHOOK_TOKEN` が未設定なら webhook は **fail-closed（403）**。
+    公開に晒す以上、トークン無しでは第三者に通知を撃たせない
+  - hub は callback URL に `hub.mode` / `hub.challenge` 等を**追記**するため、
+    クエリの `token` はそのまま維持される
+- **nginx には公開 vhost 用のプロキシが必要**
+  - 適用は `sudo bash ~/apply-youtube-webhook.sh --apply`（dry-run なら引数なし）
+  - 適用後は `curl -i 'https://koinoyamai.love/youtube-webhook?hub.challenge=TEST'`
+    が **403**（トークンなし）であること。200 なら保護が漏れている
+- **購読は 30 分ごとに再試行する**（`RESUBSCRIBE_INTERVAL_MS`）
+  - 3 日周期だと hub の一時障害で最長3日そのまま続き、検知が RSS 経路に依存し続ける
+- **購読失敗は明示的に警告する**（`購読リクエスト成功/失敗` を件数付きでログ）。
+  以前はこの失敗がログに埋もれて 18 日 unnoticed だった
+- **検知の冗長経路（RSS + Data API プレイリスト）を必ず残す**
+  - `docs/ARCHITECTURE.md §3.2`。webhook が死んでも配信開始を取りこぼさない
+
 ## 7. 自動化スクリプト（2026-09-26 追加）— AI はこれを使う
 手動でのミスを防ぐため、以下を実装済み。**作業の対応するフェーズで必ず実行すること。**
 

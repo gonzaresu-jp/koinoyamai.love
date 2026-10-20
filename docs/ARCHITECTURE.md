@@ -64,6 +64,9 @@
 ### 3.2 スクレイパー（`main.js` が起動）
 - 各モジュールは `init(notifyConfig)` を受け取り、検知時に `/api/notify` へ送る。
 - YouTube は Webhook(3001) + RSS ポーリング + 終了検知。Twitter/TwitCasting は `startWatcher`。Bilibili は live/dynamic。Fanbox/Twitch/ytcommunity/gipt も `main.js` から起動。
+- **Webhook（PubSubHubbub）のcallback は公開 URL + トークン**（`https://koinoyamai.love/youtube-webhook?token=...`）。
+  hub はインターネットから callback に到達できないと検証に失敗し、購読が 409 になる
+  （tailnet 専用 URL だと 18 日間 webhook が死んでいた。`AGENTS.md §6.8`）。
 - **RSS ポーリング（`runRssFallbackScan`）は PubSubHubbub の冗長化**（5分間隔）。
   YouTube 側の RSS エンドポイントは**一時的に 404 を返す**ことが観測される（同一 URL が直後に 200 になる =
   YouTube 側の不安定。IP ブロックではない。2026-10-20 実測）ため、
