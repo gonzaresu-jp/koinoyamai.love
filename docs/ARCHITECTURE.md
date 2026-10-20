@@ -180,6 +180,7 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 | `pressure.js` | 気圧予測（管理表示用） |
 | `system-cpu.js` | CPU/リソース計測 |
 | `ai-quota.js` | AI 呼び出しのクォータ/使用量 |
+| `db-guard.js` | sqlite3 の保護（コールバックなし文のエラーでプロセスを落とさない） |
 
 ### 4.4 `lib/`・`weekly/`
 | ファイル | 役割 |

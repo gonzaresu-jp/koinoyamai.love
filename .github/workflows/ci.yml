@@ -1,0 +1,64 @@
+name: ci
+
+# 公開リポジトリの機械検査（AGENTS.md §7.3 / §10.1）
+#
+# 1) Windows アプリのバージョン3箇所の整合
+#    バージョンは csproj / installer.iss / UpdateChecker.cs に分散しており、
+#    1箇所だけ更新すると「最新版なのに更新通知が出ない/出る」事故になる。
+#    ビルド成果物を公開 repo に載せない運用なので、CI で守る。
+# 2) JS / PHP の構文チェック
+# 3) 回帰テスト（scripts/ops/regression-test.js）
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: 静的検査・回帰テスト
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: 依存インストール
+        run: npm ci
+
+      - name: バージョン整合チェック
+        run: bash scripts/ops/check-app-version.sh
+
+      - name: 構文チェック（JS / PHP）
+        run: |
+          set -euo pipefail
+          # package.json は commonjs のため node --check は ESM を弾く。
+          # CJS として検査し、失敗したら ES module として再検査する
+          # （scripts/hooks/pre-push と同じ方針）
+          while IFS= read -r -d '' f; do
+            if ! out=$(node --check "$f" 2>&1) && ! out=$(node --input-type=module --check < "$f" 2>&1); then
+              echo "SYNTAX ERROR: $f"
+              echo "$out" | head -3
+              exit 1
+            fi
+          done < <(find . -path ./node_modules -prune -o -name '*.js' -not -path './webui/dist/*' -print0)
+          find webui -name '*.php' -print0 | xargs -0 -n1 -P4 php -l > /dev/null
+          echo "構文チェック OK"
+
+      - name: VAPID 鍵を生成（テスト用のローカルファイル・gitignore 済み）
+        # services/notification.js が読むのは { vapidPublicKey, vapidPrivateKey }
+        # （web-push の generateVAPIDKeys() は { publicKey, privateKey } を返すので変換する）
+        run: |
+          node -e "const wp=require('web-push');const k=wp.generateVAPIDKeys();require('fs').writeFileSync('vapid.json',JSON.stringify({vapidPublicKey:k.publicKey,vapidPrivateKey:k.privateKey}));"
+
+      - name: 回帰テスト
+        run: npm test

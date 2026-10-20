@@ -210,6 +210,7 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 `core.hooksPath = scripts/hooks` により、push 時に自動で：
 - ステージ・コミット対象の `.js` に対し `node --check`
 - `.php` に対し `php -l`
+- アプリバージョンの3箇所整合（`scripts/ops/check-app-version.sh`・`SKIP_PREPUSH_VERSION=1` でスキップ可）
 - 回帰テスト `npm test`（35項目、約5秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
@@ -374,6 +375,14 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - `MaiPushWinUI.csproj` の `<Version>` / `installer.iss` の `#define MyAppVersion` /
     `UpdateChecker.cs` の `CurrentVersion`（`new(1, 8, 5)` のようにリリース版と揃える）。
   - `UpdateChecker.cs` を忘れると**最新版なのに「アップデートがあります」通知が出る**。
+  - **機械検査が_parse可能になった**（2026-10-21 追加）:
+    ```bash
+    bash scripts/ops/check-app-version.sh    # 3箇所の整合（不一致で exit 1）
+    ```
+    - pre-push フックにも組み込み済み（`SKIP_PREPUSH_VERSION=1` でスキップ可）
+    - GitHub Actions（`.github/workflows/ci.yml`）でも main へ push / PR 時に検査
+      （バージョン整合・JS/PHP 構文・回帰テスト。Windows セッションからの push にも効く）
+    - ビルド成果物を公開 repo に載せない運用なので、**CI 検査が唯一の守り**となる
 - **Windows ビルド**
   - `dotnet publish MaiPushWinUI.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained true`
     → `$(LOCALAPPDATA)\MaiPushWinUI\publish\`（csproj の `PublishDir` が固定）。
@@ -421,6 +430,12 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - **fail-closed**: トークン/秘密が未設定なら認証系は 503/401 で閉じる（通すな）。
 - **秘密情報をコミットしない**: `.env`・鍵・cookie 等。`.gitignore` 済みでも `git add -A` に注意。
 - **DB 書込ロック耐性**: SQLite は `busy_timeout`/`timeout` を設定し、長時間書込はリトライ（nassy `§8` の load 由来）。
+  - 接続は `db.configure("busyTimeout", 5000)` を設定する（`services/database.js` 以外も全部）
+  - **コールバックなしの `db.run()` はエラーでプロセスを落とす**
+    （node-sqlite3 は Statement の 'error' イベントを emit し、リスナが無ければ uncaught exception になる）。
+    `services/db-guard.js` が Database.prototype に既定のエラーコールバックを差すので、
+    これを require している（`server.js` / `main.js` / `services/context.js`）。
+    **新しい DB 実装でも require を忘れないこと**
 - **ネイティブビルドは Node v22 優先**: 本番 API は v22.12.0、ワーカーは v20.18.1（`§5`）。
   ビルドと実行の Node を揃えること（v18 でビルドして v22 で実行すると ABI 不一致）。
 

@@ -2,6 +2,8 @@ require("dotenv").config();
 // 日時の getHours/getDay や naive 文字列の new Date() 解釈を JST に固定する
 // （イベントの曜日配置・時刻表示のタイムゾーンずれ防止）
 process.env.TZ = process.env.TZ || "Asia/Tokyo";
+// sqlite3 の保護（コールバックなし文のエラーでプロセスを落とさない）
+require("./services/db-guard");
 const express = require("express");
 const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
@@ -27,6 +29,12 @@ app.set("trust proxy", "loopback");
 
 const dbPath = path.join(__dirname, process.env.DB_FILE_NAME || "data.db");
 const db = new sqlite3.Database(dbPath);
+// 書き込みロック競合を待つ（AGENTS.md §11: DB 書込ロック耐性）
+db.configure("busyTimeout", 5000);
+// コールバックなしの文でエラーになると node-sqlite3 が uncaught exception として
+// 出すため、DB 全体で 'error' を購読して「ログに残すだけ」に落とす
+// （プロセス終了させない。2026-10-21 Issue: 起動直後に SQLITE_BUSY で落ちる件）
+db.on("error", (err) => console.error("[db] error:", err.message));
 ctx.db = db;
 
 discordAlert.attachGlobalCrashHandlers();
