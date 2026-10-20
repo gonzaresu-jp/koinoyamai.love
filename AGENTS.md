@@ -236,6 +236,18 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     combase.dll (E_INVALIDARG/E_FAIL) × CoreMessagingXP.dll / Microsoft.UI.Xaml.dll の
     フォールトが多発していた（v1.8.2 で診断強化: `%LOCALAPPDATA%\MaiPush\log.txt` に例外ログ、
     WER LocalDumps でミニダンプ収集、RegisterApplicationRestart で自動再起動）。
+- **UI コールバック（`DispatcherQueue` の Tick / `WndProc`）は例外境界で包むこと（2026-10-20, Issue #10）**
+  - `StartHoverPoller` の `Tick` は try/catch 必須。例外は `%LOCALAPPDATA%\MaiPush\log.txt` に
+    ウィンドウ状態（hwnd/alive/visible/minimized/DPI/カーソル/ストリップ状態）付きで記録し、
+    ポーリングを停止する（`StopHoverPoller` / `DescribeWindowState`）。
+    80ms 周期で例外が出続けてログが溢れるのを防ぐ。**停止は1セッション限り（再開しない）**。
+  - `WndProc` は `WndProcCore` を呼ぶ薄い wrapper。例外時は `CallWindowProc` へフォールバックする
+    （未処理例外はプロセスごと落ちる）。`WM_NCHITTEST`/`WM_SETCURSOR` は毎秒100回以上来るため、
+    ログは `LogWndProcFault` で**5秒に1回**に制限し、抑制件数も併記する（同期ログでポンプが詰まる）。
+  - 新しく `DispatcherQueue.TryEnqueue` で UI 処理を投げるときは `EnqueueUi(source, action)` を使う。
+  - 非表示（トレイ格納）・**最小化中**はストリップを閉じた状態に戻す（`ResetTabStripHidden`）。
+    最小化でも `IsWindowVisible` は true なので `IsIconic` も見ること。ドラッグ中に隠れた場合に備え
+    ポインターキャプチャとドラッグ状態もここで畳む。
 - **Release publish は self-contained（csproj の `<SelfContained>`）**
   - framework-dependent publish でインストールすると、グローバル .NET 構成が揃わない環境・
     InstallDelete 後のタイミングで「No frameworks were found」で自動起動失敗する。
@@ -244,7 +256,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 
 - **バージョンは3箇所を揃える（Windows）**
   - `MaiPushWinUI.csproj` の `<Version>` / `installer.iss` の `#define MyAppVersion` /
-    `UpdateChecker.cs` の `CurrentVersion`（`new(1, 8, 3)`）。
+    `UpdateChecker.cs` の `CurrentVersion`（`new(1, 8, 4)` のようにリリース版と揃える）。
   - `UpdateChecker.cs` を忘れると**最新版なのに「アップデートがあります」通知が出る**。
 - **Windows ビルド**
   - `dotnet publish MaiPushWinUI.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained true`
@@ -344,7 +356,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-20（§10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
+最終更新: 2026-10-20（§10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）
 最終更新: 2026-10-13（§10 WinUI ネットワーク起動禁止を追記）
