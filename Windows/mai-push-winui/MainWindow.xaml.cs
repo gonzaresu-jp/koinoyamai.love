@@ -1018,13 +1018,16 @@ public sealed partial class MainWindow : Window
                             const notif = json.logs?.[0];
                             if (!notif || notif.id <= lastId) return;
                             lastId = notif.id;
+                            // 履歴の icon/image は相対パスのことがある（テスト通知など）。
+                            // トーストのヒーロー画像は絶対URIが必要なのでここで解決する。
+                            const abs = (u) => { try { return u ? new URL(u, location.origin).href : ''; } catch (_) { return ''; } };
                             window.chrome.webview.postMessage(JSON.stringify({
                                 type: 'push-notification',
                                 id: notif.id,
                                 title: notif.title || '',
                                 body: notif.body || '',
-                                icon: notif.icon || '',
-                                image: notif.image || '',
+                                icon: abs(notif.icon),
+                                image: abs(notif.image),
                                 url: notif.url || ''
                             }));
                         } catch (_) {}

@@ -12,6 +12,8 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -23,6 +25,8 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         private const val BIG_PICTURE_MAX_WIDTH = 1024
         // 折りたたみ時に表示される大きなアイコンの最大幅
         private const val LARGE_ICON_MAX_WIDTH = 256
+        // 取得する画像の上限サイズ（FCM SDK の画像ローダと同じ 1MiB では maxres が切れるため 5MiB）
+        private const val MAX_IMAGE_BYTES = 5 * 1024 * 1024
     }
 
     // スマホごとに割り当てられるFCMのID（トークン）が更新された時に呼ばれます
@@ -67,9 +71,8 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     /**
-     * 画像を取得し、maxWidth 以下に縮小した Bitmap を返す。
-     * 通知の Binder パーセル肥大（TransactionTooLargeException）とメモリ圧迫を避けるため、
-     * デコード時点で inSampleSize を使い、必要なら等倍縮小する。
+     * 画像を取得し、幅・高さの大きい方が maxWidth 以下になるよう縮小した Bitmap を返す。
+     * 通知画像はメモリを圧迫しやすいため、デコード時点で inSampleSize を使う。
      */
     private fun fetchImage(imageUrl: String?, maxWidth: Int): Bitmap? {
         val resolved = normalizeUrl(imageUrl) ?: return null
@@ -85,45 +88,78 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
                 instanceFollowRedirects = true
                 doInput = true
             }
-            conn.connect()
-            val code = conn.responseCode
-            Log.d("FCM", "fetchImage response=$code contentType=${conn.contentType}")
-            if (code !in 200..299) {
-                Log.w("FCM", "fetchImage HTTP $code")
+            try {
+                conn.connect()
+                val code = conn.responseCode
+                Log.d("FCM", "fetchImage response=$code contentType=${conn.contentType}")
+                if (code !in 200..299) {
+                    Log.w("FCM", "fetchImage HTTP $code")
+                    return null
+                }
+                val bytes = conn.inputStream.use { readAllBounded(it, MAX_IMAGE_BYTES) }
+                if (bytes == null) {
+                    Log.w("FCM", "fetchImage: image exceeds $MAX_IMAGE_BYTES bytes")
+                    return null
+                }
+                decodeDownsampled(bytes, maxWidth)
+            } finally {
                 conn.disconnect()
-                return null
             }
-            val bytes = conn.inputStream.use { it.readBytes() }
-            conn.disconnect()
-
-            // まず寸法だけ読み、inSampleSize を決める
-            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-            if (bounds.outWidth <= 0) {
-                Log.w("FCM", "fetchImage: invalid image bounds")
-                return null
-            }
-            var sample = 1
-            while (bounds.outWidth / (sample * 2) >= maxWidth) sample *= 2
-            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-
-            var bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
-            if (bitmap != null && bitmap.width > maxWidth) {
-                val scaled = Bitmap.createScaledBitmap(
-                    bitmap,
-                    maxWidth,
-                    (bitmap.height * maxWidth / bitmap.width).coerceAtLeast(1),
-                    true
-                )
-                if (scaled != bitmap) bitmap.recycle()
-                bitmap = scaled
-            }
-            Log.d("FCM", "fetchImage bitmap=${bitmap?.width}x${bitmap?.height}")
-            bitmap
         } catch (e: Exception) {
             Log.w("FCM", "fetchImage failed: ${e.message}", e)
             null
         }
+    }
+
+    /** 応答本文を上限付きで読む（壊れたURLや巨大画像でOOMしないため）。 */
+    private fun readAllBounded(input: InputStream, maxBytes: Int): ByteArray? {
+        val out = ByteArrayOutputStream()
+        val buf = ByteArray(16 * 1024)
+        var total = 0
+        while (true) {
+            val n = input.read(buf)
+            if (n < 0) break
+            total += n
+            if (total > maxBytes) return null
+            out.write(buf, 0, n)
+        }
+        return out.toByteArray()
+    }
+
+    /** 画像バイト列を、幅・高さの大きい方が maxWidth 以下になるよう縮小してデコードする。 */
+    private fun decodeDownsampled(bytes: ByteArray, maxWidth: Int): Bitmap? {
+        // まず寸法だけ読み、inSampleSize を決める
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            Log.w("FCM", "decodeDownsampled: invalid image bounds")
+            return null
+        }
+        val longest = maxOf(bounds.outWidth, bounds.outHeight)
+        var sample = 1
+        while (longest / (sample * 2) >= maxWidth) sample *= 2
+        val opts = BitmapFactory.Options().apply {
+            inSampleSize = sample
+            // 通知画像は写真（不透明JPEG）なので RGB_565 でメモリを半減させる
+            inPreferredConfig = Bitmap.Config.RGB_565
+        }
+
+        var bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: return null
+        val longestDecoded = maxOf(bitmap.width, bitmap.height)
+        if (longestDecoded > maxWidth) {
+            val scale = maxWidth.toFloat() / longestDecoded
+            val w = (bitmap.width * scale).toInt().coerceAtLeast(1)
+            val h = (bitmap.height * scale).toInt().coerceAtLeast(1)
+            val scaled = runCatching { Bitmap.createScaledBitmap(bitmap, w, h, true) }
+                .onFailure { Log.w("FCM", "decodeDownsampled: scale failed: ${it.message}") }
+                .getOrNull()
+            if (scaled != null) {
+                if (scaled != bitmap) bitmap.recycle()
+                bitmap = scaled
+            }
+        }
+        Log.d("FCM", "decodeDownsampled bitmap=${bitmap.width}x${bitmap.height} sample=$sample")
+        return bitmap
     }
 
     // 実際にスマホの画面上に通知を表示する処理
@@ -154,12 +190,10 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
 
-        // サムネイル（YouTube の配信枠など）を取得。取得できれば大きなアイコンにも使い、
-        // 通知を展開しなくても右側にサムネイルが見えるようにする。
-        // 注意: この描画は onMessageReceived が呼ばれる場合のみ（フォアグラウンド、または
-        // Android 14+ の notification_delegation_enabled）。14 未満のバックグラウンドでは
-        // OS が android.notification.image を使って描画するため、折りたたみ時の大きなアイコンは
-        // アプリアイコンのままになる（展開すればサムネイルは表示される）。
+        // サムネイル（YouTube の配信枠など）を取得し、折りたたみ時の大きなアイコンにも使う。
+        // なお、アプリがバックグラウンドのときは onMessageReceived は呼ばれず、FCM SDK が
+        // notification.image を使って同様に描画する（折りたたみ＝大きなアイコン／展開＝BigPicture）。
+        // ここはフォアグラウンド受信時（および data のみの通知）の描画を担う。
         val heroImage = if (imageUrl != null) fetchImage(imageUrl, BIG_PICTURE_MAX_WIDTH) else null
         if (imageUrl != null && heroImage == null) {
             Log.w("FCM", "heroImage fetch returned null for: $imageUrl")
@@ -167,24 +201,26 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             Log.d("FCM", "No imageUrl in data, using launcher icon")
         }
 
-        // 大きなアイコン: サムネイルを縮小して使用（パーセル肥大を避ける）。無ければランチャーアイコン
+        // 大きなアイコン: サムネイルを縮小して使用し、メモリを抑える。無ければランチャーアイコン
         val largeBitmap = heroImage?.let { hero ->
-            if (hero.width > LARGE_ICON_MAX_WIDTH) {
-                Bitmap.createScaledBitmap(
-                    hero,
-                    LARGE_ICON_MAX_WIDTH,
-                    (hero.height * LARGE_ICON_MAX_WIDTH / hero.width).coerceAtLeast(1),
-                    true
-                )
+            if (maxOf(hero.width, hero.height) > LARGE_ICON_MAX_WIDTH) {
+                val scale = LARGE_ICON_MAX_WIDTH.toFloat() / maxOf(hero.width, hero.height)
+                runCatching {
+                    Bitmap.createScaledBitmap(
+                        hero,
+                        (hero.width * scale).toInt().coerceAtLeast(1),
+                        (hero.height * scale).toInt().coerceAtLeast(1),
+                        true
+                    )
+                }.onFailure { Log.w("FCM", "large icon scale failed: ${it.message}") }
+                    .getOrDefault(hero)
             } else {
                 hero
             }
-        } ?: try {
+        } ?: runCatching {
             BitmapFactory.decodeResource(resources, R.drawable.ic_mai_logo)
-        } catch (e: Exception) {
-            Log.w("FCM", "Failed to load launcher icon: ${e.message}")
-            null
-        }
+        }.onFailure { Log.w("FCM", "Failed to load launcher icon: ${it.message}") }
+            .getOrNull()
         if (largeBitmap != null) {
             notificationBuilder.setLargeIcon(largeBitmap)
         }
