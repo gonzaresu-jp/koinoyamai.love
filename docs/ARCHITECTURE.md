@@ -68,6 +68,7 @@
 
 ### 3.3 週間スケジュール / 予定抽出
 - `weekly/` がプラットフォーム（youtube/twitch/twitcasting）を取得し `updateSchedule()` で `events` を upsert。
+  **駆動は API プロセス（`server.js`）が5分周期**で行う（`main.js` は `weekly/` を require しない）。
 - Twitter 解析（`src/scrapers/gemma-analyzer.js` → `src/scrapers/twitter.js`）が配信告知から予定を抽出し `routes/user-schedules.js` 経由で登録。詳細は `docs/SCHEDULE-FEATURES.md`。
 
 ### 3.4 アーカイブ / RAG
@@ -90,7 +91,11 @@
 > ルート直下は**エントリとビルドのみ**。スクレイパー・共有コアは `src/` 配下（2026-10-19 移動）。
 
 ### 4.1b `src/`（スクレイパー・共有コア）
-**`src/scrapers/`**（`main.js` が起動する監視モジュール。`init(notifyConfig)` を受ける）
+**`src/scrapers/`**（`main.js` が起動する監視モジュール。**出力形状は平台ごとに異なる**:
+`init(notifyConfig)` を持つのは youtube / gipt / ytcommunity の3つ、
+twitter・twitcasting は `{check,startWatcher}`、twitch は `startTwitchPolling`、
+fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
+`gemma-analyzer` は main.js ではなく twitter.js / events.js / schedule-drift-monitor.js から使う）
 | ファイル | 役割 |
 |---|---|
 | `youtube.js` | YouTube 監視。`startPolling/startWebhook/init/…`。nassy 依頼(`sendInternalUrl`) |
@@ -116,7 +121,7 @@
 | `migrate.js` | DB マイグレーション（CLI: `node src/core/migrate.js`） |
 | `auth.js` | 認証ヘルパー（`routes/user-*.js`・`routes/android.js` が使用） |
 
-### 4.2 `routes/`（Express ルーター。`register(app, db)`）
+### 4.2 `routes/`（Express ルーター。登録形は3種: `register(app)` / `register(app, db)` / `register(app, db, authLimiter)`）
 | ファイル | 主なエンドポイント |
 |---|---|
 | `notify.js` | `POST /api/notify`, `/api/internal/twitter/analysis`（認証中核） |
@@ -138,6 +143,10 @@
 | `user-schedules.js` | `/api/user/schedules*` |
 | `user-internal.js` | `/api/internal/events/{create,find-duplicate,update}` |
 | `user-helpers.js` | 共有ヘルパー（登録なし） |
+
+> **ルートを持つが `routes/` に無いもの**: `lib/webauthn.js`（パスキー, `routes/admin.js` から有効化）
+> `POST /api/admin/passkey/register/begin|finish` / `POST /api/admin/passkey/login/begin|finish` /
+> `GET /api/admin/passkey/exists|list` / `POST /api/admin/passkey/revoke`
 
 > OAuth は `state` 単発 + `/auth/token-exchange`（60秒単発 code→JWT）。`AGENTS.md §3`。
 
@@ -192,10 +201,12 @@
 - 公開 HTML の反映は `bash scripts/deploy/verify-deploy.sh webui/<file>` でバイト比較（`open_file_cache` 切詰め検出、`AGENTS.md §7.1`）。同スクリプトは配信ファイルが other 読み取り可か（php-fpm から読めるか）も検査する。
 
 ### 4.6 `scripts/`（運用）
-- **`deploy/`**: `deploy-staging.sh` / `promote.sh`（staging→prod）/ `verify-deploy.sh` / `assert-port.sh` / `check-drift.sh` / `sync-test-db.sh` / `restart.sh`
+- **`deploy/`**: `deploy-staging.sh` / `promote.sh`（staging→prod）/ `verify-deploy.sh`（バイト比較＋権限検査）/ `assert-port.sh` / `check-drift.sh` / `sync-test-db.sh` / `restart.sh` / `migrate-domain-final.sh`（ドメイン最終移行の適用スクリプト・1回限り）
 - **`ops/`**: `regression-test.js`（`npm test`）/ `health-check.js`（`npm run health`）/ `backup.sh` / `healthcheck.sh` / `count-lines.sh` / `check-native.{sh,js}` / `minutes-gen*` / `update-subscribers*`
 - **`tools/`**: `build-android-apk.sh` / 単発メンテ（`dedupe-media`・`mine-personality`・`twitter-stats`・`whisper-subs`・`render-compare-html`・`fix-notification-platform`）
-- **`hooks/`**（pre-push）/ **`nginx/`**（vhost）/ **`archive/`**（旧スクリプト・参照用）
+- **`hooks/`**（pre-push）
+- **`nginx/`**: vhost 設定（`mai-test.conf` 等）と適用スクリプト（`apply-domain-final.sh` / `setup-staging-nginx.sh` / `default.conf`）
+- **`archive/`**（旧スクリプト・参照用。`anomaly-check{,2,3}.js` = 字幕検査の版違い、`minutes-test.js` = 要約生成の単体試験）
 > すべて**リポジトリ直下から実行**する前提（root は `dirname/../..` で解決）。cron はフルパスで `scripts/{deploy,ops}/...` を指す。
 
 ---
@@ -211,7 +222,9 @@
 
 ## 6. 設定・認証
 
-- env は環境ごとに別（`AGENTS.md §2,§3`）。主なキー: `NOTIFY_API_TOKEN` / `NOTIFY_HMAC_SECRET` / `INTERNAL_API_TOKEN` / `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` / `JWT_SECRET` / `SESSION_SECRET` / `PUBLIC_URL` / `COOKIE_SECURE`（他に VAPID・FCM・`DB_FILE_NAME`・`DISABLE_NOTIFICATIONS`・`VECTOR_DB_*`・`TAILNET_ADMIN_SECRET` 等）。テンプレは `.env.example`。
+- env は環境ごとに別（`AGENTS.md §2,§3`）。テンプレは `.env.example`（公開設定・通知API・OAuth・管理者・DB/実行モード・YouTube・Push・RAG/ベクトルDB・TTS・要約・解析AI・Discord を用途別に列挙）。
+  主なキー: `NOTIFY_API_TOKEN` / `NOTIFY_HMAC_SECRET` / `INTERNAL_API_TOKEN` / `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` / `JWT_SECRET` / `SESSION_SECRET` / `PUBLIC_URL` / `COOKIE_SECURE` / `TRUST_PROXY`（他に FCM・`DB_FILE_NAME`・`DISABLE_NOTIFICATIONS`・`VECTOR_DB_*`・`TAILNET_ADMIN_SECRET`・`WEBAUTHN_*` 等）。
+  実装が実際に読むキーは約140個あるため、任意設定は上記コマンドで全キーを確認すること。
 - 通知 API 認証: **token + HMAC v2 + timestamp（±300秒）**。比較は `timingSafeEqual`。
 - 管理画面: 正規は **Tailnet（`elza.poitou-mora.ts.net`）で自動認証**。公開ドメインの `/admin*` は ts.net へ 302、`/api/admin` は 403（`AGENTS.md §6.7`）。
 - TZ は `Asia/Tokyo` 固定（`server.js`/`main.js` 冒頭）。
