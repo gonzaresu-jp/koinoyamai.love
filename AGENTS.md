@@ -36,8 +36,13 @@
 ## 5. 依存関係
 - **sqlite3 は 6.0.1 に昇格済み（2026-09-22 本番反映）**。npm audit critical は解消。
   依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト(21/21) → smoke」を通すこと。
-- 本番プロセスは **Node v22.12.0**（nvm）で稼働。ネイティブモジュールをビルドする際は
-  `PATH` を v22 優先にして `npm install` すること（v18 でビルドするとABI不一致が起きる）。
+- Node バージョンは**プロセスごとに違う**（2026-10-20 実測 / `pm2 jlist`）:
+  - API（`mai-push-api` / `mai-push-api-test`）= **v22.12.0**（nvm 固定・`ecosystem.config.js` の `interpreter`）
+  - ワーカー（`mai-push-worker`）と `discord-bot` = **v20.18.1**（既定 node・`interpreter` 未指定）
+  - `mai-push-worker-test` は常駐起動していないため測定対象外（`interpreter` 未指定なので起動時は既定 node）
+  - ネイティブモジュール（sqlite3 等）は N-API のため v20 でも v22 でもロードできる（実測済み）。
+    ただし**ビルドと実行の Node を揃える**こと（v18 でビルドして v22 で実行すると ABI 不一致）。
+  - ネイティブモジュールをビルドする際は `PATH` を v22 優先にして `npm install` すること。
 - `package-lock.json` は Git 管理対象。除外するな。`npm audit fix --force` は回帰テスト通過後にのみ。
 
 ## 6. 検証の作法
@@ -157,7 +162,7 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
   乖離があった場合のみログに記録される（--quiet は出力を stderr に出すため、
   乖離なしは無言で exit 0）。
 
-### 7.5 日次データ更新（cron 実装済み・手動介入不要）
+### 7.5 日次データ更新（cron 実装済み・通常は手動介入不要）
 ```
 5 0 * * * cd /var/www/html/koinoyamai.love && ./scripts/ops/update-subscribers-and-commit.sh >> logs/subscribers.log 2>&1
 ```
@@ -165,8 +170,26 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
   そのまま **commit + push** する。`webui/data` は ignore 済みだが追跡済みのため `git add -u` を使う。
 - 登録者数が変わらない日は空コミットを作らない。**自動pushは他作業と競合しないよう
   データ変更があった日のみ**。push 失敗時はログに記録し exit 1。
+- ⚠️ **`webui/data` 以外に未コミット変更（未追跡ファイル含む）があると、その回は commit せず
+  保留する**（`logs/subscribers.log` に `WARNING: ... commit せず残置`）。自動再開はしないので、
+  保留されたら作業ツリーをクリーンにして `bash scripts/ops/update-subscribers-and-commit.sh`
+  を手動実行する。2026-10-20 00:05 に実際に保留された（原因は作業ツリーの未コミット変更。
+  未追跡の残骸ファイルのほかに、ビルド済み JS の再生成などで**追跡ファイルの改変**も
+  起因しうるため、`git status` で両方を確認すること）。
 
-### 7.6 改行コード
+### 7.6 登録済み cron（実 crontab 相当・2026-10-20 実測）
+```
+5 0 * * *   cd /var/www/html/koinoyamai.love && ./scripts/ops/update-subscribers-and-commit.sh >> logs/subscribers.log 2>&1
+30 6 * * *  cd /var/www/html/koinoyamai.love && ./scripts/deploy/check-drift.sh --quiet >> logs/drift.log 2>&1
+0 3 * * *   /var/www/html/koinoyamai.love/scripts/ops/backup.sh
+*/15 * * * * /var/www/html/koinoyamai.love/scripts/ops/healthcheck.sh
+30 9 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/minutes-gen-cron.sh
+```
+- いずれも `crontab -l`（yuzuki ユーザー）で確認済み。ログは `logs/`（gitignore 対象）。
+- 追加・変更するときは `crontab -l` の実体とこの表を**同じコミットで**更新する。
+-  リポジトリ外の job（`/home/yuzuki/temp.sh` の温度ログ等）は本表の対象外。
+
+### 7.7 改行コード
 `.gitattributes` で `text=auto eol=lf` を設定済み。LF→CRLF 混入で作業ツリーが
 dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止。既存の CRLF ファイルは
 遅延正規化。バイナリ拡張子は `binary` と明示。
@@ -204,7 +227,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   ※ 旧「EMBEDDING_ENDPOINT（ollama bge-m3）停止で `/api/ask` が 503」の記述は**失効（解消済み）**。
   ※ `pi-vector-service/` は 32bit Pi 向け依存ゼロ実装を母艦へ移設したもので**削除禁止**。
     unit は `~/.config/systemd/user/pi-vector.service`（`Restart=always`・enabled）。
-    `ExecStart` は Node v20.18.1（本番は v22.12.0）だが依存ゼロコードのため実害なし。
+    `ExecStart` は Node v20.18.1（本番の API は v22.12.0。ワーカーは §5 のとおり v20.18.1）だが依存ゼロコードのため実害なし。
   ※ 「ローカルLLM運用は不可（ユーザー指示）」は**回答生成LLMに限る**。埋め込みは上記の通り
     ローカル（llama.cpp）で稼働しており、この指示の対象外。
 - **TTS速度調整**: `/api/admin/chat/speak` の `num_steps`(1〜4、body優先) / env `CHAT_TTS_NUM_STEPS`（本番・stagingとも `2` 設定済み・2026-10-03）。
@@ -324,7 +347,8 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - **fail-closed**: トークン/秘密が未設定なら認証系は 503/401 で閉じる（通すな）。
 - **秘密情報をコミットしない**: `.env`・鍵・cookie 等。`.gitignore` 済みでも `git add -A` に注意。
 - **DB 書込ロック耐性**: SQLite は `busy_timeout`/`timeout` を設定し、長時間書込はリトライ（nassy `§8` の load 由来）。
-- **ネイティブビルドは Node v22 優先**: 本番は v22.12.0（`§5`）。v18 でビルドすると ABI 不一致。
+- **ネイティブビルドは Node v22 優先**: 本番 API は v22.12.0、ワーカーは v20.18.1（`§5`）。
+  ビルドと実行の Node を揃えること（v18 でビルドして v22 で実行すると ABI 不一致）。
 
 ## 12. ドキュメント更新ルール（ARCHITECTURE.md を腐らせない）
 
@@ -352,7 +376,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 
 - `$updateLogs` の**先頭（新しい順）**に当日分のエントリを追加（同日内は既存先頭エントリへ追記）。
 - 分類キー `fix` / `add` / `change` に、利用者目線の日本語で1行ずつ書く（内部実装の話は書かない）。
-- `lines` は `bash scripts/ops/count-lines.sh` の実測 `SUM code` を**その日の絶対値**として記録する（前日に増分を足す等の累積計算は禁止）。集計対象・除外・過去値の扱いは `docs/DEVELOPMENT-WORKFLOW.md §93`。
+- `lines` は `bash scripts/ops/count-lines.sh` の実測 `SUM code` を**その日の絶対値**として記録する（前日に増分を足す等の累積計算は禁止）。集計対象・除外・過去値の扱いは `docs/DEVELOPMENT-WORKFLOW.md` の「コード行数集計方法（updateLogs の "lines"）」節。
 - フッターの「Last updated」は最新日付から自動表示のため、追記のみで反映される。
 - 対象外（更新不要）: 内部リファクタのみ・ドキュメントのみ・テストのみ・データ更新のみ。
 
