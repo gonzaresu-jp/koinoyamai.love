@@ -17,7 +17,10 @@ ytcommunity_debug/
 tmp/
 vapid.json
 webui/fontawesome-free-7.2.0-web/
-core
+# 旧ルートの core/ ディレクトリ用（2026-10-20 修正）
+# 修飾なしの "core" はどの階層にも適用されるため src/core/ まで無視され、
+# src/core/ に新しいファイルを追加しても git add されない（追跡漏れの原因）
+/core
 # Android アプリはソースのみ追跡。秘密情報とビルド生成物は除外
 # （keystore.properties はパスワード平文のため必ず除外すること）
 mai_notification/.kotlin/

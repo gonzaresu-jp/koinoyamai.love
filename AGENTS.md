@@ -358,7 +358,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 |---|---|
 | プロセス/ポート/起動方法 | `AGENTS.md §1` / `docs/ARCHITECTURE.md §2` |
 | `routes/`・`services/`・`lib/`・スクレイパーの追加/改名/削除 | `docs/ARCHITECTURE.md §4`（§3 のフローも該当時） |
-| DB スキーマ（`services/database.js`/`src/core/migrate.js`） | `docs/ARCHITECTURE.md §5` |
+| DB スキーマ（`services/database.js` の `initDatabase()`） | `docs/ARCHITECTURE.md §5` |
 | env キー追加/変更 | `AGENTS.md §3` / `docs/ARCHITECTURE.md §6` |
 | 通知・認証・HMAC | `AGENTS.md §2,§3` / `docs/SECURITY.md` |
 | デプロイ/検証の作法 | `AGENTS.md §7` / `docs/DEVELOPMENT-WORKFLOW.md` |

@@ -118,7 +118,6 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 | `discord-alert.js` | 監視/アラート共通（`attachGlobalCrashHandlers`/`startSystemMonitor`） |
 | `schedule-drift-monitor.js` | スケジュール乖離の監視 |
 | `user-routes.js` | ユーザー系ルーター束ね（`register(app, db, authLimiter)`） |
-| `migrate.js` | DB マイグレーション（CLI: `node src/core/migrate.js`） |
 | `auth.js` | 認証ヘルパー（`routes/user-*.js`・`routes/android.js` が使用） |
 
 ### 4.2 `routes/`（Express ルーター。登録形は3種: `register(app)` / `register(app, db)` / `register(app, db, authLimiter)`）
@@ -177,7 +176,6 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 | `lib/webauthn.js` | パスキー(WebAuthn)ログイン。**`/admin` 外に配置**（ソース露出防止） |
 | `weekly/index.js` | `updateSchedule`/`upsertEvent` |
 | `weekly/{youtube,twitch,twitcasting}.js` | プラットフォーム別 予定取得 |
-| `weekly/event-upsert.js` | `events` への upsert |
 
 ### 4.5 `webui/`（フロント）
 | 対象 | 役割 |
@@ -213,7 +211,11 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 
 ## 5. DB（SQLite）主要テーブル
 
-定義: `services/database.js`。本番/ staging は別 DB（`DB_FILE_NAME`）。
+定義: `services/database.js`（`initDatabase()` がテーブル定義・索引・カラム追加まで行う）。
+本番/ staging は別 DB（`DB_FILE_NAME`）。
+> 旧 `src/core/migrate.js`（CLI・サンプルデータ投入付き）は 2026-10-20 に削除。
+> 主要テーブルは `initDatabase()` が作成する（管理系の `admin_passkeys` / `admin_sessions` だけは
+> `lib/webauthn.js` / `lib/admin.js` が作成）。本番 DB にサンプルデータが入る危険も解消。
 `notifications` / `subscriptions` / `android_devices` / `scraper_status` / `scheduled_notifications` / `events` / `weekly_messages` / `video_transcripts` / `yearly_buzzwords` / `vector_sync_state` / `video_minutes` / `chat_sessions` / `chat_prefs` / `chat_messages`
 管理系: `admin_passkeys` / `admin_sessions` / `twitter_media`
 > アーカイブ（動画/字幕/チャプター）の本体 DB は nassy 側（`AGENTS.md §8`, `docs/ARCHIVE-ADMIN-SPEC.md`）。
@@ -246,7 +248,7 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 | 管理画面/認証 | `routes/admin.js`, `lib/admin.js`, `lib/webauthn.js`, `webui/admin.html` |
 | ユーザー/購読/デバイス | `src/core/user-routes.js`, `routes/user-*.js`, `routes/subscriptions.js`, `routes/android.js` |
 | フロント UI | `webui/*.php`, `webui/js/`, `webui/css/` |
-| DB スキーマ | `services/database.js`, `src/core/migrate.js` |
+| DB スキーマ | `services/database.js`（`initDatabase()` がテーブル・索引・カラム追加まで担う） |
 | デプロイ/検証/回帰 | `scripts/*`, `AGENTS.md §6-7`, `docs/DEVELOPMENT-WORKFLOW.md` |
 | セキュリティ | `docs/SECURITY.md`, `AGENTS.md §2-3,§6.6-6.7` |
 
