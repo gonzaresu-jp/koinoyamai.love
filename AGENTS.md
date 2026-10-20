@@ -230,6 +230,32 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - framework-dependent publish でインストールすると、グローバル .NET 構成が揃わない環境・
     InstallDelete 後のタイミングで「No frameworks were found」で自動起動失敗する。
 
+### 10.1 アプリリリース手順（Windows / Android）— 2026-10-20（v1.8.3 / v1.7.2）で実施
+
+- **バージョンは3箇所を揃える（Windows）**
+  - `MaiPushWinUI.csproj` の `<Version>` / `installer.iss` の `#define MyAppVersion` /
+    `UpdateChecker.cs` の `CurrentVersion`（`new(1, 8, 3)`）。
+  - `UpdateChecker.cs` を忘れると**最新版なのに「アップデートがあります」通知が出る**。
+- **Windows ビルド**
+  - `dotnet publish MaiPushWinUI.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained true`
+    → `$(LOCALAPPDATA)\MaiPushWinUI\publish\`（csproj の `PublishDir` が固定）。
+  - **publish ディレクトリはビルド前に空にする**（旧版 DLL が混ざると混在したままインストーラに入る）。
+  - インストーラ: `"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss`
+    → `Windows/mai-push-winui/installer/MaiPush-<ver>-Setup.exe`（`webui/dl/*.exe` は gitignore 対象）。
+- **Android ビルドはネットワークドライブ（`Q:\`）では失敗する**
+  - `:app:packageReleaseResources` が `dataBindingLayoutInfoOutFolder` の MD5 を作れず失敗する。
+  - → **`mai_notification/` をローカルドライブへコピーして** `gradlew.bat assembleRelease` する
+    （Gradle 8.13 / AGP 8.7.3 / JDK 21・`gradle/gradle-daemon-jvm.properties` 準拠）。
+  - `mai_notification/local.properties`（`sdk.dir`）と `keystore.properties`（`storeFile`）は
+    **マシン固有**（gitignore 対象）。Windows 側は Windows パスを書く
+    （`C:/Users/<user>/AppData/Local/Android/Sdk` / `C:/Users/<user>/mai-keys/mai-notification-release.jks`）。
+  - **署名鍵の SHA-256 が変わると上書きインストールできない**（`apksigner verify --print-certs` で
+    既存 APK と一致することを確認してから配布する）。
+- **配布の順序**: `webui/mai-notification.apk` と `webui/dl/MaiPush-<ver>-Setup.exe` を
+  **先に配置してから** `webui/dl/android.json` / `desktop.json` を更新する
+  （逆にすると更新フィードが 404 を指す）。
+  検証は `bash scripts/deploy/verify-deploy.sh webui/dl/desktop.json` 相当（配信バイト数 == ディスクのバイト数）。
+
 ## 11. コーディング/設計規約（最小限・事故に直結するもの）
 
 > 網羅的なスタイル規約ではない。「破ると事故る」ものだけ。迷ったら既存コードに倣う。
@@ -308,6 +334,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
+最終更新: 2026-10-20（§10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）
 最終更新: 2026-10-13（§10 WinUI ネットワーク起動禁止を追記）

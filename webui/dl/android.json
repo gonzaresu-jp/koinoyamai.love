@@ -1,6 +1,6 @@
 {
-  "versionCode": 9,
-  "versionName": "1.7.1",
-  "url": "https://koinoyamai.love/mai-notification.apk?v=9",
-  "notes": "YouTube・X などの外部リンクがアプリ内ブラウザで開いてしまう問題を修正（1.7.1）。target=\"_blank\" / window.open での別ウィンドウ要求を受け取れるようにし、外部リンクは専用アプリ→ブラウザで開きます。自サイトとログイン画面は従来通りアプリ内に残ります。"
+  "versionCode": 10,
+  "versionName": "1.7.2",
+  "url": "https://koinoyamai.love/mai-notification.apk?v=10",
+  "notes": "通知にYouTubeのサムネイルが表示されるようになりました（1.7.2）。【予定】【ライブ】などの通知で、配信枠のサムネイルが通知全体に表示されます。外部リンクは従来どおりブラウザ／別アプリで開きます。"
 }
