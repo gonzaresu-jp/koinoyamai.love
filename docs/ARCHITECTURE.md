@@ -239,7 +239,7 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 ## 6. 設定・認証
 
 - env は環境ごとに別（`AGENTS.md §2,§3`）。テンプレは `.env.example`（公開設定・通知API・OAuth・管理者・DB/実行モード・YouTube・Push・RAG/ベクトルDB・TTS・要約・解析AI・Discord を用途別に列挙）。
-  主なキー: `NOTIFY_API_TOKEN` / `NOTIFY_HMAC_SECRET` / `INTERNAL_API_TOKEN` / `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` / `JWT_SECRET` / `SESSION_SECRET` / `PUBLIC_URL` / `COOKIE_SECURE` / `TRUST_PROXY`（他に FCM・`DB_FILE_NAME`・`DISABLE_NOTIFICATIONS`・`VECTOR_DB_*`・`TAILNET_ADMIN_SECRET`・`WEBAUTHN_*` 等）。
+  主なキー: `NOTIFY_API_TOKEN` / `NOTIFY_HMAC_SECRET` / `INTERNAL_API_TOKEN` / `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` / `JWT_SECRET` / `SESSION_SECRET` / `PUBLIC_URL` / `COOKIE_SECURE` / `TRUST_PROXY`（他に FCM・`DB_FILE_NAME`・`DISABLE_NOTIFICATIONS`・`VECTOR_DB_*`・`TAILNET_ADMIN_SECRET`・`WEBAUTHN_*`・`YOUTUBE_WEBHOOK_TOKEN` 等）。
   実装が実際に読むキーは約140個あるため、任意設定は上記コマンドで全キーを確認すること。
 - 通知 API 認証: **token + HMAC v2 + timestamp（±300秒）**。比較は `timingSafeEqual`。
 - 管理画面: 正規は **Tailnet（`elza.poitou-mora.ts.net`）で自動認証**。公開ドメインの `/admin*` は ts.net へ 302、`/api/admin` は 403（`AGENTS.md §6.7`）。
