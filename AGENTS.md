@@ -430,6 +430,12 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - **fail-closed**: トークン/秘密が未設定なら認証系は 503/401 で閉じる（通すな）。
 - **秘密情報をコミットしない**: `.env`・鍵・cookie 等。`.gitignore` 済みでも `git add -A` に注意。
 - **DB 書込ロック耐性**: SQLite は `busy_timeout`/`timeout` を設定し、長時間書込はリトライ（nassy `§8` の load 由来）。
+  - 接続は `db.configure("busyTimeout", 5000)` を設定する（`services/database.js` 以外も全部）
+  - **コールバックなしの `db.run()` はエラーでプロセスを落とす**
+    （node-sqlite3 は Statement の 'error' イベントを emit し、リスナが無ければ uncaught exception になる）。
+    `services/db-guard.js` が Database.prototype に既定のエラーコールバックを差すので、
+    これを require している（`server.js` / `main.js` / `services/context.js`）。
+    **新しい DB 実装でも require を忘れないこと**
 - **ネイティブビルドは Node v22 優先**: 本番 API は v22.12.0、ワーカーは v20.18.1（`§5`）。
   ビルドと実行の Node を揃えること（v18 でビルドして v22 で実行すると ABI 不一致）。
 

@@ -117,7 +117,8 @@ fi
 # --- 4. 回帰テスト ---
 if [ "${SKIP_PREPUSH_REGRESSION:-0}" = "1" ]; then
   echo "${YLW}[pre-push] SKIP_PREPUSH_REGRESSION=1 により回帰テストをスキップ${RST}"
-  exit 0
+  # バージョン整合の失敗を握り潰さない（この exit で push まで通“因为しない）
+  exit $fail
 fi
 
 echo "[pre-push] 回帰テストを実行 (npm test)"

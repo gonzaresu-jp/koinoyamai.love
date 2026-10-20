@@ -16,6 +16,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   check:
     name: 静的検査・回帰テスト
@@ -27,6 +30,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+          cache: npm
 
       - name: 依存インストール
         run: npm ci
@@ -37,13 +41,24 @@ jobs:
       - name: 構文チェック（JS / PHP）
         run: |
           set -euo pipefail
-          find . -path ./node_modules -prune -o -name '*.js' -not -path './webui/dist/*' -print0 \
-            | xargs -0 -n1 -P4 node --check
-          find webui -name '*.php' -print0 | xargs -0 -n1 -P4 php -l
+          # package.json は commonjs のため node --check は ESM を弾く。
+          # CJS として検査し、失敗したら ES module として再検査する
+          # （scripts/hooks/pre-push と同じ方針）
+          while IFS= read -r -d '' f; do
+            if ! out=$(node --check "$f" 2>&1) && ! out=$(node --input-type=module --check < "$f" 2>&1); then
+              echo "SYNTAX ERROR: $f"
+              echo "$out" | head -3
+              exit 1
+            fi
+          done < <(find . -path ./node_modules -prune -o -name '*.js' -not -path './webui/dist/*' -print0)
+          find webui -name '*.php' -print0 | xargs -0 -n1 -P4 php -l > /dev/null
+          echo "構文チェック OK"
 
-      - name: VAPID 鍵を生成（テスト用のローカルファイル）
+      - name: VAPID 鍵を生成（テスト用のローカルファイル・gitignore 済み）
+        # services/notification.js が読むのは { vapidPublicKey, vapidPrivateKey }
+        # （web-push の generateVAPIDKeys() は { publicKey, privateKey } を返すので変換する）
         run: |
-          node -e "const wp=require('web-push');const k=wp.generateVAPIDKeys();require('fs').writeFileSync('vapid.json',JSON.stringify(k));"
+          node -e "const wp=require('web-push');const k=wp.generateVAPIDKeys();require('fs').writeFileSync('vapid.json',JSON.stringify({vapidPublicKey:k.publicKey,vapidPrivateKey:k.privateKey}));"
 
       - name: 回帰テスト
         run: npm test

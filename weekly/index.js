@@ -14,6 +14,8 @@ const db = new sqlite3.Database(
 // これが無いと、同一 DB に別接続で書き込んでいる最中に
 // SQLITE_BUSY で落ちて「Uncaught Exception」になる（2026-10-21 回帰テストで実測）。
 db.configure('busyTimeout', 5000);
+// コールバックなしの文のエラーでプロセスを落とさない
+db.on('error', (err) => console.error('[db:weekly] error:', err.message));
 
 const YOUTUBE_LOOKAHEAD_MS     = 14 * 24 * 60 * 60 * 1000; // 2週間
 const NEAR_DUPLICATE_WINDOW_MS = 10 * 60 * 1000;            // ±10分

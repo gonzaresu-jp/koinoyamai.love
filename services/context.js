@@ -1,5 +1,8 @@
 const path = require("path");
 
+// sqlite3 の「コールバックなし文」エラーでプロセスが落ちないよう保護を先に差し込む
+require("./db-guard");
+
 const context = {
   app: null,
   db: null,

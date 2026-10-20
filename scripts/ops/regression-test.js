@@ -282,7 +282,7 @@ async function main() {
     await dbRun(db, "INSERT INTO scraper_status (id, name, status, message, last_run, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status = excluded.status", ["reg-scraper", "reg", "success", "ok", new Date().toISOString(), new Date().toISOString()]);
     const scraper = await dbAll(db, "SELECT * FROM scraper_status WHERE id = ?", ["reg-scraper"]);
     ok("scraper_status UPSERT + SELECT", scraper.length === 1 && scraper[0].status === "success");
-    db.close();
+    await new Promise((resolve) => db.close(() => resolve()));
     for (const suffix of ["", "-wal", "-shm"]) {
         try { fs.unlinkSync(driverDbPath + suffix); } catch (_) {}
     }

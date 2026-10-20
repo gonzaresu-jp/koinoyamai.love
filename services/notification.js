@@ -6,15 +6,29 @@ const ctx = require("./context");
 function loadVapid() {
   const fs = require("fs");
   const path = require("path");
+  let cfg = null;
   try {
-    ctx.vapidConfig = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "vapid.json"), "utf8"));
-    webpush.setVapidDetails("mailto:admin@koinoyamai.love", ctx.vapidConfig.vapidPublicKey, ctx.vapidConfig.vapidPrivateKey);
-    console.log("VAPID keys loaded");
+    cfg = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "vapid.json"), "utf8"));
   } catch (e) {
     console.warn("vapid.json load failed:", e.message);
-    ctx.vapidConfig = { vapidPublicKey: "test-key", vapidPrivateKey: "test-key" };
-    webpush.setVapidDetails("mailto:admin@koinoyamai.love", ctx.vapidConfig.vapidPublicKey, ctx.vapidConfig.vapidPrivateKey);
   }
+  if (cfg && cfg.vapidPublicKey && cfg.vapidPrivateKey) {
+    try {
+      webpush.setVapidDetails("mailto:admin@koinoyamai.love", cfg.vapidPublicKey, cfg.vapidPrivateKey);
+      ctx.vapidConfig = cfg;
+      console.log("VAPID keys loaded");
+      return;
+    } catch (e) {
+      console.warn("vapid.json is invalid:", e.message);
+    }
+  }
+  // 鍵が無い/壊れている場合も**サーバーを落とさない**。
+  // 旧実装は catch の中で setVapidDetails("test-key") を呼び、
+  // そこで再度例外が出て起動処理ごと落ちていた（2026-10-21 CI で発覚）。
+  // Web Push 以外の機能（通知履歴・アーカイブ・チャット等）は動かしたいので、
+  // push だけ無効にして継続する。
+  ctx.vapidConfig = { vapidPublicKey: "", vapidPrivateKey: "" };
+  console.warn("⚠️ VAPID 鍵が利用できないため Web Push 通知は無効（サーバーは継続します）");
 }
 
 // --- FCM ---

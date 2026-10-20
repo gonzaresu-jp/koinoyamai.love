@@ -1,4 +1,6 @@
 // main.js - 起動専用版(改良版 + notifyConfig 注入 + listen修正)
+// sqlite3 の保護（コールバックなし文のエラーでプロセスを落とさない）
+require("./services/db-guard");
 const path = require("path");
 // .env は各環境のディレクトリから読む（staging が本番を読む事故防止）
 require("dotenv").config({ path: path.join(__dirname, ".env") });
@@ -205,6 +207,8 @@ async function main() {
   db = new sqlite3.Database(dbPath);
   // 書き込みロック競合を待つ（AGENTS.md §11）
   db.configure("busyTimeout", 5000);
+  // コールバックなしの文のエラーでプロセスを落とさない（上記と同じ理由）
+  db.on("error", (err) => console.error("[db] error:", err.message));
   db.serialize(() => {
     // PRAGMA はコールバック無しだと SQLITE_BUSY などが uncaught exception になり
     // プロセスを落とす（node-sqlite3 の仕様）。AGENTS.md §11 のロック耐性に対応。
