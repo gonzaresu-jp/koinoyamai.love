@@ -48,6 +48,9 @@ public sealed partial class MainWindow : Window
     // タブストリップの表示状態とスライドアニメーション用
     private bool _tabStripVisible = false;
     private readonly TranslateTransform _tabStripTransform = new() { Y = -TabStripTotal };
+    // ストリップ折りたたみ予約が既に掛かっているか（ホバーポーリングの連打で
+    // 400ms のタイマーが延長され続けて折りたたまれない不具合の防止, Issue #14）
+    private bool _collapsePending = false;
     private DispatcherQueueTimer? _collapseTimer;
     private DispatcherQueueTimer? _showTimer;
     private DispatcherQueueTimer? _animTimer;
@@ -75,7 +78,12 @@ public sealed partial class MainWindow : Window
 
         ExtendsContentIntoTitleBar = true;
         StyleCaptionButtons();
-        _appWindow.Changed += (_, _) => UpdateCaptionPadding();
+        // AppWindow.Changed は UI スレッドのコールバック。例外境界で包む（§10 / Issue #10 と同じ方針）
+        _appWindow.Changed += (_, _) =>
+        {
+            try { UpdateCaptionPadding(); }
+            catch (Exception ex) { Diagnostics.Log("AppWindow.Changed", ex); }
+        };
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, UpdateDragRects);
 
         _appWindow.Closing += (_, e) =>
@@ -110,6 +118,12 @@ public sealed partial class MainWindow : Window
     private void UpdateCaptionPadding()
     {
         var inset = _appWindow.TitleBar?.RightInset ?? 138;
+        // 最小化/復帰の瞬間 TitleBar.RightInset が NaN / Infinity になることがある。
+        // 不正値を FrameworkElement.Width に代入すると ArgumentException
+        // （"Value does not fall within the expected range"）となり UI スレッドで
+        // 例外が投げて処理が中断される（Issue #14）。
+        if (double.IsNaN(inset) || double.IsInfinity(inset) || inset < 0 || inset > 10000)
+            inset = 138;
         EnqueueUi("CaptionPadding", () =>
         {
             CaptionPadding.Width = inset;
@@ -435,6 +449,7 @@ public sealed partial class MainWindow : Window
         // 停止は最後に行う（ClearDragState 内のキャプチャ解放が EndTabDrag 経由で
         // 折りたたみタイマーを起動しうるため）
         _showTimer?.Stop();
+        _collapsePending = false;
         _collapseTimer?.Stop();
     }
 
@@ -524,6 +539,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowTabStrip()
     {
+        _collapsePending = false;
         _collapseTimer?.Stop();
         if (_tabStripVisible) return;
         _tabStripVisible = true;
@@ -537,22 +553,49 @@ public sealed partial class MainWindow : Window
         AnimateTabStrip(-TabStripTotal);
     }
 
+    /// <summary>
+    /// ストリップを折りたたむ予約（400ms 後）。
+    ///
+    /// 注意: ホバーポーリング（80ms 周期）と WndProc(WM_NCMOUSEMOVE) から
+    /// **毎ティック** 呼び出されるため、毎回タイマーを作り直すと
+    /// 「待ち中」を 400ms 以上維持できず、折りたたみが永久に発生しない状態になっていた
+    /// （Issue #14 / タブバーが出たままで問題）。
+    /// よって「既に待ち中なら延長しない」よう _collapsePending で管理する。
+    /// </summary>
     private void StartCollapseTimer()
     {
         if (_tabStripPointerPressed) return;
-        _collapseTimer?.Stop();
-        _collapseTimer = DispatcherQueue.CreateTimer();
-        _collapseTimer.Interval = TimeSpan.FromMilliseconds(400);
-        _collapseTimer.IsRepeating = false;
-        _collapseTimer.Tick += (_, _) =>
+        if (_collapsePending) return; // 既に予約済み（延長しない）
+        try
         {
-            try { CollapseTabStrip(); }
-            catch (Exception ex) { Diagnostics.Log("TabStripCollapse", ex); }
-        };
-        _collapseTimer.Start();
+            _collapsePending = true;
+            _collapseTimer?.Stop();
+            _collapseTimer = DispatcherQueue.CreateTimer();
+            _collapseTimer.Interval = TimeSpan.FromMilliseconds(400);
+            _collapseTimer.IsRepeating = false;
+            _collapseTimer.Tick += (_, _) =>
+            {
+                _collapsePending = false;
+                // ドラッグ中は畳まない（.EndTabDrag が終了後に再予約する）
+                if (_tabStripPointerPressed) return;
+                try { CollapseTabStrip(); }
+                catch (Exception ex) { Diagnostics.Log("TabStripCollapse", ex); }
+            };
+            _collapseTimer.Start();
+        }
+        catch (Exception ex)
+        {
+            // 予約に失敗した場合、フラグを戻さないと以後折りたたまれない
+            _collapsePending = false;
+            Diagnostics.Log("TabStripCollapse.Start", ex);
+        }
     }
 
-    private void CancelCollapseTimer() => _collapseTimer?.Stop();
+    private void CancelCollapseTimer()
+    {
+        _collapsePending = false;
+        _collapseTimer?.Stop();
+    }
 
     // ストリップ表示を遅延させる（素通りで出ないように）
     private void StartShowTimer()

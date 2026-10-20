@@ -274,23 +274,41 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     （未処理例外はプロセスごと落ちる）。`WM_NCHITTEST`/`WM_SETCURSOR` は毎秒100回以上来るため、
     ログは `LogWndProcFault` で**5秒に1回**に制限し、抑制件数も併記する（同期ログでポンプが詰まる）。
   - 新しく `DispatcherQueue.TryEnqueue` で UI 処理を投げるときは `EnqueueUi(source, action)` を使う。
+  - `_appWindow.Changed`（.AppWindow イベント）も UI スレッドのコールバック。例外境界を置き、
+    `UpdateCaptionPadding` のように **最小化/復帰で不正値になり得る値**（`TitleBar.RightInset` は
+    NaN/Infinity になり得る）を UI に代入する前に弾くこと（v1.8.5 教訓）。
   - 非表示（トレイ格納）・**最小化中**はストリップを閉じた状態に戻す（`ResetTabStripHidden`）。
     最小化でも `IsWindowVisible` は true なので `IsIconic` も見ること。ドラッグ中に隠れた場合に備え
     ポインターキャプチャとドラッグ状態もここで畳む。
 - **Release publish は self-contained（csproj の `<SelfContained>`）**
   - framework-dependent publish でインストールすると、グローバル .NET 構成が揃わない環境・
     InstallDelete 後のタイミングで「No frameworks were found」で自動起動失敗する。
+- **待ちタイマーは連打で延長しないこと（v1.8.5 教訓, Issue #14）**
+  - `DispatcherQueueTimer` を**毎回作り直して** `Stop()`→`Start()` すると、80ms 周期のポーリング
+    （`OnHoverTick`）や `WM_NCMOUSEMOVE` から毎フレーム要求された場合に、待ちが 400ms を超えて
+    永久に延長され、**折りたたみなどが一生起きない**（タブバーが出たままで問題）。
+  - 「予約済み」フラグ（`_collapsePending`）で延長を止める。フラグは
+    **予約= `StartCollapseTimer`／解除= Tick ハンドラ・`CancelCollapseTimer`・`ShowTabStrip`・
+    `ResetTabStripHidden` の4経路**で必ずリセットすること（リセット漏れがあると
+    以後折りたたみが起きない）。予約に失敗した場合もフラグを戻すこと。
+  - **ドラッグ中は予約も Tick も畳まない**（`_tabStripPointerPressed` を見る）。ドラッグ終了時に
+    `EndTabDrag` がカーソル位置を見て再予約する。ここを外すとドラッグ中にストリップが流れる。
 
 ### 10.1 アプリリリース手順（Windows / Android）— 2026-10-20（v1.8.3 / v1.7.2）で実施
 
 - **バージョンは3箇所を揃える（Windows）**
   - `MaiPushWinUI.csproj` の `<Version>` / `installer.iss` の `#define MyAppVersion` /
-    `UpdateChecker.cs` の `CurrentVersion`（`new(1, 8, 4)` のようにリリース版と揃える）。
+    `UpdateChecker.cs` の `CurrentVersion`（`new(1, 8, 5)` のようにリリース版と揃える）。
   - `UpdateChecker.cs` を忘れると**最新版なのに「アップデートがあります」通知が出る**。
 - **Windows ビルド**
   - `dotnet publish MaiPushWinUI.csproj -c Release -r win-x64 -p:Platform=x64 --self-contained true`
     → `$(LOCALAPPDATA)\MaiPushWinUI\publish\`（csproj の `PublishDir` が固定）。
   - **publish ディレクトリはビルド前に空にする**（旧版 DLL が混ざると混在したままインストーラに入る）。
+  - **ビルド中にアプリが publish 先の DLL を掴んでいると publish が失敗する**
+    （`MSB3027: ... コピーできませんでした ... ファイルは ... によってロックされています`）。
+    実機の exe が起動している場合は**必ず停止してから** publish する。失敗した publish のまま
+    Inno Setup を回すと**修正前バイナリが混ざったインストーラ**ができるので、publish 失敗時は
+    やり直すこと。
   - インストーラ: `"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss`
     → `Windows/mai-push-winui/installer/MaiPush-<ver>-Setup.exe`（`webui/dl/*.exe` は gitignore 対象）。
 - **Android ビルドはネットワークドライブ（`Q:\`）では失敗する**
@@ -305,6 +323,10 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - **配布の順序**: `webui/mai-notification.apk` と `webui/dl/MaiPush-<ver>-Setup.exe` を
   **先に配置してから** `webui/dl/android.json` / `desktop.json` を更新する
   （逆にすると更新フィードが 404 を指す）。
+  - `desktop.json` の `url` の `?v=` は **サーバ側の ex の mtime**（`webui/dl/<exe>` の
+    `filemtime`）に合わせる。`webui/download.php` が同じ基準で `?v=` を生成するため、
+    ここだけ別の値になるとキャッシュキーが割れる（Windows 側のローカル mtime は
+    JST 変換で 9 時間ずれるので使わない）。
   検証は `bash scripts/deploy/verify-deploy.sh webui/dl/desktop.json` 相当（配信バイト数 == ディスクのバイト数）。
 
 ## 11. コーディング/設計規約（最小限・事故に直結するもの）
@@ -386,7 +408,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
+最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10 待ちタイマーの連打による延長禁止（v1.8.5 / Issue #14）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）
 最終更新: 2026-10-13（§10 WinUI ネットワーク起動禁止を追記）
