@@ -108,6 +108,9 @@ bash scripts/deploy/verify-deploy.sh webui/<file>.php      # PHP（バイト比�
 - **配信バイト数 vs ディスクのバイト数**を機械比較し、nginx の `open_file_cache` による
   切り詰め（応答が途中で切れ `<script>` が消える）を検出する。**HTTP 200 を返しても
   気づけないので必ずこのスクリプトを使うこと。** 検出したら自動でTTL待ちして再試行する。
+- 比較元（`ORIGIN_BASE`）は **`http://127.0.0.1:1717`**（koinoyamai.love の直 vhost）。
+  旧既定の `:1700` は 2026-10-19 に全パス301化され、301 本文と比較して
+  **切詰め誤検知**を起こしていたため変更（2026-10-20）。
 - 公開 HTML の `</html>` 欠落と `<?php` のにじみ出しも検出する。
 
 ### 7.2 ポート位相の検証（本番操作の**前**に必須）
@@ -132,6 +135,10 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 ```
 - git ブランチの乖離、Service Worker バージョン、主要ファイルの md5 一致、
   未コミット変更を検査する。**exit 0=乖離なし / 1=乖離あり**。
+- staging ツリーは **`STG_DIR` 環境変数 → `git worktree list` の `staging` ブランチ → 既定パス** の
+  順で自動解決する（2026-10-20）。worktree を移設しても誤検知しない。
+  ※ staging の **実行実体**は pm2/nginx の参照先（`/home/yuzuki/koinoyamai.love-test`）であり、
+  git worktree の場所とは独立しうる（§1 のポート位相検証と併用すること）。
 - 毎晩 00:05 の `update-subscribers-and-commit.sh` が作る `webui/data` のみの
   自動コミットによる behind は**正常と判定**（誤検出しない）。
 - **cron 登録済み**（1日1回 06:30、0.14秒。ログは `logs/drift.log`）:
@@ -334,7 +341,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-20（§10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー）
+最終更新: 2026-10-20（§10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）
 最終更新: 2026-10-13（§10 WinUI ネットワーク起動禁止を追記）

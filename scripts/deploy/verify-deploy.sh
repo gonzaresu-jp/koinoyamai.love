@@ -20,7 +20,10 @@
 #   - 完全一致 → OK
 #
 # 環境変数で上書き可:
-#   ORIGIN_BASE  (既定 http://127.0.0.1:1700)  … Cloudflare を経由しない配信元
+#   ORIGIN_BASE  (既定 http://127.0.0.1:1717)  … Cloudflare を経由しない配信元
+#                 ※ 旧既定は :1700（mai.honna-yuzuki.com）だったが、2026-10-19 に
+#                   全パス301化されたため、切詰めではなく 301 本文と比較して誤検知していた。
+#                 koinoyamai.love の vhost は :1717（AGENTS.md §6.7）。
 #   PUBLIC_BASE  (既定 https://koinoyamai.love — 2026-10-11 フェーズ2反映)
 #   RETRIES      (既定 3)  … 切詰め検出時の再試行回数
 #   RETRY_WAIT   (既定 12) … 再試行までの秒数（nginx open_file_cache_valid の 10s + 余裕）
@@ -29,7 +32,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
-ORIGIN_BASE="${ORIGIN_BASE:-http://127.0.0.1:1700}"
+ORIGIN_BASE="${ORIGIN_BASE:-http://127.0.0.1:1717}"
 PUBLIC_BASE="${PUBLIC_BASE:-https://koinoyamai.love}"
 RETRIES="${RETRIES:-3}"
 RETRY_WAIT="${RETRY_WAIT:-12}"
@@ -46,7 +49,7 @@ LOCAL_SIZE=$(wc -c < "$LOCAL" | tr -d ' ')
 echo "[verify-deploy] ローカル: $LOCAL (${LOCAL_SIZE} bytes)"
 
 # 公開URLが未指定ならリポジトリ相対パスから推測する
-#   webui/wave.php → /wave.php   (nginx 1700 の docroot が webui/ のため)
+#   webui/wave.php → /wave.php   (nginx :1717 の docroot が webui/ のため)
 if [ -z "$PUBLIC_URL" ]; then
   case "$LOCAL" in
     webui/*) PUBLIC_URL="$PUBLIC_BASE/${LOCAL#webui/}" ;;

@@ -24,7 +24,22 @@
 set -uo pipefail
 
 PROD_DIR="${PROD_DIR:-/var/www/html/koinoyamai.love}"
-STG_DIR="${STG_DIR:-/home/yuzuki/koinoyamai.love-test}"
+
+# staging ツリーの解決（2026-10-20 修正）:
+#   以前はパスを固定していたため、staging の git worktree が別の場所へ移ると
+#   別ツリー（または存在しないパス）を見て誤検知した。優先順位は次のとおり:
+#     1. 環境変数 STG_DIR
+#     2. 本番リポジトリの worktree 一覧から branch refs/heads/staging のもの
+#     3. 従来既定 /home/yuzuki/koinoyamai.love-test
+resolve_stg_dir() {
+  if [ -n "${STG_DIR:-}" ]; then echo "$STG_DIR"; return; fi
+  local d
+  d=$(git -C "$PROD_DIR" worktree list --porcelain 2>/dev/null \
+      | awk '/^worktree /{wt=substr($0,10)} /^branch refs\/heads\/staging$/{print wt; exit}')
+  if [ -n "$d" ]; then echo "$d"; return; fi
+  echo "/home/yuzuki/koinoyamai.love-test"
+}
+STG_DIR="$(resolve_stg_dir)"
 QUIET=0
 [ "${1:-}" = "--quiet" ] && QUIET=1
 
