@@ -51,14 +51,20 @@ fi
 
 # 2. 対象ブランチへ切り替え＋リモートと同一に固定（未コミットの追跡変更は無い前提）
 #    デプロイ先は常にローカルデプロイ用ブランチ名「staging」を使う。
-#    main を直接チェックアウトすると本番 worktree(=\$PROD)と競合するため。
+#    main を直接チェックアウトすると本番 worktree(=$PROD)と競合するため。
+#    umask 077 のままだと書き換わる webui/*.php が mode 600 になり php-fpm から読めず 500 になる
+#    （2026-10-20 の実事故）。git 操作だけ subshell で umask 002 に固定し、DB スナップショット等
+#    後続ステップの umask（＝生成物の権限）は変えない。
 if [ "$DRY" -eq 1 ]; then
   echo "[dry] git checkout -B staging origin/$BRANCH"
   echo "[dry] git reset --hard origin/$BRANCH"
 else
   echo "==> checkout staging (reset to origin/$BRANCH)"
-  git checkout -B staging "origin/$BRANCH"
-  git reset --hard "origin/$BRANCH"
+  (
+    umask 002
+    git checkout -B staging "origin/$BRANCH"
+    git reset --hard "origin/$BRANCH"
+  )
 fi
 
 # 3. DB スナップショット（任意）

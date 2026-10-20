@@ -77,11 +77,39 @@ if [ "$DRY" -eq 1 ]; then
   echo "[dry] git checkout main"
   echo "[dry] git merge --ff-only origin/$BRANCH"
   echo "[dry] git push origin main"
+  echo "[dry] find webui -type f ! -perm -o+r  # 権限検査（検出時は chmod o+r で補修）"
 else
-  git checkout main
-  git merge --ff-only "origin/$BRANCH"
+  # umask 077 のままだと書き換わる webui/*.php が mode 600 になり、
+  # php-fpm (www-data) から読めず 500 になる（2026-10-20 の実事故: /logs/ が 500）。
+  # git 操作だけ subshell で umask 002 に固定する。
+  (
+    umask 002
+    git checkout main
+    git merge --ff-only "origin/$BRANCH"
+  )
   git push origin main
   echo "==> pushed main @ $(git rev-parse --short main)"
+
+  # 5.5 配信ツリーの権限検査（2026-10-20 の実事故対策）
+  #     umask 002 は「これから書き換わるファイル」にしか効かない。既に 600 のファイルや
+  #     手動 git pull / エディタ保存で壊れたものは残るため、ここで機械的に検査して補修する。
+  echo "==> checking webui permissions (php-fpm が読めるか)"
+  BAD_FILES=$(find webui -type f ! -name '.*' ! -perm -o+r 2>/dev/null || true)
+  BAD_DIRS=$(find webui -type d ! -name '.*' ! -perm -o+x 2>/dev/null || true)
+  if [ -n "$BAD_FILES" ] || [ -n "$BAD_DIRS" ]; then
+    echo "  ! other 読み取り/実行が無いファイルを検出（chmod で補修）:"
+    if [ -n "$BAD_FILES" ]; then
+      echo "$BAD_FILES" | sed 's/^/    /'
+      echo "$BAD_FILES" | xargs -r chmod o+r
+    fi
+    if [ -n "$BAD_DIRS" ]; then
+      echo "$BAD_DIRS" | sed 's/^/    /'
+      echo "$BAD_DIRS" | xargs -r chmod o+x
+    fi
+    echo "  ! 原因（umask 077 の git 操作）を確認すること: AGENTS.md §7.1"
+  else
+    echo "  ✓ webui はすべて other 読み取り可"
+  fi
 fi
 
 # 6. 本番プロセス再起動

@@ -112,6 +112,12 @@ bash scripts/deploy/verify-deploy.sh webui/<file>.php      # PHP（バイト比�
   旧既定の `:1700` は 2026-10-19 に全パス301化され、301 本文と比較して
   **切詰め誤検知**を起こしていたため変更（2026-10-20）。
 - 公開 HTML の `</html>` 欠落と `<?php` のにじみ出しも検出する。
+- **ファイル権限も検査する（2026-10-20 の実事故）**: `umask 077` のシェルで本番ツリーの
+  `git pull` / `promote.sh` を行うと、書き換わった `webui/*.php` が mode 600 で作られ
+  **php-fpm (www-data) が読めず 500** になる（本番 `/logs/` で実発生 → `chmod 664` で復旧）。
+  `verify-deploy.sh` は other 読み取り不可を検出して exit 1 する。
+  `promote.sh` / `deploy-staging.sh` は `umask 002` を固定済み。**手動 `git pull` をするときも
+  `umask 002` を先に実行すること**（または pull 後に `chmod 664` を確認）。
 
 ### 7.2 ポート位相の検証（本番操作の**前**に必須）
 ```bash
@@ -356,7 +362,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-20（§10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
+最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）
 最終更新: 2026-10-13（§10 WinUI ネットワーク起動禁止を追記）
