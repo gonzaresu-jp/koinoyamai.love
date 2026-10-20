@@ -193,7 +193,9 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 | `js/` | 画面別 JS。`index-*`, `admin-*`, `wave-*`, `header-auth.js`, `header-jst.js`, `pushService.js`, `palette.js` 等 |
 | `css/`, `style.css`, `sp.css` | スタイル。`css/header.css` は非 minify で `?v=filemtime` 読込 |
 | `data/` / `dl/` / `dist/` / `fontawesome-free-*` | データ・配布物・生成物 |
-| `firebase-messaging-sw.js`, `manifest.json` | SW/PWA |
+| `service-worker.js` | 実SW（PWA・push 受信。v3.72） |
+| `firebase-messaging-sw.js` | FCM バックグラウンド通知用SW（サイトルート `/firebase-messaging-sw.js` に置く）。**現在 apps 側は `/service-worker.js` を登録しており、この SW は未登録・未使用**（2026-10-20 追跡漏れの発見時に git 追跡対象へ） |
+| `manifest.json` | PWA manifest |
 
 - **CSP は `script-src 'self'`**（nginx `scripts/nginx/mai-test.conf` 等）。インライン JS 不可 → 新規 JS は `/js/*.js` に置く。
 - 公開 HTML の反映は `bash scripts/deploy/verify-deploy.sh webui/<file>` でバイト比較（`open_file_cache` 切詰め検出、`AGENTS.md §7.1`）。同スクリプトは配信ファイルが other 読み取り可か（php-fpm から読めるか）も検査する。

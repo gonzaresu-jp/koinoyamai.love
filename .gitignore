@@ -1,28 +1,44 @@
+# ============================================================
+# .gitignore 方針（2026-10-20 一括整理 / issue #19）
+#
+# 修飾なしのパターン（`config.js` など）は「どの階層にも」適用され、
+# src/ や routes/ 以下の新規ファイルが無言で git add されない
+# （追跡漏れの原因になる）ため、**ランタイム生成物はルート直下を明示**する。
+# 例: `config.js` → `/config.js`
+#
+# 逆に、秘密情報（鍵・トークン・証明書）は階層を限定せず広く無視する
+# （漏れる方が危険なので）。此类は「ルート限定しない」ことを明示している。
+#
+# 注意: コメントは「行全体」だけ有効（行末の # ... はパターンの一部になる）。
+# ============================================================
+
+# ---------- 拡張子ベース（階層を限定しない） ----------
 *.log
 *.env
 *.bak
 *.db
 *.db.bak.*
 *.js.bak.*
-gipt_debug/
-.ytprofile/
-debug_pages/
-data/
-# Kotlin パッケージの data/ は追跡対象（上の data/ はランタイムデータ用）
-!mai_notification/app/src/main/java/com/yuzuki/mai_notification/data/
-.git/
-ytcommunity_state.json
-node_modules/
-ytcommunity_debug/
-tmp/
+*.old
+*.apk
+*.db-shm
+*.db-wal
+
+# ---------- バイナリ / ビルド成果物（階層を限定しない） ----------
+*.exe
+*.dll
+*.asar
+*.node
+*.dmg
+*.zip
+
+# ---------- 秘密情報（階層を限定せず広く無視する） ----------
+# Firebase の管理者 SDK（サービスアカウント）
+mai-push-9c47c-firebase-adminsdk-fbsvc-*.json
+# VAPID 秘密鍵 / API トークン
 vapid.json
-webui/fontawesome-free-7.2.0-web/
-# 旧ルートの core/ ディレクトリ用（2026-10-20 修正）
-# 修飾なしの "core" はどの階層にも適用されるため src/core/ まで無視され、
-# src/core/ に新しいファイルを追加しても git add されない（追跡漏れの原因）
-/core
-# Android アプリはソースのみ追跡。秘密情報とビルド生成物は除外
-# （keystore.properties はパスワード平文のため必ず除外すること）
+twitcasting-token.json
+# Android の署名鍵・設定
 mai_notification/.kotlin/
 mai_notification/.idea/
 mai_notification/release/
@@ -31,79 +47,92 @@ mai_notification/keystore.properties
 mai_notification/*.jks
 mai_notification/*.keystore
 mai_notification/app/google-services.json
-add-platform-to-all.js
-config.json
-*.db-shm
-*.db-wal
-data.db.bak.1763066928
-twitcasting-token.json
-twitch_state.json
-webui/styles/
-history.json
-history-*.json
-firebase-messaging-sw.js
-logs/
-mai-push-9c47c-firebase-adminsdk-fbsvc-5d72ba0aba.json
-gipt_state.json
-bilibili-dynamic-state.json
-fanbox-state.json
-seen.json
-sent_records.json
-*.old
-*.apk
-server/
-mai_animation_data.json
-backups/
-bilibiliDynamic.js
-bilibiliVideo.js
-config.js
-config.json
-server.js.refactored
-twitter.js.bak
-.env.bak
-generateVapid.js
-twitcasting-token.json
-youtubewebhook.js
-add-platform-to-all.js
-backfill_tweet_ids.js
-debug_status.js
-test-twitter-media.js
-update_history_manual.js
+# 管理画面
+.htpasswd
+.env.bak*
 
-# バイナリ / Electron ビルド成果物
-*.exe
-*.dll
-*.asar
-*.node
-*.apk
-*.dmg
-*.zip
-Windows/mai-push-desktop/dist/
+# ---------- ランタイム生成物（ルート直下のみ） ----------
+/data
+/tmp
+/logs
+/backups
+/server
+/debug_pages
+/ytcommunity_debug
+/gipt_debug
+/.ytprofile
+/.opencode
+/kernel.errors.txt
+
+# webui 配下のランタイムデータ（登録者数の日次更新。AGENTS.md §7.5）
+# ※ 末尾スラッシュを付けない（末尾スラッシュ付きのパターンは symlink にマッチしない。
+#   staging の webui/styles・webui/fontawesome-* は symlink で、そのため ignore されていなかった）
+# 追跡済みだが、新規ファイルは追跡しない
+webui/data
+
+# 通知履歴のランタイム出力（services/history.js が書き換える / 回帰テストも一時生成する）
+# 追跡しない（更新履歴JSON）。ルート直下の /history.json とは別物
+webui/history.json
+webui/history-*.json
+
+# ---------- ランタイム状態ファイル（ルート直下のみ） ----------
+/ytcommunity_state.json
+/twitch_state.json
+/gipt_state.json
+/bilibili-dynamic-state.json
+/fanbox-state.json
+/seen.json
+/sent_records.json
+/mai_animation_data.json
+/history.json
+/history-*.json
+/data.db.bak.1763066928
+
+# ---------- 旧ルートの残骸ファイル名（ルート直下のみ・2026-10-19 整理分） ----------
+/config.js
+/config.json
+/server.js.refactored
+/bilibiliDynamic.js
+/bilibiliVideo.js
+/generateVapid.js
+/youtubewebhook.js
+/add-platform-to-all.js
+/backfill_tweet_ids.js
+/debug_status.js
+/test-twitter-media.js
+/update_history_manual.js
+/twitter.js.bak
+# 旧ルートの core/ ディレクトリ用
+/core
+# 旧ルートの admin/ 配下（/admin は login.html のみ追跡。認証コードは lib/ へ移設済み）
+admin/admin.js
+admin/webauthn.js
+
+# ---------- Kotlin パッケージの data/ は追跡対象 ----------
+# 上の /data/ はルート直下のみなので不要だが、意図を明示しておく
+!mai_notification/app/src/main/java/com/yuzuki/mai_notification/data/
+
+# ---------- 依存関係・フォント ----------
+node_modules/
 Windows/**/node_modules/
+webui/fontawesome-free-7.2.0-web
+webui/styles
+
+# ---------- アプリ（Windows / Android）のビルド生成物 ----------
+Windows/mai-push-desktop/dist/
 Windows/mai-push-desktop/bin/
 Windows/mai-push-desktop/obj/
 Windows/mai-push-winui/bin/
 Windows/mai-push-winui/obj/
-!AGENTS.md
+Windows/mai-push-winui/publish/
 
-# 構造整理 (2026-10-19): 誤コミット防止
-.opencode/
-kernel.errors.txt
-.htpasswd
-# /admin は login.html のみ追跡（旧複製 admin.js/webauthn.js は lib/ へ移設済み）
-admin/admin.js
-admin/webauthn.js
-
-# ローカル残骸の誤コミット防止 (2026-10-20 追加)
+# ---------- ローカル残骸の誤コミット防止 (2026-10-20 追加) ----------
 # 背景: 未追跡ファイルが 2 つの自動処理を止めていた
 #   1) promote.sh は `git status --porcelain` が空でなければ本番昇格を中止する
 #   2) scripts/ops/update-subscribers-and-commit.sh は webui/data 以外に未コミット変更が
 #      あると日次データ更新を commit せず保留する（AGENTS.md §7.5）
-# 注意: gitignore のコメントは「行全体」だけ。インライン（行末の # ...）は
-#       パターンの一部になるので必ず前行に置くこと。
 # 日付付きバックアップ（例: robots.txt.bak-20261011-1445）
 *.bak-*
-# .env のローカル退避（秘密値を含むため追跡しない）
-.env.bak*
-# WinUI のビルド出力（正規は %LOCALAPPDATA%、§10.1）
-Windows/mai-push-winui/publish/
+
+# ---------- 追跡を強制する ----------
+!AGENTS.md
