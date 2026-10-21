@@ -53,6 +53,12 @@ done
 
 CVE_RE="CVE-2026-10961[89]"
 CVE_LIST=("CVE-2026-109618" "CVE-2026-109619")
+# upstream 8.3.36 の ChangeLog は **CVE ID ではなく GHSA ID** で記載している
+# （2026-10-21 実測: "Core: Fixed GHSA-w8hw-w9fx-j79w , GHSA-6wmf-4rv5-p3rp"）。
+# CVE→GHSA の対応表はまだ公開されていない（GitHub Advisory は 404）のため、
+# 修正版の判定は **CVE ID と GHSA ID のどちらかを検出**する。
+GHSA_LIST=("GHSA-w8hw-w9fx-j79w" "GHSA-6wmf-4rv5-p3rp")
+SEC_RE="(CVE-2026-10961[89]|GHSA-w8hw-w9fx-j79w|GHSA-6wmf-4rv5-p3rp)"
 UPSTREAM_CHANGELOG="https://www.php.net/ChangeLog-8.php"
 FPM_SERVICE="php8.3-fpm"
 FPM_SOCK="/run/php/php8.3-fpm.sock"
@@ -116,6 +122,7 @@ fetch_upstream_info() {
     if python3 - "$tmp" "${CVE_LIST[@]}" <<'PY' > "${tmp}.info" 2>/dev/null
 import re, sys
 path, cves = sys.argv[1], sys.argv[2:]
+sec_ids = ['GHSA-w8hw-w9fx-j79w', 'GHSA-6wmf-4rv5-p3rp']
 s = open(path, encoding='utf-8', errors='replace').read()
 secs = re.split(r'<section class="version" id="([0-9.]+)">', s)
 pairs = [(secs[i], secs[i+1]) for i in range(1, len(secs)-1, 2)]
@@ -126,7 +133,8 @@ for series in ('8.2', '8.3', '8.4', '8.5'):
     latest = vs[-1] if vs else ''
     fix = ''
     for v in vs:                                # 昇順 = 修正を含む最小版（>= 比較の基準）
-        if all(c in dict(pairs)[v] for c in cves):
+        body = dict(pairs)[v]
+        if all(c in body for c in cves) or any(g in body for g in sec_ids):
             fix = v
             break
     print(f'latest_{series.replace(".", "")}={latest}')

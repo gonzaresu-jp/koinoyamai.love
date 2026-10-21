@@ -27,6 +27,8 @@ for arg in "$@"; do
 done
 
 CVE_RE="CVE-2026-10961[89]"
+# upstream 8.3.36 は ChangeLog に GHSA ID で記載する（CVE 対応表はまだ未公開）
+SEC_RE="(CVE-2026-10961[89]|GHSA-w8hw-w9fx-j79w|GHSA-6wmf-4rv5-p3rp)"
 CVE_LIST=("CVE-2026-109618" "CVE-2026-109619")
 UPSTREAM_CHANGELOG="https://www.php.net/ChangeLog-8.php"
 FPM_SERVICE="php8.3-fpm"
@@ -52,7 +54,7 @@ changelog_has_cve() {
   local f
   for f in /usr/share/doc/php8.3-common/changelog.Debian.gz /usr/share/doc/php8.3-fpm/changelog.Debian.gz; do
     [ -r "$f" ] || continue
-    if zcat "$f" 2>/dev/null | grep -qE "$CVE_RE"; then return 0; fi
+    if zcat "$f" 2>/dev/null | grep -qE "$SEC_RE"; then return 0; fi
   done
   return 1
 }
@@ -64,6 +66,7 @@ upstream_fix_version() {
     python3 - "$tmp" "${CVE_LIST[@]}" <<'PY' 2>/dev/null
 import re, sys
 path, cves = sys.argv[1], sys.argv[2:]
+sec_ids = ['GHSA-w8hw-w9fx-j79w', 'GHSA-6wmf-4rv5-p3rp']
 s = open(path, encoding='utf-8', errors='replace').read()
 secs = re.split(r'<section class="version" id="([0-9.]+)">', s)
 pairs = [(secs[i], secs[i+1]) for i in range(1, len(secs)-1, 2)]
@@ -71,7 +74,8 @@ vs = [v for v, _ in pairs if v.startswith('8.3.')]
 def key(v): return tuple(int(x) for x in v.split('.'))
 vs.sort(key=key)
 for v in vs:                            # 昇順 = 修正を含む最小版
-    if all(c in dict(pairs)[v] for c in cves):
+    body = dict(pairs)[v]
+    if all(c in body for c in cves) or any(g in body for g in sec_ids):
         print(v)
         break
 PY
