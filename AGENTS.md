@@ -83,7 +83,7 @@
     - **リポジトリ外**（root 必要・別手順）: systemd `pm2-yuzuki.service` の PATH /
       `pi-vector.service` の ExecStart / `/opt/hitori-twitter/hitori-twitter.service` の ExecStart /
       `/var/www/html/upload/ecosystem.config.js` の interpreter。
-      移行スクリプトの完了メッセージに残作业一覧が出る。
+      移行スクリプトの完了メッセージに残作業の一覧が出る。
   - **他プロジェクト（fcpass / air-monitor / hitori-twitter / squiish / upload-file）も v24.22.1 に統一（2026-10-21）。**
     同じ pm2 デーモンが管理している別プロジェクト。git 管理外・ネイティブモジュールなし
     （express / multer / qrcode / cors / serve のみ）なので、応答バイト数が一致することを
