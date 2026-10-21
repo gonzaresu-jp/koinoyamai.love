@@ -582,7 +582,7 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
   未追跡の残骸ファイルのほかに、ビルド済み JS の再生成などで**追跡ファイルの改変**も
   起因しうるため、`git status` で両方を確認すること）。
 
-### 7.6 登録済み cron（実 crontab 相当・2026-10-20 実測）
+### 7.6 登録済み cron（実 crontab 相当・2026-10-22 実測）
 ```
 5 0 * * *   cd /var/www/html/koinoyamai.love && ./scripts/ops/update-subscribers-and-commit.sh >> logs/subscribers.log 2>&1
 30 6 * * *  cd /var/www/html/koinoyamai.love && ./scripts/deploy/check-drift.sh --quiet >> logs/drift.log 2>&1
@@ -590,9 +590,15 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 */15 * * * * /var/www/html/koinoyamai.love/scripts/ops/healthcheck.sh
 30 9 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/minutes-gen-cron.sh
 30 4 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/security-watch-cron.sh
-35 4 * * *  bash /var/www/html/koinoyamai.love/scripts/php/check-ubuntu-backport.js
+35 4 * * *  mkdir -p /var/www/html/koinoyamai.love/logs && /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/php/check-ubuntu-backport.js >> /var/www/html/koinoyamai.love/logs/php-backport-watch.log 2>&1
 ```
 - いずれも `crontab -l`（yuzuki ユーザー）で確認済み。ログは `logs/`（gitignore 対象）。
+- ⚠️ **Node スクリプトを cron で `bash` で実行しない**（2026-10-22 実測）。
+  `bash script.js` では shebang が使われず JS が**シェルとして解析**されて
+  構文エラー（**exit 2**）になる。かつ本机的 cron は `MAILTO` 未設定・`mail` も未導入で
+  **stderr がどこにも捨てられる**ため「静かに死んでいた」。
+  `check-ubuntu-backport.js` がこの状態だった（04:35 の監視が動作せず）ため、
+  `node` を**絶対パスで明示**して実行する。
 - 追加・変更するときは `crontab -l` の実体とこの表を**同じコミットで**更新する。
 - リポジトリ外の job（`/home/yuzuki/temp.sh` の温度ログ等）は本表の対象外。
 - **cron は `PATH` が `/usr/bin/node`（Node v18 = EOL）を掴む**ため、node を実行する
