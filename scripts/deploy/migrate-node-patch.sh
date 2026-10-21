@@ -51,7 +51,7 @@ NEW_NPM="${NODE_BASE}/${TO}/bin/npm"
 BACKUP_DIR="/var/lib/mai-push/backups"
 
 PROD_DIR="/var/www/html/koinoyamai.love"
-STG_DIR="/home/yuzuki/koinoyamai.love-test"
+STG_DIR="${STG_DIR:-/home/yuzuki/koinoyamai.love-test}"
 
 echo "=== Node パッチ版移行: ${FROM} → ${TO} ==="
 echo "  旧: $OLD_NODE"
@@ -76,7 +76,19 @@ APPS=(
 )
 
 app_pid() { pm2 pid "$1" 2>/dev/null | tail -1 || true; }
-app_exe() { local p; p="$(app_pid "$1")"; [ -n "$p" ] && readlink -f "/proc/${p}/exe" 2>/dev/null || echo ""; }
+app_exe() {
+  # 再起動レースで空になることがあるため数回リトライする
+  local p e i
+  for i in 1 2 3; do
+    p="$(app_pid "$1")"
+    if [ -n "$p" ]; then
+      e="$(readlink -f "/proc/${p}/exe" 2>/dev/null || true)"
+      [ -n "$e" ] && { echo "$e"; return 0; }
+    fi
+    sleep 1
+  done
+  echo ""
+}
 
 wait_port() {
   local port="$1" limit="${2:-25}" i code
@@ -145,6 +157,42 @@ if [ "$APPLY" = "0" ]; then
   exit 0
 fi
 
+# --- pre-flight（B2: 確実に失敗する経路を事前检测する） ---
+echo "--- pre-flight ---"
+PREFLIGHT_OK=1
+for ec in "${PROD_DIR}/ecosystem.config.js" "${STG_DIR}/ecosystem.config.js"; do
+  [ -f "$ec" ] || { echo "    [NG] $ec が見つかりません" >&2; PREFLIGHT_OK=0; continue; }
+  if ! grep -q "$NEW_NODE" "$ec"; then
+    echo "    [NG] $ec が新版（${TO}）に未反映です。先に pull してから実行してください" >&2
+    PREFLIGHT_OK=0
+  else
+    echo "    [OK] $ec は ${TO} を参照"
+  fi
+done
+# eco 対象のアプリが ecosystem に存在するか（定義の食い違いを検知）
+for spec in "${APPS[@]}"; do
+  IFS='|' read -r name kind script cwd port <<< "$spec"
+  [ "$kind" = "eco" ] || continue
+  if ! ( cd "$cwd" && "$NEW_NODE" -e "const e=require('./ecosystem.config.js');process.exit(e.apps.some(a=>a.name=='$name')?0:1)" ) 2>/dev/null; then
+    echo "    [NG] ecosystem.config.js に '$name' がありません（定義の食い違い）" >&2
+    PREFLIGHT_OK=0
+  fi
+done
+# cluster 混入チェック（N4: cluster では interpreter が無視される）
+CLUSTER="$(pm2 jlist 2>/dev/null | "$NEW_NODE" -e "
+let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{
+  try{ const a=JSON.parse(s); const c=a.filter(p=>{const pm=p.pm2_env||{};return pm.exec_mode==='cluster_mode';}).map(p=>p.name); console.log(c.join(',')); }catch(e){console.log('');}
+});" 2>/dev/null || true)"
+if [ -n "$CLUSTER" ]; then
+  echo "    [NG] cluster モードのアプリがあります（interpreter が無視されます）: $CLUSTER" >&2
+  PREFLIGHT_OK=0
+fi
+if [ "$PREFLIGHT_OK" != "1" ]; then
+  echo "=== pre-flight で問題が見つかったため中止します（pm2 delete performed nothing）===" >&2
+  exit 1
+fi
+echo "    [OK] pre-flight 通過"
+
 mkdir -p "$BACKUP_DIR"
 BK="$BACKUP_DIR/pm2-jlist-before-${TO}-$(date +%Y%m%d-%H%M%S).json"
 pm2 jlist > "$BK" 2>/dev/null && echo "[OK] 定義バックアップ: $BK"
@@ -165,9 +213,11 @@ for spec in "${APPS[@]}"; do
 
   pm2 delete "$name" >/dev/null 2>&1 || true
   if [ "$kind" = "npm" ]; then
-    start_app "$name" "$kind" "$script" "$cwd" run serve
+    # start 失敗で set -e が中断すると「delete 済み・未再起動」で落ちるため、
+    # 戻り値を捨てて下面的検証フェーズ（ロールバック）に到達させる
+    start_app "$name" "$kind" "$script" "$cwd" run serve || true
   else
-    start_app "$name" "$kind" "$script" "$cwd"
+    start_app "$name" "$kind" "$script" "$cwd" || true
   fi
   sleep 2
 
@@ -210,6 +260,18 @@ fi
 
 echo "=== pm2 save ==="
 pm2 save >/dev/null 2>&1 && echo "[OK] pm2 save 完了（~/.pm2/dump.pm2 を更新）" || { echo "[ERR] pm2 save に失敗" >&2; exit 1; }
+# N1: dump の中身も確認する（jlist だけを見て OK としない教訓の延長）
+DUMP="$HOME/.pm2/dump.pm2"
+if [ -r "$DUMP" ]; then
+  if grep -q "$OLD_NODE" "$DUMP"; then
+    echo "[ERR] dump.pm2 に旧 interpreter（${FROM}）が残っています（reboot 後に旧版で復活する）" >&2
+    echo "      pm2 ls と pm2 jlist を確認してください" >&2
+    exit 1
+  fi
+  echo "[OK] dump.pm2 に旧 interpreter の残存なし"
+else
+  echo "[WARN] $DUMP を読めません（確認は手動で）" >&2
+fi
 
 cat <<TXT
 === 完了 ===
@@ -219,8 +281,23 @@ cat <<TXT
   bash scripts/deploy/migrate-node-patch.sh --from ${FROM} --to ${TO}   # 全アプリが新版なら「スキップ」になる
   for p in 8080 3002 8081 7080 3131 3333 5000 3100; do curl -s -o /dev/null -w "\\\$p %{http_code}\\n" http://127.0.0.1:\\\$p/; done
 
-まだ足りないもの（root が必要・別途実施）:
-  - systemd pm2-yuzuki.service の PATH（デーモンの Node）→ v${TO}
-  - systemd pi-vector.service / hitori-twitter.service の ExecStart → v${TO}
-  - デーモンの再起動: sudo systemctl restart pm2-yuzuki
+## まだ足りないもの（リポジトリ外・root 必要）
+
+1. **pm2 デーモン（God Daemon）**: systemd \`/etc/systemd/system/pm2-yuzuki.service\` の
+   \`Environment=PATH\` 先頭の nvm bin を v${TO} へ → \`sudo systemctl restart pm2-yuzuki\`
+   （デーモンが旧版のまま \`pm2 resurrect\` すると旧 interpreter で復活する）
+2. **systemd \`pi-vector.service\`**（\`~/.config/systemd/user/\`）の ExecStart → v${TO}
+   → \`systemctl --user restart pi-vector\`
+3. **\`/opt/hitori-twitter/hitori-twitter.service\`** の ExecStart → v${TO}
+4. **\`/var/www/html/upload/ecosystem.config.js\`** の interpreter → v${TO}
+   （upload-file の恒久定義。pm2 resurrect 用）
+5. **\`pm2-logrotate\`** は \`interpreter=node\`（PATH 依存）なので、デーモン再起動で自動的に
+   v${TO} になる。再起動後に \`pm2 ls\` で online を確認すること。
+
+## 確認
+
+  pm2 ls
+  bash scripts/deploy/migrate-node-patch.sh --from ${FROM} --to ${TO}   # 全アプリが新版なら「スキップ」になる
+  bash scripts/deploy/assert-port.sh prod && bash scripts/deploy/assert-port.sh staging
+  bash scripts/deploy/verify-deploy.sh webui/index.php
 TXT
