@@ -7,15 +7,19 @@
     "build": "node build.mjs",
     "test": "node scripts/ops/regression-test.js",
     "restart": "bash scripts/deploy/restart.sh",
-    "restart:worker": "pm2 start ecosystem.config.js --only mai-push-worker --update-env",
-    "restart:api": "pm2 start ecosystem.config.js --only mai-push-api --update-env",
-    "restart:all": "pm2 start ecosystem.config.js --update-env",
+    "restart:worker": "bash scripts/deploy/restart.sh worker",
+    "restart:api": "bash scripts/deploy/restart.sh api",
+    "restart:all": "bash scripts/deploy/restart.sh all",
+    "restart:staging": "bash scripts/deploy/restart.sh staging",
     "health": "node scripts/ops/health-check.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=24.22.0"
+  },
   "dependencies": {
     "@img/sharp-linux-x64": "^0.35.4",
     "@simplewebauthn/server": "^10.0.1",
@@ -51,11 +55,12 @@
     "esbuild": "^0.28.0"
   },
   "allowScripts": {
-    "@firebase/util": true,
-    "bcrypt": true,
-    "esbuild": true,
-    "protobufjs": true,
-    "puppeteer": true,
-    "sqlite3": true
+    "@firebase/util@1.14.0": true,
+    "@firebase/util@1.10.0": true,
+    "bcrypt@6.0.0": true,
+    "esbuild@0.28.0": true,
+    "protobufjs@7.6.6": true,
+    "puppeteer@24.43.1": true,
+    "sqlite3@6.0.1": true
   }
 }

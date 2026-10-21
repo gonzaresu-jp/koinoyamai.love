@@ -22,6 +22,9 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
+# node は明示指定する（PATH 依存だと cron/sudo 経由で /usr/bin/node = v18 EOL を掴むため。AGENTS.md §5）
+NODE_BIN="/home/yuzuki/.nvm/versions/node/v24.22.0/bin/node"
+
 # 期待値（AGENTS.md §1 と整合。tree ごとに別ファイルへ hardcode しない）
 PROD_PORT=8080
 PROD_PATH="/var/www/html/koinoyamai.love/server.js"
@@ -62,7 +65,7 @@ ACTUAL_CMD=$(tr '\0' ' ' < "/proc/${PID}/cmdline" 2>/dev/null | awk '{print $2}'
 
 if [ -z "$ACTUAL_CMD" ]; then
   # 読めない場合は pm2 の設定を照合する（pm2 jlist は自分のプロセスなので読める）
-  PM2_PATH=$(pm2 jlist 2>/dev/null | node -e '
+  PM2_PATH=$(pm2 jlist 2>/dev/null | "$NODE_BIN" -e '
     let d = ""; process.stdin.on("data", c => d += c).on("end", () => {
       try {
         const a = JSON.parse(d);
