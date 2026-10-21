@@ -60,7 +60,7 @@
                 ),
             ),
         ),
-    ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG);
 
     $extraHead = '<link rel="stylesheet" href="/css/guide.css?v=' . @filemtime(__DIR__ . '/css/guide.css') . '" />';
     include __DIR__ . '/head.php';

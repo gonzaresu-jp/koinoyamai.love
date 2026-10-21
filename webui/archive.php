@@ -65,7 +65,9 @@
                 '@type' => 'ItemList',
                 'itemListElement' => $itemList,
             ),
-        ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        // JSON_HEX_TAG: 動画タイトルに </script> が含まれても <script> タグを脱出できないようにする
+        // （タイトルは外部（YouTube）由来なので、JSON の中にそのまま埋め込むのは危険）。
+        ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG);
     }
     $extraHead = '<link rel="stylesheet" href="/css/archive.css?v=' . @filemtime(__DIR__ . '/css/archive.css') . '" />';
     include __DIR__ . '/head.php';

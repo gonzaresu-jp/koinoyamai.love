@@ -1,5 +1,7 @@
 'use strict';
 
+const crypto = require('crypto');
+
 const { dbGet, dbRun, dbAll, normalizeRequiredTitle, normalizeOptionalText, normalizeOptionalHttpUrl, normalizeReminderMinutes, MAX_SCHEDULE_TITLE_LEN, MAX_SCHEDULE_TEXT_LEN, MAX_SCHEDULE_URL_LEN } = require('./user-helpers');
 
 const VALID_TIME_PERIODS = ['MORNING', 'NOON', 'EVENING', 'NIGHT', 'LATE_NIGHT'];
@@ -20,7 +22,12 @@ function register(app, db) {
     const token = process.env.INTERNAL_API_TOKEN || null;
     const authToken = req.headers['x-notify-token'] || req.query.token || '';
     if (!token) return { authorized: false, error: 'Internal API not configured' };
-    if (authToken !== token) return { authorized: false, error: 'Unauthorized' };
+    // タイミング差で盗られないように定数時間比較にする（AGENTS.md §3 と同じ方針）。
+    const a = Buffer.from(String(authToken));
+    const b = Buffer.from(String(token));
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      return { authorized: false, error: 'Unauthorized' };
+    }
     return { authorized: true, token };
   }
 

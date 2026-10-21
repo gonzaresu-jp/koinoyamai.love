@@ -1,5 +1,23 @@
 const ctx = require("../services/context");
 const notif = require("../services/notification");
+const rateLimit = require("express-rate-limit");
+const { ipKeyGenerator } = require("express-rate-limit");
+
+// /api/send-test は認証なしで clientId だけで呼べるため、通知スパム防止に
+// **クライアント単位**の制限を入れる（IP 単位の apiLimiter 300/分では多すぎる）。
+// clientId は UUIDv4 なので攻撃者は他人の clientId を推測できないが、
+// 推測できた／漏れた場合に 1 クライアントから大量送信できるのを防ぐ。
+const sendTestLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => {
+    const cid = req.body && req.body.clientId;
+    return cid ? String(cid) : ipKeyGenerator(req);
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many test notifications, please try again later." },
+});
 
 function register(app, db, authLimiter) {
   const { parseAndMergePlatformSettings, sendPushNotification } = notif;
@@ -157,7 +175,7 @@ function register(app, db, authLimiter) {
     res.send(ctx.vapidConfig.vapidPublicKey || "");
   });
 
-  app.post("/api/send-test", (req, res) => {
+  app.post("/api/send-test", sendTestLimiter, (req, res) => {
     const { clientId } = req.body || {};
     if (!clientId) return res.status(400).json({ error: "clientId required" });
     db.get("SELECT subscription_json FROM subscriptions WHERE client_id = ?", [clientId], async (err, row) => {

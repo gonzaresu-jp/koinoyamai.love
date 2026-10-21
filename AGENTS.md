@@ -654,6 +654,35 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - **ネイティブビルドは Node v24 優先**: 全プロセスが v24.22.0（`§5`）。
   ビルドと実行の Node を揃えること（別の版でビルドして別の版で実行すると ABI 不一致）。
   `PATH` は `~/.nvm/versions/node/v24.22.0/bin` を先頭に置く。
+- **nginx の `add_header` は Location に 1 つでもあれば server レベルを継承しない（2026-10-21 実測）**:
+  - 公開 vhost は Cache-Control / Pragma / Expires を Location ごとに書いていたため、
+    server レベルに置いていた **CSP / X-Frame-Options などが PHP 配信ページ（サイトの本体）
+    から全く出ていなかった**（クリックジャッキング無防備・CSP による XSS 緩和なし）。
+  - 対処: 共通スニペット `scripts/nginx/mai-security-headers.conf` を
+    `/etc/nginx/snippets/` に置き、**自前の add_header を持つ Location から include する**。
+    適用は `~/apply-nginx-security-headers.sh`（dry-run → `--apply`）。
+    パッチは `scripts/nginx/apply-security-headers.py`（冪等・除外理由を報告）。
+  - **Node API へ proxy する Location は include しない**（API 側は helmet が同等のヘッダを返す。
+    二重になると CSP が intersection になる）。
+  - **新しい Location を追加したら include 漏れを確認すること**（`curl -I` で実ヘッダを見る）。
+  - ⚠️ **HSTS は Cloudflare 側で `max-age=0` に上書きされている**（実測）。
+    origin のヘッダはブラウザに届かない。エッジ側で有効化するには
+    Cloudflare ダッシュボードの Edge Certificates → HTTP Strict Transport Security を変更する。
+- **nginx の IP 単位のレート制限は使えない（2026-10-21 実測）**:
+  この nginx には **real_ip 設定が無く**、アクセスログの送信元が**全件 127.0.0.1** になっている
+  （cloudflared がローカル接続している）。IP 単位の `limit_req` / `limit_conn` は
+  **全ユーザーまとめて絞る**ことになるので公開ページには入れない。
+  - 入れるなら先に real_ip を設定する（Cloudflare の IP レンジを `set_real_ip_from` に追加し、
+    `real_ip_header CF-Connecting-IP;` / `real_ip_recursive on;` を http ブロックに置く）。
+  - **Express 側のレート制限は実クライアント IP 単位**で正しく機能している
+    （`trust proxy = "loopback"` + nginx が X-Forwarded-For を渡すため `req.ip` が復元される）。
+- **アップロードサービス（`/var/www/html/upload`・本リポジトリ外）**:
+  - `UPLOAD_KEY` を設定済み（`/var/www/html/upload/.env` = 600。値は `~/upload-key.txt`）。
+    未設定だと API ゲートが無効になる（`server.js` の `if (!UPLOAD_KEY) return next();`）。
+  - **保存拡張子は許可リスト制**（画像/動画/音声/PDF のみ）。クライアント申告の拡張子を
+    そのまま使うと `.html` を名送出せて media ドメインで stored XSS になりうるため。
+  - 外部からは到達できない（`/etc/nginx/media.conf` の `location / { return 403; }`）だが、
+    アップロード UI は LAN/Tailnet のみ（`192.168.1.72` の server に allowlist）。
 
 ## 12. ドキュメント更新ルール（ARCHITECTURE.md を腐らせない）
 

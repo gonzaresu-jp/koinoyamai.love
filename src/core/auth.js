@@ -50,7 +50,9 @@ const COOKIE_OPTIONS = {
   secure: process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production',
   sameSite: 'strict',
   path: '/',
-  maxAge: 365 * 24 * 60 * 60 * 1000, // 365日
+  // Cookie の寿命は JWT の有効期限（JWT_EXPIRES_IN / 30日）に揃える。
+  // 365日 Cookie だと「トークンは切れても Cookie は残る」状態になる（2026-10-21 実測）。
+  maxAge: 30 * 24 * 60 * 60 * 1000, // 30日
 };
 
 // ---- Google OAuth クライアント ----
