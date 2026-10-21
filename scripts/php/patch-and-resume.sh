@@ -87,6 +87,20 @@ pm2_as_user save >/dev/null 2>&1 && echo "  [OK] pm2 save 完了" || echo "  [WA
 
 # --- 5) 最終確認 ---------------------------------------------------------
 say "5) 最終確認"
+# 5a) PHP 実行時ハードニングのランタイム検証（存在する場合のみ）
+#     ※ プローブは webui に .php を置いて FPM ワーカーの解釈を実測するため、
+#       **メンテナンス解除後**に実行する（解除前は 503 が返りプローブが取れない）
+HARDEN_VERIFY=""
+for cand in "$REPO_ROOT/scripts/php/verify-php-hardening.sh" \
+            "/home/yuzuki/koinoyamai.love-test/scripts/php/verify-php-hardening.sh"; do
+  [ -f "$cand" ] && { HARDEN_VERIFY="$cand"; break; }
+done
+if [ -n "$HARDEN_VERIFY" ]; then
+  echo "  ハードニングのランタイム検証: $HARDEN_VERIFY"
+  bash "$HARDEN_VERIFY" || echo "  [WARN] ハードニングの検証に失敗（上の出力を確認）" >&2
+else
+  echo "  （ハードニング検証スクリプトが見つからないためスキップ）"
+fi
 sleep 3
 for p in 8080 3002 8081; do
   printf "  自社 %-5s " "$p"
