@@ -98,8 +98,13 @@
 - **Ubuntu は upstream の security パッチをバックポートする運用**なので、patch を当てても
   `php -v` のバージョン文字列は `8.3.6` のまま（`-0ubuntu0.24.04.NN` のリビジョンだけ上がる）。
   → **適用判定は `php -v` ではなく Debian changelog の CVE 記載で行う**（`verify-php-security-patch.sh` が自動化）。
-- **php8.1 系は導入済みだが `masked` かつ停止中**（upstream 8.1 は 2025-12-31 EOL → 緊急修正は来ない）。
-  **起動させない**（nginx も 8.3 しか向かない）。使っていないので削除してよい。
+- **php8.1 系は導入されていたが削除済み**（dpkg `rc`）・`masked` で停止中
+  （upstream 8.1 は 2025-12-31 EOL → 緊急修正は来ない）。**起動させない**（nginx も 8.3 しか向かない）。
+- **upstream の修正版は `https://www.php.net/ChangeLog-8.php` から機械判定する**
+  （リリース案内ページ `releases/8_3_XX.php` には CVE ID が載らない・URL も不安定）。
+  2026-10-21 時点: latest 8.3.x = 8.3.35（Ubuntu `.12` に security 分はバックポート済み）。今晚は 8.3.36 相当。
+- **スクリプトは fail-closed。** 修正版を検出できない・candidate が変わらない・削除が絡む場合は
+  **exit 1** で「完了」を出さない。
 - **緊急パッチの適用は本家スクリプトで**（`sudo` 必要・dry-run → `--apply` の2段。`~/apply-php-security-patch.sh` はラッパ）:
   ```bash
   bash scripts/php/apply-php-security-patch.sh                   # dry-run（root 不要）
@@ -109,6 +114,7 @@
   ```
   - `apt-get upgrade`（全体）は**しない**。`php8.3-*` だけを `--only-upgrade` で上げる。
   - 適用前のバージョンは `/var/lib/mai-push/php-rollback-<時刻>.txt` に記録（ロールバック手順つき）。
+  - **PPA（`--ppa`）は恒久設定が残る。** 戻す場合は `sudo rm -f /etc/apt/sources.list.d/php.list && sudo apt-get update`。
   - **2026-10-21 の件**: CVE-2026-109618 / CVE-2026-109619（PHP コア RCE / CVSS v4.0 9.2）が
     2026-10-21 14:00 UTC（JST 23:00）にリリース。詳細と影響評価は `docs/SECURITY.md` を参照。
 

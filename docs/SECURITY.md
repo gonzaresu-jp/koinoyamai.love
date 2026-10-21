@@ -188,7 +188,8 @@ node scripts/ops/regression-test.js --port 18099
 | リリース | **2026-10-21 14:00 UTC = JST 23:00**（PHP チーム事前告知。embargo 泄露で 1 日前倒し） |
 | 影響範囲 | 報告では **PHP 5 以降すべて**（公式 advisory の確定はリリース時） |
 | 詳細 | **未公開**（リリース時に公開）。in-the-wild 悪用報告は 2026-10-21 時点でなし |
-| 想定修正版 | 8.2.34 / **8.3.34** / 8.4.26 / 8.5.11（リリース前の推定） |
+| リリース前の最新 | 8.2.34 / **8.3.35** / 8.4.26 / 8.5.11（いずれも 2026-09-24 版） |
+| 今夜の修正版 | **8.3.36 相当**（各系列の次版）。**確定は ChangeLog-8.php で機械判定する**（`apply-php-security-patch.sh` が実施） |
 | 出典 | php.net 事前告知 / CERT-EU 2026-018 / watchTowr FAQ / Ars Technica |
 
 ### 本サーバへの影響評価（2026-10-21 実測）
@@ -200,7 +201,8 @@ node scripts/ops/regression-test.js --port 18099
 | 公開経路 | nginx :1717 / :80 ← cloudflared トンネル（`koinoyamai.love` → :1717、`test.koinoyamai.love` → :80）+ Cloudflare プロキシ | インターネットから到達可能 |
 | アプリコード | `webui/*.php` 18 ファイル。`eval` / `unserialize` / 動的 include / `system` 系は**ゼロ** | アプリ層のトリガーは無い。リスクは PHP コア層 |
 | hardening | `disable_functions` **空** / `open_basedir` **未設定** / `allow_url_fopen=On` / `expose_php=Off` / `display_errors=Off` | **RCE 成立後の被害は大きい**（任意コマンド実行・任意ファイル読み書きが可能） |
-| 旧版 PHP | `php8.1-*` は導入済みだが **`masked` かつ inactive**（upstream 8.1 は 2025-12-31 EOL → 修正は来ない） | 起動しなければ問題なし。削除してよい |
+| 旧版 PHP | `php8.1-*` は**導入されていたが削除済み**（dpkg `rc`・設定だけ残存）。`masked` かつ inactive（upstream 8.1 は 2025-12-31 EOL → 修正は来ない） | 起動しなければ問題なし。追加の --------
+削除は任意 |
 | 自動更新 | `unattended-upgrades` enabled、`noble-security` 許可 | Canonical の USN 公開後に自動で入る（ただし数日かかる） |
 
 ### 適用手順
@@ -220,10 +222,18 @@ bash scripts/php/verify-php-security-patch.sh
 - **判定は `php -v` で見ない。** Ubuntu は upstream の security パッチをバックポートするため、
   バージョン文字列は `8.3.6` のまま（`-0ubuntu0.24.04.NN` だけ上がる）。
   正しくは **Debian changelog に CVE ID が載っているか** で判定する（`verify-php-security-patch.sh` が自動化）。
+- **upstream の修正版は `https://www.php.net/ChangeLog-8.php` から機械判定する**
+  （リリース案内ページ `releases/8_3_XX.php` には CVE ID が載らない・URL も不安定）。
+  2026-10-21 時点: latest 8.3.x = 8.3.35（Ubuntu `.12` にsecurity 分はバックポート済み）。今晚は 8.3.36 相当。
+- **スクリプトは fail-closed。** upstream の修正版を検出できない・candidate が変わらない・
+  シミュレーションで削除（Remv）が出る場合は **いずれも exit 1** で「完了」を出さない。
 - `apt-get upgrade`（全体）はしない。`php8.3-*` だけを `--only-upgrade` で上げる。
 - 適用前のバージョンは `/var/lib/mai-push/php-rollback-<時刻>.txt` に記録（ロールバック手順つき）。
+  ロールバックは dpkg の exact 依存（`php8.3-common (= 同版)`）のため**全パッケージを同版で指定**し、
+  ダウングレード，所以 `--allow-downgrades` が必要。
 - PPA（`--ppa`）は他パッケージ（`php8.1-*` 等）に影響しうるため、実行前に dry-run の
-  シミュレーション出力を確認すること。
+  シミュレーション出力を確認すること。**PPA 追加は恒久設定が残る**ため、戻す場合は:
+  `sudo rm -f /etc/apt/sources.list.d/php.list && sudo apt-get update`
 - ラッパ: `~/apply-php-security-patch.sh` / `~/verify-php-security-patch.sh`（本番ツリーを優先して実体を解決）。
 
 ### パッチ前の緩和策（2026-10-21 夜〜リリースまで）
