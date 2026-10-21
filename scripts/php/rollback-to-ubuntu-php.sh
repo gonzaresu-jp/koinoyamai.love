@@ -32,7 +32,10 @@ APPLY=0
 
 CVE_RE="CVE-2026-10961[89]"
 CVE_LIST=("CVE-2026-109618" "CVE-2026-109619")
-PKGS=(php8.3-fpm php8.3-cli php8.3-common php8.3-gd php8.3-opcache php8.3-readline)
+# ⚠️ `php8.3`（メタ）と `libapache2-mod-php8.3` も**必ず一緒に**指定する。
+#    libapache2-mod-php8.3 は php8.3-common を exact pin しており、
+#    これを外すと apt が「削除」で解決してしまう（実測: 削除 2 件）。
+PKGS=(php8.3 php8.3-fpm php8.3-cli php8.3-common php8.3-gd php8.3-opcache php8.3-readline libapache2-mod-php8.3)
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 TMPDIR_="$(mktemp -d)"
@@ -54,18 +57,24 @@ else
 fi
 
 # ---- ターゲット（Ubuntu 公式 archive の最新）----
+# ※ フォールバックで「1 行目」を使わないこと。sury の行が 1 行目にあると
+#    **sury 版を Ubuntu 版と誤認して「戻す必要なし」と exit 0** になる（fail-open）。
 TARGET="$(apt-cache madison php8.3-fpm 2>/dev/null | awk '/security\.ubuntu\.com|noble-security/ {print $3; exit}')"
-if [ -z "$TARGET" ]; then
-  TARGET="$(apt-cache madison php8.3-fpm 2>/dev/null | awk 'NR==1 {print $3}')"
-fi
 echo "  ターゲット       : ${TARGET:-(判定不能)}"
 
 if [ -z "$TARGET" ]; then
-  echo "[ERR] Ubuntu archive の php8.3-fpm のバージョンを判定できません（apt-get update 済みか確認）" >&2
+  echo "[ERR] noble-security の php8.3-fpm のバージョンを判定できません（apt-get update 済みか確認）" >&2
+  echo "      判定できない場合は勝手に進めない（fail-closed）" >&2
   exit 1
 fi
-if [ "$TARGET" = "$CUR_PKG" ]; then
-  echo "[OK] すでに Ubuntu 公式版（$TARGET）です。 PPA 依存はありません。戻る必要はありません。"
+# 既に Ubuntu 公式版か？ → **全パッケージ**で確認する（fpm だけだと混在状態を素通りする）
+ALREADY_UBUNTU=1
+for p in "${PKGS[@]}"; do
+  v="$(dpkg-query -W -f='${Version}' "$p" 2>/dev/null || echo '(none)')"
+  [ "$v" = "$TARGET" ] || ALREADY_UBUNTU=0
+done
+if [ "$ALREADY_UBUNTU" = "1" ]; then
+  echo "[OK] 既に全パッケージが Ubuntu 公式版（$TARGET）です。PPA 依存はありません。"
   exit 0
 fi
 
@@ -110,6 +119,18 @@ cat <<TXT
      bash scripts/php/verify-php-hardening.sh
 TXT
 
+# --- 実際の解決結果のシミュレーション（削除パッケージが出たら止める）---
+echo
+echo "--- apt の解決結果（シミュレーション）---"
+SIM="$(apt-get -s install -y --allow-downgrades $SPEC 2>&1 || true)"
+REMOVED="$(echo "$SIM" | grep -c '^Remv' || true)"
+echo "$SIM" | grep -E '^(Inst|Remv|Conf)|ダウングレード|削除' | sed 's/^/    /' || true
+if [ "${REMOVED:-0}" -gt 0 ]; then
+  echo "[ERR] シミュレーションで ${REMOVED} 件の削除が出ました。パッケージ構成を修正するまで適用しません（fail-closed）" >&2
+  exit 1
+fi
+echo "    [OK] 削除 0 件"
+
 if [ "$APPLY" -eq 0 ]; then
   echo
   echo "--- dry-run: 適用後の手順 ---"
@@ -128,20 +149,82 @@ for f in /etc/php/8.3/fpm/php.ini /etc/php/8.3/fpm/pool.d/www.conf /etc/php/8.3/
 done
 echo "[OK] 設定バックアップ: $BAK_DIR"
 
-rm -f /etc/apt/sources.list.d/php.list
+# --- 失敗時の復旧（trap）---
+# apt が php8.3-common を unpack 済み・php8.3-fpm が half-configured の状態で
+# 止まると PHP が壊れるため、失敗時は必ず復旧手順を実行して exit 1 する。
+PPA_REMOVED_LIST=""
+on_error() {
+  local rc=$?
+  echo >&2
+  echo "[ERR] ロールバックが失敗しました（rc=${rc}）。復旧を試します" >&2
+  dpkg --configure -a >/dev/null 2>&1 || true
+  if ! systemctl is-active --quiet php8.3-fpm; then
+    systemctl restart php8.3-fpm >/dev/null 2>&1 || true
+  fi
+  for f in php.ini www.conf php-fpm.conf; do
+    src=""
+    case "$f" in
+      php.ini)      src="/etc/php/8.3/fpm/php.ini" ;;
+      www.conf)     src="/etc/php/8.3/fpm/pool.d/www.conf" ;;
+      php-fpm.conf) src="/etc/php/8.3/fpm/php-fpm.conf" ;;
+    esac
+    [ -f "$BAK_DIR/$f" ] && [ -f "$src" ] && cp -a "$BAK_DIR/$f" "$src"
+  done
+  systemctl restart php8.3-fpm >/dev/null 2>&1 || true
+  if [ -n "$PPA_REMOVED_LIST" ]; then
+    for l in $PPA_REMOVED_LIST; do
+      [ -f "/etc/apt/sources.list.d/$l" ] || true
+    done
+  fi
+  echo "  dpkg --configure -a と設定の復元を実施しました。状態を確認してください。" >&2
+  exit 1
+}
+trap on_error ERR
+
+# --- B6: 検出と削除を同じリストで扱う（ondrej-php.list 等の名前違いも漏れない）---
+# ※ 削除は apt 成功後に行う（apt 失敗時に「PPA だけ消えて PHP は sury のまま」になるのを防ぐ）
+PPA_FILES="$(ls /etc/apt/sources.list.d/ 2>/dev/null | grep -iE 'sury|ondrej|php' || true)"
+for l in $PPA_FILES; do
+  cp -a "/etc/apt/sources.list.d/$l" "$BAK_DIR/apt-$l" 2>/dev/null || true
+done
+
+echo "==> apt-get update"
 apt-get update
 
 echo "==> apt-get install --allow-downgrades"
-DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades $SPEC
+# conffile（pool.d/www.conf）はローカル版を保持する。php.ini は ucf 管理だが、
+# Ubuntu 版と sury 版で md5 が一致するため同理的に保持される。
+# 非対話で「保持」を保証するため --force-confold を明示する。
+DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::="--force-confold" --allow-downgrades $SPEC
 
+# --- B9: Ubuntu 版は /usr/share/doc/php8.3-fpm を symlink にする。
+#   sury 版は実ディレクトリが残っており、そのままだと unpack が失敗しうるため先に除く。
+if [ -d /usr/share/doc/php8.3-fpm ] && [ ! -L /usr/share/doc/php8.3-fpm ]; then
+  rm -rf /usr/share/doc/php8.3-fpm
+  echo "  [OK] 旧 /usr/share/doc/php8.3-fpm（実ディレクトリ）を除去しました（Ubuntu 版は symlink）"
+fi
+
+echo "==> PPA 設定の除去（apt 成功後）"
+for l in $PPA_FILES; do
+  rm -f "/etc/apt/sources.list.d/$l"
+  echo "  除去: /etc/apt/sources.list.d/$l"
+done
+PPA_REMOVED_LIST="$PPA_FILES"
+apt-get update || true
+
+echo "==> php-fpm の再起動"
 systemctl restart php8.3-fpm
 sleep 2
 systemctl is-active php8.3-fpm
+php-fpm8.3 -t || { echo "[ERR] php-fpm の設定チェックに失敗" >&2; exit 1; }
 
 echo
 echo "--- 適用結果 ---"
 dpkg-query -W -f='  ${Package} ${Version}\n' "${PKGS[@]}" 2>/dev/null || true
 php -v | head -1
 echo
+echo "--- 検証（自動）---"
+bash "$REPO_ROOT/scripts/php/verify-php-security-patch.sh" || { echo "[ERR] パッチ状態の検証に失敗" >&2; exit 1; }
+bash "$REPO_ROOT/scripts/php/verify-php-hardening.sh" || { echo "[ERR] ハードニングの検証に失敗" >&2; exit 1; }
 echo "検証: bash scripts/php/verify-php-security-patch.sh && bash scripts/php/verify-php-hardening.sh"
 echo "ロールバック（PPA 版へ戻す場合）: バックアップは $BAK_DIR"
