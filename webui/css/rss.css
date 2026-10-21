@@ -46,3 +46,9 @@ img{
 .error{
     color:red;
 }
+
+/* 説明文に長い URL が入るため、折り返さないとモバイルで横スクロールになる */
+.item .desc {
+    overflow-wrap: anywhere;
+    line-height: 1.6;
+}

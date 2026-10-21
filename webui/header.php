@@ -38,7 +38,9 @@
 
         <!-- ログイン済み時 -->
         <div class="auth-user-chip" id="header-user-chip" style="display:none;">
-            <img class="auth-avatar" id="header-avatar" src="" alt="ユーザーアバター" width="28" height="28" />
+            <!-- src 属性は未ログイン時に空文字のままだと「不正」（一部ブラウザはページURLの再取得を誘発する）。
+                 JS（header-auth.js）がログイン後に設定するため、属性自体を持たない -->
+            <img class="auth-avatar" id="header-avatar" alt="ユーザーアバター" width="28" height="28" />
         </div>
 
         <!-- 読み込み中 -->
@@ -77,7 +79,7 @@
             <!-- ナビメニュー内のログイン情報（ログイン済み時のみ表示） -->
             <li class="nav-setting-item nav-auth-info" id="nav-auth-info" style="display:none;">
                 <div class="nav-user-info">
-                    <img class="nav-auth-avatar" id="nav-avatar" src="" alt="ユーザーアバター" width="36" height="36" />
+                    <img class="nav-auth-avatar" id="nav-avatar" alt="ユーザーアバター" width="36" height="36" />
                     <div class="nav-user-text">
                         <span class="nav-user-name" id="nav-display-name"></span>
                         <span class="nav-user-email" id="nav-email"></span>
@@ -110,7 +112,7 @@
             <!-- ログアウトボタン（ログイン済み時のみ） -->
             <li id="nav-logout-item" style="display:none;">
                 <button onclick="headerLogout()" class="nav-logout-btn">
-                    <img id="nav-logout-avatar" class="nav-logout-avatar" src="" alt="ユーザーアバター">
+                    <img id="nav-logout-avatar" class="nav-logout-avatar" alt="ユーザーアバター">
                     <i class="fa-solid fa-right-from-bracket" style="margin-right:6px;"></i>ログアウト
                 </button>
             </li>

@@ -155,12 +155,15 @@
   font-weight: 800;
   color: var(--color-text);
   padding: 6px 12px;
-  background: rgba(177, 30, 124, 0.08);
+  /* 立ち絵（.count-bg-mai）の上に乗るため、背景を白寄りのме Gibsonにして読みやすくする。
+     対象はカード見出し3種（カウント / スケジュール / 登録者推移）で、
+     いずれも立ち絵の上に載るため共通で白寄りにしている（2026-10-21 点検で発覚） */
+  background: rgba(255, 255, 255, 0.82);
   border-left: 3.5px solid var(--color-primary);
   border-radius: 0 8px 8px 0;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
   letter-spacing: 0.04em;
   margin-bottom: 10px;
 }
