@@ -54,7 +54,10 @@ changelog_has_cve() {
   local f
   for f in /usr/share/doc/php8.3-common/changelog.Debian.gz /usr/share/doc/php8.3-fpm/changelog.Debian.gz; do
     [ -r "$f" ] || continue
-    if zcat "$f" 2>/dev/null | grep -qE "$SEC_RE"; then return 0; fi
+    # ⚠️ `zcat | grep -q` は **pipefail + SIGPIPE** で終了コード 141 になり
+    #   「CVE 記載なし」と**偽の失敗**になる（CVE が changelog の先頭にある場合）。
+    #   zgrep なら grep の終了コードがそのまま返る。
+    if zgrep -qE "$SEC_RE" "$f" 2>/dev/null; then return 0; fi
   done
   return 1
 }
@@ -221,7 +224,8 @@ echo
 # --- 6) 未修正の旧 PHP が動いていないか --------------------------------
 echo "--- 6) EOL / 未修正 PHP の稼働確認 ---"
 for svc in php8.1-fpm php8.2-fpm php7.4-fpm php5.6-fpm; do
-  if systemctl list-unit-files "${svc}.service" --no-legend 2>/dev/null | grep -q .; then
+  UNITS="$(systemctl list-unit-files "${svc}.service" --no-legend 2>/dev/null || true)"
+  if [ -n "$UNITS" ]; then
     ST="$(systemctl is-active "$svc" 2>/dev/null || true)"
     EN="$(systemctl is-enabled "$svc" 2>/dev/null || true)"
     if [ "$ST" = "active" ]; then

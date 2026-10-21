@@ -101,7 +101,10 @@ changelog_has_cve() {
   local f
   for f in /usr/share/doc/php8.3-common/changelog.Debian.gz /usr/share/doc/php8.3-fpm/changelog.Debian.gz; do
     [ -r "$f" ] || continue
-    if zcat "$f" 2>/dev/null | grep -qE "$CVE_RE"; then return 0; fi
+    # ⚠️ `zcat | grep -q` は **pipefail + SIGPIPE** で終了コード 141 になり
+    #   「CVE 記載なし」と**偽の失敗**になる（CVE が changelog の先頭にある場合）。
+    #   zgrep なら grep の終了コードがそのまま返る。
+    if zgrep -qE "$CVE_RE" "$f" 2>/dev/null; then return 0; fi
   done
   return 1
 }
