@@ -100,6 +100,16 @@ bash scripts/deploy/promote.sh <branch> [--sync-staging] [--no-restart] [--dry-r
    - `bash scripts/php/apply-php-security-patch.sh`（dry-run）→ `sudo bash ... --apply` → `bash scripts/php/verify-php-security-patch.sh`
    - 判定は `php -v` ではなく Debian changelog の CVE 記載で行う（Ubuntu は upstream 版番号が変わらない）
    - 緊急 RCE (CVE-2026-109618 / 109619) の詳細は `docs/SECURITY.md`
+8. **PHP の実行時ハードニングも sudo 必須 → 手動で行う**（`AGENTS.md §5.1`・2026-10-21 追加）
+   - `bash scripts/php/apply-php-hardening.sh`（dry-run・事前チェック付き）→
+     `sudo bash scripts/php/apply-php-hardening.sh --apply` →
+     `bash scripts/php/verify-php-hardening.sh`（実測検証・root 不要）
+   - 設定: `disable_functions` / `open_basedir` / `ffi.enable=preload` /
+     **`enable_post_data_reading=Off`（multipart パーサ無効）** / `post_max_size` 縮小
+   - 前提: `webui/*.php` は POST を読まない・`mb_*` を使わない（**回帰テスト [10] が固定**）
+9. **旧 PHP の nginx 実行ガードも sudo 必須 → 手動で行う**（`AGENTS.md §5.1`・2026-10-21 追加）
+   - `sudo bash scripts/nginx/apply-php-exec-guard.sh --apply`
+     （elza vhost の PHP 実行を 404 にする。**本番 :1717 / staging :80 は対象外**）
 
 ## セキュリティ履歴（2026-09-20 実施）
 

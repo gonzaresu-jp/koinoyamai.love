@@ -577,6 +577,76 @@ async function main() {
     ok("checkPhp: CVE 記載が無い changelog は error（大量誤検出を防ぐ）", phpEmpty.status === "error");
     ok("checkPhp: error 時は findings が空でない", phpEmpty.findings.length > 0);
 
+    // --- 10. PHP 実行時ハードニングの不変条件（2026-10-21 追加） ---
+    // php-fpm は `enable_post_data_reading=Off` / `disable_functions` / `open_basedir` で
+    // 実行時を制限する（scripts/php/apply-php-hardening.sh）。
+    // その前提が壊れたまま放置されると、PHP コア RCE の被害が即座に拡大する。
+    // そのため **アプリ側で守らなければならない前提**をここで固定する。
+    console.log("[10] PHP ハードニングの不変条件");
+    const phpFiles = fs.readdirSync(path.join(projectDir, "webui"))
+      .filter((f) => f.endsWith(".php"))
+      .map((f) => path.join(projectDir, "webui", f));
+
+    /** PHP のコメントを除去して、コードだけを見る（行コメントとブロックコメント） */
+    function stripPhpComments(src) {
+      return src
+        .replace(/\/\*[\s\S]*?\*\//g, " ")
+        .replace(/(^|[^:])\/\/[^\n]*/g, "$1 ")
+        .replace(/#[^\n]*/g, " ");
+    }
+    const phpCode = phpFiles.map((f) => ({ file: f, code: stripPhpComments(fs.readFileSync(f, "utf8")) }));
+
+    // 10-1. POST/FILE を読まない（enable_post_data_reading=Off の前提）
+    const postUsers = phpCode.filter((p) => /\$_(POST|FILES|REQUEST)\b/.test(p.code)).map((p) => path.basename(p.file));
+    ok("webui/*.php は $_POST/$_FILES/$_REQUEST を読まない", postUsers.length === 0, postUsers.join(", "));
+
+    // 10-2. POST するフォームがない
+    const postForms = phpCode.filter((p) => /<form[^>]*method\s*=\s*["']?post/i.test(p.code)).map((p) => path.basename(p.file));
+    ok("webui/*.php に method=post のフォームがない", postForms.length === 0, postForms.join(", "));
+
+    // 10-3. mbstring を使わない（mbstring は未導入 → 呼ぶと 500 になる）
+    const mbUsers = phpCode.filter((p) => /\bmb_[a-z_]+\s*\(/.test(p.code)).map((p) => path.basename(p.file));
+    ok("webui/*.php は mb_* を呼ばない", mbUsers.length === 0, mbUsers.join(", "));
+
+    // 10-4. 危険な実行系を使わない（RCE 後の到達点を作らない）
+    const dangerRe = /\b(eval|assert|system|exec|shell_exec|passthru|popen|proc_open|pcntl_exec|dl|unserialize|create_function)\s*\(/;
+    const dangerUsers = phpCode.filter((p) => dangerRe.test(p.code)).map((p) => path.basename(p.file));
+    ok("webui/*.php に eval/system/exec/unserialize 等がない", dangerUsers.length === 0, dangerUsers.join(", "));
+
+    // 10-5. 動的 include がない
+    const dynInclude = phpCode.filter((p) => /(include|require)(_once)?\s*\(?\s*\$/.test(p.code)).map((p) => path.basename(p.file));
+    ok("webui/*.php に動的 include/require がない", dynInclude.length === 0, dynInclude.join(", "));
+
+    // 10-6. archive.php の $domain スコープ（関数内で global 宣言する）
+    //      漏れるとサーバサイドSEOが空になる（2026-10-21 実測）
+    const archiveCode = fs.readFileSync(path.join(projectDir, "webui", "archive.php"), "utf8");
+    ok("archive.php: mai_archive_fetch が global $domain を持つ",
+      /function\s+mai_archive_fetch[\s\S]*?global\s+\$domain\s*[;,]/.test(archiveCode));
+    ok("archive.php: ローカル API（$apiBase）を先に叩く（往復滞后を避ける）",
+      /global\s+\$domain\s*,\s*\$apiBase\s*;/.test(archiveCode) &&
+      /file_get_contents\(\s*\$apiBase\s*\./.test(archiveCode));
+
+    // 10-6b. _domain.php のローカル API ポート導出（本番 8080 / staging 8081）
+    const domainCode = fs.readFileSync(path.join(projectDir, "webui", "_domain.php"), "utf8");
+    ok("_domain.php: staging(test.) は 8081 / それ以外は 8080 を導出する",
+      /8081/.test(domainCode) && /8080/.test(domainCode) && /strpos\(\s*\$host\s*,\s*'test\.'\s*\)/.test(domainCode));
+
+    // 10-7. ハードニングの適用スクリプトが想定どおりの値を設定している
+    const hardenSh = fs.readFileSync(path.join(projectDir, "scripts", "php", "apply-php-hardening.sh"), "utf8");
+    ok("apply-php-hardening.sh: enable_post_data_reading=Off を設定する",
+      /set_pool\s+"enable_post_data_reading"\s+"Off"/.test(hardenSh));
+    ok("apply-php-hardening.sh: ffi.enable=preload を設定する",
+      /set_pool\s+"ffi\.enable"\s+"preload"/.test(hardenSh));
+    ok("apply-php-hardening.sh: disable_functions / open_basedir を設定する",
+      /set_ini\s+"disable_functions"/.test(hardenSh) && /set_ini\s+"open_basedir"/.test(hardenSh));
+
+    // 10-8. nginx の PHP 実行ガードが elza vhost を対象にしている
+    const guardJs = fs.readFileSync(path.join(projectDir, "scripts", "nginx", "apply-php-exec-guard.js"), "utf8");
+    const guardJsCode = guardJs.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
+    ok("apply-php-exec-guard.js: elza vhost のみを対象にする",
+      /elza/.test(guardJsCode) && !/1717/.test(guardJsCode) && !/koinoyamai\.love/.test(guardJsCode));
+    ok("apply-php-exec-guard.js: PHP を 404 にする（return 404）", guardJs.includes("return 404;"));
+
     console.log(`\n結果: ${passed} passed, ${failed} failed`);
   } catch (e) {
     failed++;

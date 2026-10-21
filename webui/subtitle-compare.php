@@ -11,6 +11,9 @@
 
 <body>
     <?php
+    // mbstring は導入していないため mb_* は使わない（webui/_mb.php の代替関数を使う）
+    require_once __DIR__ . '/_mb.php';
+
     // ---- 入力 ----
     $id = isset($_GET['id']) ? preg_replace('/[^A-Za-z0-9_-]/', '', (string)$_GET['id']) : '';
     $bucket = isset($_GET['bucket']) ? max(5, min(300, (int)$_GET['bucket'])) : 30;
@@ -64,8 +67,8 @@
     // ---- 統計 ----
     $wChars = 0;
     $yChars = 0;
-    if ($whisper) foreach ($whisper as $s) $wChars += mb_strlen((string)($s['text'] ?? ''), 'UTF-8');
-    if ($yt) foreach ($yt as $s) $yChars += mb_strlen((string)($s['text'] ?? ''), 'UTF-8');
+    if ($whisper) foreach ($whisper as $s) $wChars += mai_utf8_len((string)($s['text'] ?? ''));
+    if ($yt) foreach ($yt as $s) $yChars += mai_utf8_len((string)($s['text'] ?? ''));
     $wSpan = $whisper ? ((int)end($whisper)['end_ms'] - (int)$whisper[0]['start_ms']) : 0;
     $ySpan = $yt ? ((int)end($yt)['end_ms'] - (int)$yt[0]['start_ms']) : 0;
     $fmtSpan = fn($ms) => sprintf('%d時間%02d分', floor($ms / 3600000), floor(($ms % 3600000) / 60000));
@@ -113,8 +116,8 @@
                         $ts = sprintf('%02d:%02d', floor($b * $bucket / 60), $b * $bucket % 60);
                         $wText = isset($r['w']) ? $r['w'] : '';
                         $yText = isset($r['y']) ? $r['y'] : '';
-                        $wHit = ($q !== '' && mb_strpos(strip_tags($wText), $q, 0, 'UTF-8') !== false);
-                        $yHit = ($q !== '' && mb_strpos(strip_tags($yText), $q, 0, 'UTF-8') !== false);
+                        $wHit = ($q !== '' && mai_utf8_strpos(strip_tags($wText), $q, 0) !== false);
+                        $yHit = ($q !== '' && mai_utf8_strpos(strip_tags($yText), $q, 0) !== false);
                         $hasHit = $wHit || $yHit;
 
                         // 検索語ハイライト
