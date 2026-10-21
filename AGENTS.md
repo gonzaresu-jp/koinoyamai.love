@@ -134,6 +134,33 @@
   `/usr/sbin/apache2` に残骸バイナリは残るが web サーバーとしては動いていない）。
   nginx は `/run/php/php8.3-fpm.sock` を向く
   （`scripts/nginx/mai-test.conf` / 本番 `/etc/nginx/nginx.conf`）。
+- **未バックポートの CVE は「Canonical のバックポートを待つ」方針（2026-10-21 決定）**:
+  - security-watch が検出した未適用 3 件:
+    **CVE-2026-12184**（upstream 8.3.32）/ **CVE-2026-9672**（8.3.33）/ **CVE-2026-17545**（8.3.35・Windows 専用）
+  - upstream には修正版があるが **Canonical（Ubuntu）側のバックポートは未リリース**。
+  - **ondrej/sury PPA は導入しない**（第3者 APT リポジトリの恒久追加・他パッケージへの影響があるため）。
+    戻る手順: `sudo rm -f /etc/apt/sources.list.d/php.list && sudo apt-get update`
+  - 待つ間は **実行時緩和策**を適用する（下記 `~/apply-php-hardening.sh`）。
+    Canonical がバックポートしたら `os:security:php8.3-fpm` が security-watch に
+    現れ、適用後に PHP の指摘が解消される（監視が自動で検知する）。
+  - ⚠️ **CVE-2026-109618 / 109619（PHP コア RCE・CVSS 9.2）は別件**。
+    upstream の修正版が 2026-10-21 23:00 UTC（JST 23:00）にリリースされる予定で、
+    `scripts/php/apply-php-security-patch.sh` はその 2 件を対象にしている（現在 fail-closed）。
+- **nginx の PHP location へのレート制限（limit_req / limit_conn）は適用しない（2026-10-21 実測）**:
+  - この nginx には **real_ip 設定が無く**、アクセスログの送信元は**全件 127.0.0.1** になっている
+    （cloudflared がローカル接続している）。
+  - そのため IP 単位のレート制限は**全ユーザーまとめて絞る**ことになり、**サイト全体を壊す**。
+  - レート制限を入れるなら先に real_ip を設定する必要がある:
+    Cloudflare の IP レンジを `set_real_ip_from` に追加し、
+    `real_ip_header CF-Connecting-IP;` / `real_ip_recursive on;` を http ブロックに設定する。
+  - RCE の主防御は `disable_functions` / `open_basedir`（下記）であり、
+    レート制限は主防御ではないため、real_ip 未設定のまま入れる意味はない。
+- **PHP の実行時緩和策（適用済み・`~/apply-php-hardening.sh` で再適用可）**:
+  - `disable_functions = exec,system,shell_exec,passthru,popen,proc_open,pcntl_exec,dl`
+    （`webui/*.php` はこれらの関数を使わない＝grep で 0 件。任意コマンド実行を止める）
+  - `open_basedir = <本番docroot>:<staging docroot>:/tmp:/var/lib/php/sessions:/var/lib/mai-push`
+    （PHP は絶対パスを参照せず＝require は /head.php 等の相対のみ、書き込みもなし）
+- **OS の security pocket 更新は `~/apply-os-security-updates.sh` で適用する**（全体 upgrade はしない）。
 - **Ubuntu は upstream の security パッチをバックポートする運用**なので、patch を当てても
   `php -v` のバージョン文字列は `8.3.6` のまま（`-0ubuntu0.24.04.NN` のリビジョンだけ上がる）。
   → **適用判定は `php -v` ではなく Debian changelog の CVE 記載で行う**（`verify-php-security-patch.sh` が自動化）。

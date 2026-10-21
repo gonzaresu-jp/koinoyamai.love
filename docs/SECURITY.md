@@ -360,3 +360,66 @@ node scripts/security/security-watch.js --json                     # 判定結�
 判定できなかった項目は「正常」ではなく **監視失敗（fail-closed）** として扱い、
 `exit code 2` を返す。外部 API の一時的な障害で「正常」と誤判定しない
 （php.net の CDN は時折 504 を返すため、リトライを入れる）。
+
+---
+
+## 未バックポート PHP CVE の対応方針（2026-10-21 決定）
+
+security-watch が検出した、upstream には修正版があるのに **Canonical（Ubuntu）側が
+バックポートしていない** PHP 8.3 の CVE 3 件:
+
+| CVE | upstream 修正版 | 備考 |
+|---|---|---|
+| CVE-2026-12184 | 8.3.32 | |
+| CVE-2026-9672 | 8.3.33 | |
+| CVE-2026-17545 | 8.3.35 | Windows 専用（当サーバは Linux なので影響なし） |
+
+### 方針: **A. Canonical のバックポートを待つ**（ondrej/sury PPA は導入しない）
+
+- ondrej/sury PPA には `php8.3-fpm 8.3.35-1+ubuntu24.04.1+deb.sury.org+1` があり、
+  3 件すべてを含むことは確認済み。
+- しかし **第3者 APT リポジトリの恒久追加**になるため導入しない
+  （他パッケージ（php8.1 系等）への･影響と恒久設定が残ることを許容できない）。
+  導入した場合の戻し方: `sudo rm -f /etc/apt/sources.list.d/php.list && sudo apt-get update`
+- Canonical がバックポートすると `php8.3-*` が security pocket に現れ、
+  security-watch の `os:security:php8.3-fpm` がそれを検出する。
+  適用後は PHP 側の指摘も自動的に解消扱いになる（監視が検知する）。
+- ⚠️ **CVE-2026-109618 / CVE-2026-109619（PHP コア RCE・CVSS v4.0 9.2）は別件**。
+  upstream の修正版が 2026-10-21 23:00 UTC（JST 23:00）にリリースされる予定で、
+  `scripts/php/apply-php-security-patch.sh` がその 2 件を対象にしている。
+
+### 待つ間の実行時緩和策（`~/apply-php-hardening.sh` で適用）
+
+1. `disable_functions = exec,system,shell_exec,passthru,popen,proc_open,pcntl_exec,dl`
+   → Web 経由の任意コマンド実行を止める
+2. `open_basedir = <本番docroot>:<staging docroot>:/tmp:/var/lib/php/sessions:/var/lib/mai-push`
+   → 任意ファイル読み書きを止める
+
+適用前の確認（いずれも grep で実測）:
+
+- `webui/*.php` は exec 系関数を使わない（0 件）
+- `webui/*.php` は絶対パスを参照しない（require は `/head.php` 等の相対のみ）
+- `webui/*.php` はファイルに書き込まない（`file_put_contents` 等 0 件）
+
+### ⚠️ nginx のレート制限は適用しない
+
+上の緩和策案に含れていた「nginx の PHP location に `limit_req` / `limit_conn`」は
+**適用するとサイト全体を壊す**ため行わない。
+
+実測（2026-10-21）:
+
+- この nginx には **real_ip 設定が無く**、アクセスログの送信元は**全件 127.0.0.1** になっている
+  （cloudflared がローカル接続している）。
+- したがって IP 単位のレート制限は**全ユーザーまとめて絞る**ことになる。
+- レート制限を入れるなら先に real_ip を設定する必要がある:
+  Cloudflare の IP レンジを `set_real_ip_from` に追加し、
+  `real_ip_header CF-Connecting-IP;` / `real_ip_recursive on;` を http ブロックに設定する。
+- RCE の主防御は `disable_functions` / `open_basedir` であり、
+  レート制限は主防御ではない。
+
+### 併せて適用する OS の security pocket 更新（`~/apply-os-security-updates.sh`）
+
+`ca-certificates` / `liblzma5` / `xz-utils` / `libprotobuf32t64` / `python3-jwt` の 5 件。
+**apt-get upgrade 全体はしない**（google-chrome / tailscale / cloudflared / xserver-* まで
+巻き込まれ、PHP や nginx の版まで変動する恐れがあるため）。対象は security pocket のみに限定する。
+再起動が必要なサービス（openssl / systemd / nginx / libc6）は今回の更新に含まれない。
