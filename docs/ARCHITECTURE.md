@@ -255,7 +255,7 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 - **`tools/`**: `build-android-apk.sh` / 単発メンテ（`dedupe-media`・`mine-personality`・`twitter-stats`・`whisper-subs`・`render-compare-html`・`fix-notification-platform`）
 - **`hooks/`**（pre-push）
 - **`nginx/`**: vhost 設定（`mai-test.conf` 等）と適用スクリプト（`apply-domain-final.sh` / `setup-staging-nginx.sh` / `default.conf` / `apply-display-location.sh` / `apply-php-exec-guard.sh` = elza vhost の PHP 実行を 404 にするガード・`apply-php-exec-guard.js` = パッチ本体）
-- **`php/`**: PHP ランタイムの緊急パッチ適用（`apply-php-security-patch.sh` = dry-run/`--apply`/`--ppa` / `verify-php-security-patch.sh` = 適用結果の検証）と実行時ハードニング（`apply-php-hardening.sh` = `disable_functions`/`open_basedir`/`ffi.enable=preload`/`enable_post_data_reading=Off` を適用・事前チェック付き / `verify-php-hardening.sh` = 実測検証・root 不要）。`sudo` 必要・`AGENTS.md §5.1` / `docs/SECURITY.md` 参照
+- **`php/`**: PHP ランタイムの緊急パッチ適用（`apply-php-security-patch.sh` = dry-run/`--apply`/`--ppa` / `verify-php-security-patch.sh` = 適用結果の検証）と実行時ハードニング（`apply-php-hardening.sh` = `disable_functions`/`open_basedir`/`ffi.enable=preload`/`enable_post_data_reading=Off` を適用・事前チェック付き / `verify-php-hardening.sh` = 実測検証・root 不要）と PPA 依存の解除（`rollback-to-ubuntu-php.sh` = upstream 版 → Ubuntu 公式版へ戻す。changelog で CVE 記載を確認してから降格）。`sudo` 必要・`AGENTS.md §5.1` / `docs/SECURITY.md` 参照
 - **`archive/`**（旧スクリプト・参照用。`anomaly-check{,2,3}.js` = 字幕検査の版違い、`minutes-test.js` = 要約生成の単体試験）
 > すべて**リポジトリ直下から実行**する前提（root は `dirname/../..` で解決）。cron はフルパスで `scripts/{deploy,ops}/...` を指す。
 

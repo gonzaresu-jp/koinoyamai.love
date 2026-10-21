@@ -256,7 +256,13 @@ bash scripts/php/verify-php-security-patch.sh
   ダウングレードのため `--allow-downgrades` が必要です。
 - PPA（`--ppa`）は他パッケージ（`php8.1-*` 等）に影響しうるため、実行前に dry-run の
   シミュレーション出力を確認すること。**PPA 追加は恒久設定が残る**ため、戻す場合は:
-  `sudo rm -f /etc/apt/sources.list.d/php.list && sudo apt-get update`
+  `sudo bash scripts/php/rollback-to-ubuntu-php.sh --apply`
+  - ⚠️ **バージョンを明示しない `--only-upgrade` だけでは動かない**
+    （upstream 版 > Ubuntu 版なので「すでに最新」で止まる。`--allow-downgrades` が必要）。
+  - `php.ini` / `pool.d/www.conf` は dpkg の conffile。`DEBIAN_FRONTEND=noninteractive` で
+    ローカル版（ハードニング設定）を保持させる。
+  - 実行前に **ターゲット版の changelog に修正CVEがあるか**を機械確認する
+    （無ければ「戻さない」＝fail-closed）。
 - ラッパ: `~/apply-php-security-patch.sh` / `~/verify-php-security-patch.sh`（本番ツリーを優先して実体を解決）。
 
 ### パッチ前の緩和策（2026-10-21 夜〜リリースまで）
@@ -396,7 +402,8 @@ security-watch が検出した、upstream には修正版があるのに **Canon
   3 件すべてを含むことは確認済み。
 - しかし **第3者 APT リポジトリの恒久追加**になるため導入しない
   （他パッケージ（php8.1 系等）への･影響と恒久設定が残ることを許容できない）。
-  導入した場合の戻し方: `sudo rm -f /etc/apt/sources.list.d/php.list && sudo apt-get update`
+  導入した場合の戻し方: `sudo bash scripts/php/rollback-to-ubuntu-php.sh --apply`
+    （`rm -f` だけではパッケージは戻らない。バージョンを明示した降格が必要）
 - Canonical がバックポートすると `php8.3-*` が security pocket に現れ、
   security-watch の `os:security:php8.3-fpm` がそれを検出する。
   適用後は PHP 側の指摘も自動的に解消扱いになる（監視が検知する）。
@@ -408,7 +415,8 @@ security-watch が検出した、upstream には修正版があるのに **Canon
 
 1. `disable_functions = exec,system,shell_exec,passthru,popen,proc_open,pcntl_exec,dl`
    → Web 経由の任意コマンド実行を止める
-2. `open_basedir = <本番docroot>:<staging docroot>:/tmp:/var/lib/php/sessions:/var/lib/mai-push`
+2. `open_basedir = <本番docroot>:<staging docroot>:/tmp:/var/lib/php/sessions`
+   （`/var/lib/mai-push` は**含めない**：RCE 成立時にベクトルDB や archive を読まれないようするため）
    → 任意ファイル読み書きを止める
 3. `ffi.enable = preload`（pool の `php_admin_value`）
    → 実行時に `FFI::cdef()` が拒否される（**実測確認**）。`disable_functions` の迂回経路を塞ぐ

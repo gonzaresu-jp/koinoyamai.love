@@ -174,7 +174,8 @@
 - **未バックポートの CVE は「Canonical のバックポートを待つ」方針（2026-10-21 決定）**:
   - security-watch が検出した未適用 3 件:
     **CVE-2026-12184**（upstream 8.3.32）/ **CVE-2026-9672**（8.3.33）/ **CVE-2026-17545**（8.3.35・Windows 専用）
-  - upstream には修正版があるが **Canonical（Ubuntu）側のバックポートは未リリース**。
+  - **この3件**（CVE-2026-12184 / 9672 / 17545）は未バックポート。
+    upstream には修正版があるが **Canonical（Ubuntu）側のバックポートは未リリース**。
   - **ondrej/sury PPA の扱い（2026-10-21 決定）**:
     通常は**導入しない**（第3者 APT リポジトリの恒久追加・他パッケージへの影響があるため）。
     ただし **upstream の修正版が既に出ていて Canonical のバックポートが追いつかない場合**
@@ -182,9 +183,19 @@
     - 適用: `sudo bash scripts/php/apply-php-security-patch.sh --apply --ppa`
       （`scripts/php/patch-and-resume.sh --ppa` なら復旧まで一連）
     - 入れる版: upstream の最新 security 修正版（2026-10-21 時点では **8.3.36**）
-    - **戻る手順**: `sudo rm -f /etc/apt/sources.list.d/php.list && sudo apt-get update`
-      → その後 `sudo apt-get install --only-upgrade php8.3-fpm php8.3-cli php8.3-common
-      php8.3-gd php8.3-opcache php8.3-readline` で Ubuntu 版へ戻す
+    - **戻る手順**: `sudo bash scripts/php/rollback-to-ubuntu-php.sh --apply`
+      - ⚠️ **`apt-get install --only-upgrade php8.3-fpm` だけでは動かない**
+        （upstream 版 8.3.36 > Ubuntu 版 8.3.6-0ubuntu0.24.04.13 なので「すでに最新」で止まる）。
+        **バージョンを明示**し `--allow-downgrades` が必要。
+      - `/etc/php/8.3/fpm/php.ini` と `pool.d/www.conf` は **dpkg の conffile**。
+        ローカル修正（ハードニング設定）を保つため `DEBIAN_FRONTEND=noninteractive` で
+        「ローカル版を保持」させる。
+      - 戻す前に **ターゲット版に修正CVEが入っているか**を changelog で機械確認する
+        （入っていない版へ戻すと RCE が再導入される）。
+    - **Canonical がバックポートをリリース済み**（2026-10-22 実測）:
+      `php8.3-common 8.3.6-0ubuntu0.24.04.13`（noble-security）に
+      "SECURITY UPDATE: Remote RCE via state corruption issue"（= CVE-2026-109618/109619）が含まれる。
+      → **PPA 依存は解除できる**（`scripts/php/rollback-to-ubuntu-php.sh --apply`）。
     - 記録: `updatelogs.php` には「サーバーの実行環境（PHP）を更新した」として記載する
   - 待つ間は **実行時緩和策**を適用する（下記 `scripts/php/apply-php-hardening.sh`）。
     Canonical がバックポートしたら `os:security:php8.3-fpm` が security-watch に
