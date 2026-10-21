@@ -161,12 +161,25 @@
     既に存在する指摘を一斉に鳴らすと警报が埋もれて alert fatigue になるため。
   - 承受できる指摘は `--ack` で承認する。承認済みはサマリにだけ残す。
   - 重大（critical）の指摘が 7 日以上続く場合は「継続中」として 1 回だけ再通知する。
+  - **通知に成功した指摘だけ** `lastNotified` を更新する（通知失敗した指摘は次回も再送する）。
+  - **深刻度が上がった**指摘（info → critical 等）は「新規」として通知する。
+  - **指摘 key には識別子を含める**（`node:update:24:v24.23.0` / `npm:<pkg>:GHSA-xxx` /
+    `os:security:<pkg>`）。バージョンや advisory を含めないと同じ指摘として扱われ、
+    新しいリリースが出ても通知されなくなる。
 - **fail-closed**: 判定できなかった項目は「正常」ではなく「監視失敗」として扱い、exit code 2 を返す。
   監視そのものが壊れていて気づかない状態を作らない。
+  - `npm audit` は失敗時に `{"error":...}` を stdout に出して exit 1 になる。
+    **これを通常の監査結果として解析すると「問題なし」＝正常と誤判定する**ため、
+    `data.error` / `metadata` の欠落を検出して error 扱いする。
+  - PHP の upstream 解析結果が空、または Ubuntu 側 changelog に CVE が 1 件も無い場合も error。
 - **公開 status ページへ出すのは「カテゴリと件数」だけ**。CVE ID などの詳細は
   `/api/scraper-status`（**公開エンドポイント**）に流さない。詳細は Discord と運用ログのみ。
-- **報告先は `ecosystem.config.js` から解決する**（cwd が一致するアプリの PORT）。
-  staging ツリーから実行したときに**本番 API（8080）に報告してはいけない**（`§1` のポート位相）。
+  公開ページは「最終実行」が `success`/`running` のときだけ更新されるため、
+  実行時刻は message に入れて判別できるようにしている。
+- **報告先は `ecosystem.config.js` から解決する**（cwd が一致する **API アプリ（server.js）** の PORT）。
+  - cwd だけだと **worker（3002）が先にマッチして** `/api/internal/scraper-status` が 404 になる。
+  - 解決できない場合は fail-closed（既定の 8080 に倒さない）。
+  - staging ツリーから実行したときに**本番 API（8080）に報告してはいけない**（`§1` のポート位相）。
 - 状態ファイル: `data/security-watch-state.json`（`/data` は gitignore 済み）。
   解析ロジックのユニットテストは `scripts/ops/regression-test.js` の `[9]`。
 - **新しい Node.js LTS が出たら `scripts/security/checks.js` の `NODE_EOL` 表に追記すること**

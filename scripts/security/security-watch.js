@@ -17,7 +17,7 @@
  *   --dry-run  通知せず判定結果だけを表示する（状態ファイルも更新しない）
  *   --json     判定結果を JSON で標準出力に出す
  *   --list     現在の指摘と承認済み一覧を表示する（ネットワークアクセスなし）
- *   --ack      指定した指摘を「承認済み」にする（以降の通知 대상から除外。alert fatigue 対策）
+ *   --ack      指定した指摘を「承認済み」にする（以降の通知対象から除外。alert fatigue 対策）
  *   --unack    承認を解除する
  *
  * 環境変数:
@@ -41,7 +41,8 @@ const fs = require("fs");
 const os = require("os");
 
 // dotenv は環境ディレクトリ固定（staging が本番 .env を読む事故を防ぐ）
-require("dotenv").config({ path: path.join(__dirname, "..", "..", ".env") });
+// quiet: true でバナー（stdout）を出さない（--json の出力を壊さないため）
+require("dotenv").config({ path: path.join(__dirname, "..", "..", ".env"), quiet: true });
 
 const checks = require("./checks");
 const notify = require("./notify");
@@ -102,9 +103,16 @@ function detectNodeVersion() {
     const withInterp = apps.find((a) => a && typeof a.interpreter === "string" && a.interpreter.includes("/node"));
     const bin = withInterp ? withInterp.interpreter : process.execPath;
     const v = checks.runCmd(bin, ["-p", "process.versions.node"], { timeout: 20000 }).trim();
-    return { version: v, bin, major: checks.parseVersion(v) ? checks.parseVersion(v)[0] : null };
+    // npm も同じ bin ディレクトリから使う（cron の PATH は /usr/bin/npm = npm 9 / Node 18 EOL を掴む）
+    const npmBin = path.join(path.dirname(bin), "npm");
+    return {
+      version: v,
+      bin,
+      npmBin: fs.existsSync(npmBin) ? npmBin : "npm",
+      major: checks.parseVersion(v) ? checks.parseVersion(v)[0] : null,
+    };
   } catch (e) {
-    return { version: process.versions.node, bin: process.execPath, major: checks.parseVersion(process.versions.node)[0] };
+    return { version: process.versions.node, bin: process.execPath, npmBin: "npm", major: checks.parseVersion(process.versions.node)[0] };
   }
 }
 
@@ -113,21 +121,30 @@ function detectNodeVersion() {
  *
  * 重要: staging ツリーから実行したときに**本番 API に報告してはいけない**
  * （本番と staging で別の DB / ポート。AGENTS.md §1 のポート位相の事故）。
- * 判定は ecosystem.config.js の「cwd がこのツリーと一致するアプリの PORT」で行う
- * （パス名や .env の NOTIFY_API_URL に依存しない）。
+ *
+ * 判定は ecosystem.config.js の「cwd がこのツリーと一致する **API アプリ**（server.js）」の PORT で行う。
+ *   - cwd だけだと **worker（PORT 3002）が先にマッチして**、その Express には
+ *     /api/internal/scraper-status が無く 404 になる（2026-10-21 レビューで実測）。
+ *   - 順序依存にしないため、必ず server.js のアプリを名指しで探す。
+ *   - 見つからない場合は fail-closed（既定の 8080 に倒さない）。
  */
 function detectApiBase() {
-  if (process.env.SECURITY_WATCH_API_BASE) return process.env.SECURITY_WATCH_API_BASE.replace(/\/+$/, "");
-  if (process.env.NOTIFY_API_URL) return process.env.NOTIFY_API_URL.replace(/\/api\/notify\/?$/, "").replace(/\/+$/, "");
+  if (process.env.SECURITY_WATCH_API_BASE) {
+    return process.env.SECURITY_WATCH_API_BASE.replace(/\/+$/, "");
+  }
   try {
     const eco = require(path.join(REPO_ROOT, "ecosystem.config.js"));
     const apps = (eco && eco.apps) || [];
-    const own = apps.find((a) => a && a.cwd === REPO_ROOT && a.env && a.env.PORT);
-    if (own) return `http://127.0.0.1:${own.env.PORT}`;
+    const api = apps.find((a) => a
+      && a.cwd === REPO_ROOT
+      && typeof a.script === "string"
+      && /(^|\/)server\.js$/.test(a.script)
+      && a.env && a.env.PORT);
+    if (api) return `http://127.0.0.1:${api.env.PORT}`;
   } catch (e) {
-    // fallthrough
+    // fallthrough（fail-closed）
   }
-  return "http://127.0.0.1:8080";
+  return null; // 解決できない場合は報告しない（本番をguessしない）
 }
 
 /** 導入済み PHP パッケージの Debian 版 */
@@ -176,6 +193,7 @@ async function main() {
     phpPackage: phpPkg,
     repoRoot: REPO_ROOT,
     cwd: REPO_ROOT,
+    npmBin: node.npmBin,
   });
 
   const allFindings = checks.sortFindings(results.flatMap((r) => r.findings));
@@ -219,6 +237,7 @@ async function main() {
   const isFirstRun = state.isFirstRun === true;
   const notifyTargets = diff.isNew.concat(diff.repeating);
   const notifiable = notifyTargets.filter((f) => f.severity === "critical" || f.severity === "warning");
+  let notifiedOk = true;
 
   if (isFirstRun) {
     // 初回は「既に存在する指摘」を一斉に通知すると量で埋もれて警报が効かなくなる。
@@ -240,8 +259,11 @@ async function main() {
         color: notify.SEVERITY_COLOR.info,
       }
     );
-    if (res.ok) log("初回ベースラインを登録し、Discord に概要を通知しました");
-    else log(`Discord 通知に失敗: ${res.error}`);
+    if (res.ok) {
+      log("初回ベースラインを登録し、Discord に概要を通知しました");
+      // 概要 1 通で全件を通知した扱いにする（次回は個別に再通知しないため）
+      notify.markNotified(diff.current, notifiable.map((f) => f.key));
+    } else { log(`Discord 通知に失敗: ${res.error}`); notifiedOk = false; }
   } else if (notifiable.length) {
     const isRepeat = diff.repeating.length > 0;
     const res = await notify.sendDiscord(
@@ -258,8 +280,14 @@ async function main() {
         ],
       }
     );
-    if (res.ok) log(`Discord に通知しました（${notifiable.length} 件）`);
-    else log(`Discord 通知に失敗: ${res.error}`);
+    if (res.ok) {
+      log(`Discord に通知しました（${notifiable.length} 件）`);
+      // 通知に成功したものはだけ lastNotified を更新する（失敗した指摘は次回も通知する）
+      notify.markNotified(diff.current, notifiable.map((f) => f.key));
+    } else {
+      log(`Discord 通知に失敗: ${res.error}`);
+      notifiedOk = false;
+    }
   } else {
     log("新しい指摘なし（通知なし）");
   }
@@ -269,13 +297,21 @@ async function main() {
     ? "error"
     : (allFindings.some((f) => f.severity === "critical" || f.severity === "warning") ? "degraded" : "success");
   const apiBase = detectApiBase();
-  log(`報告先: ${apiBase}`);
-  const reportRes = await notify.reportScraperStatus(
-    { token: process.env.NOTIFY_API_TOKEN, apiBase },
-    { status: overall, message: checks.publicSummary(results) }
-  );
-  if (reportRes.ok) log("scraper-status に報告しました");
-  else log(`scraper-status 報告に失敗: ${reportRes.error}`);
+  if (!apiBase) {
+    log("報告先を特定できません（ecosystem.config.js にこのツリーの API アプリが見つからない）");
+    log("→ 本番と取り違えて報告しないよう、状態報告はスキップします");
+  } else {
+    log(`報告先: ${apiBase}`);
+    // 公開ページは「最終実行」が status=success/running のときだけ更新される
+    // （degraded の間はずっと Never になる）。実行時刻を message に含めて判別できるようにする。
+    const stamp = new Date().toISOString().replace("T", " ").slice(0, 19);
+    const reportRes = await notify.reportScraperStatus(
+      { token: process.env.NOTIFY_API_TOKEN, apiBase },
+      { status: overall, message: `${checks.publicSummary(results)}（監視実行: ${stamp} UTC）` }
+    );
+    if (reportRes.ok) log("scraper-status に報告しました");
+    else log(`scraper-status 報告に失敗: ${reportRes.error}`);
+  }
 
   // --- 状態更新 ---
   state.findings = diff.current;
@@ -295,12 +331,22 @@ async function main() {
     log(`警告: ${broken.length} 件の監視が実行できませんでした（${broken.map((r) => r.source).join(", ")}）`);
     return 2;
   }
+  // 通知に失敗した場合は次回に再送できるよう非0で返す（気づけないと困るため）
+  if (!notifiedOk) {
+    log("警告: 通知に失敗しました（次回実行で再送されます）");
+    return 2;
+  }
   return 0;
 }
 
-main().then((code) => {
-  process.exit(code);
-}).catch((e) => {
-  console.error("[security-watch] 例外:", e && e.message ? e.message : e);
-  process.exit(2);
-});
+// 直接実行したときだけ main を走らせる（require しただけでは副作用を出さない）
+if (require.main === module) {
+  main().then((code) => {
+    process.exit(code);
+  }).catch((e) => {
+    console.error("[security-watch] 例外:", e && e.message ? e.message : e);
+    process.exit(2);
+  });
+}
+
+module.exports = { detectApiBase, detectNodeVersion, main };

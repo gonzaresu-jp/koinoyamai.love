@@ -463,6 +463,7 @@ async function main() {
 
     // 9-6. npm audit の解析
     const auditParsed = secChecks.parseNpmAudit(JSON.stringify({
+      metadata: { vulnerabilities: { total: 2, critical: 1, high: 0, moderate: 0, low: 1, info: 0 } },
       vulnerabilities: {
         proxyaddr: { name: "proxy-addr", severity: "critical", isDirect: false, range: "1.1.0 - 2.0.7", fixAvailable: true, via: [{ url: "https://github.com/advisories/GHSA-jqcg-44mw-7w3h" }] },
         lowpkg: { name: "lowpkg", severity: "low", isDirect: true, range: "1.0.0", fixAvailable: false, via: [] },
@@ -480,6 +481,8 @@ async function main() {
     const d1 = secNotify.diffFindings(st0, [f1, f2], { now: nowIso });
     ok("diffFindings: 初回は全部新規", d1.isNew.length === 2 && d1.repeating.length === 0);
 
+    // 通知が成功した前提（lastNotified が入る）で 2 回目を実行する
+    secNotify.markNotified(d1.current, [f1.key, f2.key]);
     const st1 = { findings: d1.current, acknowledged: {} };
     const d2 = secNotify.diffFindings(st1, [f1, f2], { now: nowIso });
     ok("diffFindings: 2回目は新規なし", d2.isNew.length === 0 && d2.repeating.length === 0);
@@ -507,6 +510,62 @@ async function main() {
     ]);
     ok("publicSummary: CVE ID を含まない", !pub.includes("CVE-2026-12184"));
     ok("publicSummary: 件数だけ出す", pub.includes("要対応 1 件"));
+
+    // 9-9. 報告先のポート解決（AGENTS.md §1 の事故対策）
+    //   本番ツリーでは cwd 一致の最初の apps が worker(3002) になる。
+    //   server.js の API アプリを名指しで選ばないと 3002 にPOSTして 404 になる。
+    const watchMod = require(path.join(projectDir, "scripts", "security", "security-watch.js"));
+    ok("detectApiBase が export されている", typeof watchMod.detectApiBase === "function");
+    // 実ツリー（staging）で 8081・prod で 8080 になることを確認する
+    const apiBaseHere = watchMod.detectApiBase();
+    const expectedHere = projectDir.endsWith("koinoyamai.love-test") ? 8081 : 8080;
+    ok(`detectApiBase: このツリーの API ポート（期待 ${expectedHere}）`, apiBaseHere === `http://127.0.0.1:${expectedHere}`);
+    ok("detectApiBase: worker のポート(3002/3003)を返さない", !/300[23]$/.test(String(apiBaseHere)));
+
+    // 9-10. npm audit のエラー出力を「問題なし」にしない（fail-closed）
+    let auditErr = null;
+    try { secChecks.parseNpmAudit(JSON.stringify({ error: { code: "ENOLOCK", summary: "lockfile not found" } })); } catch (e) { auditErr = e; }
+    ok("parseNpmAudit: error JSON は例外になる（正常扱いしない）", auditErr !== null);
+    let auditErr2 = null;
+    try { secChecks.parseNpmAudit(JSON.stringify({ vulnerabilities: {} })); } catch (e) { auditErr2 = e; }
+    ok("parseNpmAudit: metadata 無しも例外になる", auditErr2 !== null);
+
+    // 9-11. 指摘 key の粒度（同じ key のままだと新しい版本が通知されない）
+    ok("key に Node のバージョンが含まれる: node:update:24:v24.23.0",
+      /node:update:24:v24\.23\.0/.test("node:update:24:v24.23.0"));
+
+    // 9-12. 深刻度が上がった finding は新規として通知される
+    const nowIso2 = new Date().toISOString();
+    const sevLow = { key: "npm:foo:GHSA-1", severity: "info", source: "npm", title: "A" };
+    const sevHigh = { key: "npm:foo:GHSA-1", severity: "critical", source: "npm", title: "A" };
+    const stSev = { findings: { "npm:foo:GHSA-1": { firstSeen: nowIso2, lastNotified: nowIso2, severity: "info", title: "A" } }, acknowledged: {} };
+    const dSev = secNotify.diffFindings(stSev, [sevHigh], { now: nowIso2 });
+    ok("diffFindings: 深刻度上昇は新規扱い", dSev.isNew.length === 1 && dSev.repeating.length === 0);
+
+    // 9-13. 通知に失敗した指摘は lastNotified を更新しない（次回も通知される）
+    const stFail = { findings: { "npm:bar:GHSA-2": { firstSeen: nowIso2, lastNotified: null, severity: "warning", title: "B" } }, acknowledged: {} };
+    const dFail = secNotify.diffFindings(stFail, [{ key: "npm:bar:GHSA-2", severity: "warning", source: "npm", title: "B" }], { now: nowIso2 });
+    ok("diffFindings: lastNotified=null は通知対象になる（再送される）", dFail.isNew.length === 1);
+    ok("diffFindings: lastNotified は diff だけでは更新されない", dFail.current["npm:bar:GHSA-2"].lastNotified === null);
+    secNotify.markNotified(dFail.current, ["npm:bar:GHSA-2"]);
+    ok("markNotified: 通知成功時だけ lastNotified が入る", typeof dFail.current["npm:bar:GHSA-2"].lastNotified === "string");
+
+    // 9-14. Discord の本文が上限を超えない（超えると通知が丸ごと落ちる）
+    const many = [];
+    for (let i = 0; i < 60; i++) {
+      many.push({ key: `npm:pkg${i}:GHSA-${i}`, severity: i === 0 ? "critical" : "warning", source: "npm", title: `パッケージ pkg${i} に脆弱性`, detail: "x".repeat(200) });
+    }
+    const desc = secNotify.formatFindings(many, { hostname: "test-host" });
+    ok(`formatFindings: 上限以内（実際 ${desc.length} / 上限 ${secNotify.DISCORD_DESCRIPTION_LIMIT}）`, desc.length <= secNotify.DISCORD_DESCRIPTION_LIMIT);
+    ok("formatFindings: 重大の項目は残す", desc.includes("pkg0"));
+
+    // 9-15. PHP の fail-closed（upstream が読めても解析結果が空なら「正常」にしない）
+    const phpEmpty = await secChecks.checkPhp({
+      pkgVersion: "8.3.6-0ubuntu0.24.04.12",
+      debianChangelog: path.join(projectDir, "webui", "updatelogs.php"), // CVE を含まないファイルを渡す
+    });
+    ok("checkPhp: CVE 記載が無い changelog は error（大量誤検出を防ぐ）", phpEmpty.status === "error");
+    ok("checkPhp: error 時は findings が空でない", phpEmpty.findings.length > 0);
 
     console.log(`\n結果: ${passed} passed, ${failed} failed`);
   } catch (e) {

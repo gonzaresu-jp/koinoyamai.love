@@ -21,6 +21,10 @@ const REPEAT_AFTER_DAYS = 7;
 const SEVERITY_COLOR = { critical: 16711680, warning: 16776960, info: 5793266 };
 const SEVERITY_LABEL = { critical: "重大", warning: "警告", info: "情報" };
 const SOURCE_LABEL = { node: "Node.js", php: "PHP 8.3", npm: "npm 依存", os: "OS パッケージ" };
+// 深刻度の順序（小さいほど深刻）。上昇を検知するために使う。
+const SEVERITY_RANK = { critical: 0, warning: 1, info: 2 };
+// Discord の embed description 上限は 4096 文字。超えると **通知全体が 400 で落ちる**。
+const DISCORD_DESCRIPTION_LIMIT = 3900;
 
 // ---------------------------------------------------------------------------
 // 状態ファイル
@@ -69,6 +73,11 @@ function saveState(state, file) {
  * これにより「既に把握している指摘で毎回通知される」alert fatigue を防ぐ。
  * 承認は `security-watch.js --ack <key> [--note ...]` で行う。
  *
+ * `lastNotified` は**ここでは更新しない**（null / 前の値のまま返す）。
+ * 通知に成功した場合だけ呼び出し側が `markNotified()` で更新する。
+ * これにより、Discord 障害で通知に失敗した指摘が「通知済み」扱いになり
+ * 二度と送られない事故を防ぐ。
+ *
  * @param {object} state 前回の状態
  * @param {Array} findings 現在の findings
  * @param {object} opts { now, repeatAfterDays }
@@ -83,39 +92,73 @@ function diffFindings(state, findings, opts) {
   const isNew = [];
   const repeating = [];
   const acknowledgedNow = [];
-  const current = {};
+  const current = Object.create(null);
 
   for (const f of findings) {
     const isAck = Object.prototype.hasOwnProperty.call(acknowledgedMap, f.key);
     const before = prev[f.key];
+    const entry = {
+      firstSeen: (before && before.firstSeen) || now.toISOString(),
+      lastNotified: (before && before.lastNotified) || null,
+      severity: f.severity,
+      title: f.title,
+    };
+
     if (!before) {
+      current[f.key] = entry;
       if (isAck) {
-        // 承認済みだが再出現した → 通知しない（承認記録を優先）
-        acknowledgedNow.push(f);
-        current[f.key] = { firstSeen: now.toISOString(), lastNotified: now.toISOString(), severity: f.severity, title: f.title };
-        continue;
+        acknowledgedNow.push(f);   // 承認済み → 通知しない
+      } else {
+        isNew.push(f);
+        entry.lastNotified = null;  // 通知成功まで未通知
       }
+      continue;
+    }
+
+    current[f.key] = entry;
+    if (isAck) {
+      acknowledgedNow.push(f);
+      continue;
+    }
+
+    // 一度も通知できていない（lastNotified が無い / null）ものは再送する。
+    // 前回の通知が Discord 障害などで失敗した可能性があり、黙って捨てない。
+    if (!before.lastNotified) {
       isNew.push(f);
-      current[f.key] = { firstSeen: now.toISOString(), lastNotified: now.toISOString(), severity: f.severity, title: f.title };
-    } else {
-      const lastNotified = before.lastNotified ? Date.parse(before.lastNotified) : 0;
-      const shouldRepeat = f.severity === "critical" && (now.getTime() - lastNotified) >= repeatAfter;
-      current[f.key] = {
-        firstSeen: before.firstSeen || now.toISOString(),
-        lastNotified: shouldRepeat ? now.toISOString() : (before.lastNotified || now.toISOString()),
-        severity: f.severity,
-        title: f.title,
-      };
-      if (isAck) {
-        acknowledgedNow.push(f);
-      } else if (shouldRepeat) {
-        repeating.push(f);
-      }
+      entry.lastNotified = null;
+      continue;
+    }
+
+    // 深刻度が上がった（info → critical など）場合は「新規」として通知する
+    const escalated = (SEVERITY_RANK[f.severity] ?? 3) < (SEVERITY_RANK[before.severity] ?? 3);
+    if (escalated) {
+      isNew.push(f);
+      entry.lastNotified = null;
+      continue;
+    }
+
+    // 重大（critical）が 7 日以上通知されていない場合は「継続中」として再通知する
+    const lastNotified = Date.parse(before.lastNotified);
+    if (f.severity === "critical" && (now.getTime() - lastNotified) >= repeatAfter) {
+      repeating.push(f);
+      entry.lastNotified = null;  // 通知成功まで未通知
     }
   }
 
   const resolved = Object.keys(prev).filter((k) => !(k in current));
   return { isNew, repeating, resolved, acknowledged: acknowledgedNow, current };
+}
+
+/**
+ * 通知が成功した指摘にだけ lastNotified を記録する。
+ * @param {object} current diffFindings が返した current
+ * @param {string[]} keys 通知に成功した指摘の key
+ */
+function markNotified(current, keys, nowIso) {
+  const at = nowIso || new Date().toISOString();
+  for (const k of keys) {
+    if (current[k]) current[k].lastNotified = at;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -171,6 +214,9 @@ async function sendDiscord(cfg, payload) {
 /**
  * findings から Discord embed の本文を作る。
  * source ごとにまとめて、1 通知あたりの読みやすさを確保する。
+ *
+ * Discord の description 上限（4096 文字）を超えると通知が丸ごと落ちるため、
+ * 超える場合は切り詰めて「他 N 件」を付ける（2026-10-21 レビューで実測）。
  */
 function formatFindings(findings, { hostname, isRepeat } = {}) {
   const bySource = new Map();
@@ -180,23 +226,48 @@ function formatFindings(findings, { hostname, isRepeat } = {}) {
     bySource.get(key).push(f);
   }
   const lines = [];
+  let omitted = 0;
   for (const [source, list] of bySource) {
     const crit = list.filter((f) => f.severity === "critical").length;
     const warn = list.filter((f) => f.severity === "warning").length;
     const head = `**${SOURCE_LABEL[source] || source}**（重大 ${crit} / 警告 ${warn}）`;
-    lines.push(head);
+    const block = [head];
     for (const f of list) {
       const label = SEVERITY_LABEL[f.severity] || f.severity;
-      lines.push(`　• [${label}] ${f.title}`);
+      const one = [`　• [${label}] ${f.title}`];
       if (f.detail) {
         const detail = String(f.detail).split("\n").join("\n　　");
-        lines.push(`　　${detail}`);
+        one.push(`　　${detail}`);
       }
+      block.push(one.join("\n"));
     }
-    lines.push("");
+    const text = block.join("\n");
+    const tail = `\n\n_host: ${hostname || "?"}_`;
+    // 上限を超えるときは、重大（critical）を先に残して切り詰める
+    if (lines.join("\n").length + text.length + tail.length > DISCORD_DESCRIPTION_LIMIT) {
+      const criticals = list.filter((f) => f.severity === "critical");
+      for (const f of criticals) {
+        const label = SEVERITY_LABEL[f.severity] || f.severity;
+        const one = [`　• [${label}] ${f.title}`];
+        if (f.detail) one.push(`　　${String(f.detail).split("\n").join("\n　　")}`);
+        const t = one.join("\n");
+        if (lines.join("\n").length + t.length + tail.length > DISCORD_DESCRIPTION_LIMIT) {
+          omitted++;
+          continue;
+        }
+        lines.push(t);
+      }
+      omitted += list.length - criticals.length;
+      continue;
+    }
+    lines.push(text);
+  }
+  let body = lines.join("\n").trim();
+  if (omitted > 0) {
+    body += `\n\n…他 ${omitted} 件（詳細は運用ログまたは \`security-watch.js --list\` で確認してください）`;
   }
   const head = isRepeat ? "（継続中の指摘の再通知）\n" : "";
-  return `${head}${lines.join("\n").trim()}\n\n_host: ${hostname || "?"}_`;
+  return `${head}${body}\n\n_host: ${hostname || "?"}_`;
 }
 
 // ---------------------------------------------------------------------------
@@ -247,10 +318,13 @@ module.exports = {
   REPEAT_AFTER_DAYS,
   SEVERITY_COLOR,
   SEVERITY_LABEL,
+  SEVERITY_RANK,
+  DISCORD_DESCRIPTION_LIMIT,
   statePath,
   loadState,
   saveState,
   diffFindings,
+  markNotified,
   sendDiscord,
   formatFindings,
   reportScraperStatus,

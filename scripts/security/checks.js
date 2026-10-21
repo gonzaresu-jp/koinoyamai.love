@@ -26,7 +26,7 @@ const zlib = require("zlib");
 // ---------------------------------------------------------------------------
 
 // Node.js のサポート期限（メジャーバージョン → EOL 日）。
-// 新しい LTS がIamovenreleasedしたらここに追記すること（AGENTS.md §5.2）。
+// 新しい LTS がリリースされたらここに追記すること（AGENTS.md §5.2）。
 const NODE_EOL = {
   18: "2025-04-30",
   20: "2026-04-30",
@@ -132,11 +132,25 @@ function parseAptDistUpgrade(stdout) {
 
 /**
  * `npm audit --json` の出力を解析する。
+ *
+ * 注意（fail-closed）: npm audit は「lockfile が無い」「レジストリに到達できない」
+ * などの失敗時に **stdout に {"error":{...}} を含む JSON を出して exit 1** になる。
+ * これを通常の監査結果として解析すると「脆弱性 0 件＝問題なし」＝**正常と誤判定**する。
+ * `data.error` や `data.metadata` の欠落を検出して例外を投げる。
+ *
  * @returns {{advisories: Array<{name, severity, direct, via: string[], range, fixAvailable}>}}
  */
 function parseNpmAudit(raw) {
   const data = typeof raw === "string" ? JSON.parse(raw) : raw;
-  const vulns = (data && data.vulnerabilities) || {};
+  if (!data || typeof data !== "object") throw new Error("npm audit: 出力の形式が不正");
+  if (data.error) {
+    const msg = (data.error && (data.error.summary || data.error.code || data.error.message)) || "不明なエラー";
+    throw new Error(`npm audit がエラーを返しました: ${msg}`);
+  }
+  if (!data.metadata || typeof data.metadata !== "object") {
+    throw new Error("npm audit: metadata が無い（監査が実行できていない）");
+  }
+  const vulns = data.vulnerabilities || {};
   const advisories = [];
   for (const [name, v] of Object.entries(vulns)) {
     if (!v || typeof v !== "object") continue;
@@ -258,10 +272,11 @@ async function checkNode(opts) {
 
   // サポート期限切れチェック（表に無いメジャーは判定しない）
   const eol = NODE_EOL[major];
+  let isEol = false;
   if (eol) {
     const today = new Date().toISOString().slice(0, 10);
     if (today > eol) {
-      status = "error";
+      isEol = true;
       findings.push(finding(`node:eol:${major}`, "critical", "node",
         `Node.js ${major} 系はサポート期限切れ`,
         `サポート期限は ${eol} でした。対応版への更新が必要です。`));
@@ -287,7 +302,9 @@ async function checkNode(opts) {
   if (newer.length) {
     const latest = newer[0];
     const hasSecurity = newer.some((r) => r.security);
-    findings.push(finding(`node:update:${major}`, hasSecurity ? "critical" : "info", "node",
+    // key にバージョンを含める: 同じ key のままだと
+    // 「新しいバージョンが Yacht ても『既知の指摘』として通知されなくなる（2026-10-21 レビュー）。
+    findings.push(finding(`node:update:${major}:${latest.version}`, hasSecurity ? "critical" : "info", "node",
       hasSecurity
         ? `Node.js ${latest.version}（セキュリティ修正を含む）が利用可能`
         : `Node.js ${latest.version} が利用可能`,
@@ -299,10 +316,15 @@ async function checkNode(opts) {
 
   const crit = findings.filter((f) => f.severity === "critical").length;
   const warn = findings.filter((f) => f.severity === "warning").length;
-  summary = newer.length
-    ? `要更新 ${newer.length} 版` + (crit ? `（セキュリティ修正あり）` : "")
-    : "最新";
-  if (warn) summary = `要対応 ${warn} 件`;
+  if (isEol) {
+    summary = "サポート期限切れ";
+  } else if (crit) {
+    summary = `要対応 ${crit} 件`;
+  } else if (warn) {
+    summary = `要対応 ${warn} 件`;
+  } else {
+    summary = newer.length ? "更新あり（要確認）" : "最新";
+  }
   return { source: "node", status, summary, findings };
 }
 
@@ -340,6 +362,17 @@ async function checkPhp(opts) {
         `${changelogPath} を展開できませんでした: ${e.message}`)],
     };
   }
+  // Ubuntu 側の changelog に CVE が 1 件も無いのは「ファイルが空/形式変化」の疑いがある。
+  // そのまま比較すると未バックポートを大量に誤検出するので fail-closed にする。
+  if (covered.size === 0) {
+    return {
+      source: "php", status: "error",
+      summary: "PHP の Debian changelog に CVE 記載が無い",
+      findings: [finding("php:changelog-empty", "critical", "php",
+        "PHP の Debian changelog に CVE 記載が無い",
+        `${changelogPath} から CVE を 1 件も取得できませんでした（空・形式変化の疑い）`)],
+    };
+  }
 
   let upstream;
   try {
@@ -352,6 +385,16 @@ async function checkPhp(opts) {
       findings: [finding("php:fetch-failed", "critical", "php",
         "PHP の upstream 変更履歴を取得できない",
         `php.net への接続に失敗しました: ${e.message}`)],
+    };
+  }
+  // 取得はできたが解析結果が空 = ページ構造の変化。0 件「対応済み」は偽陰性になるので fail-closed。
+  if (Object.keys(upstream).length === 0) {
+    return {
+      source: "php", status: "error",
+      summary: "PHP の upstream 変更履歴を解析できない",
+      findings: [finding("php:parse-empty", "critical", "php",
+        "PHP の upstream 変更履歴を解析できない",
+        "php.net の ChangeLog から 8.3.x のセクションを 1 件も取得できませんでした（ページ構造の変化の疑い）")],
     };
   }
 
@@ -386,13 +429,20 @@ async function checkPhp(opts) {
 async function checkNpmAudit(opts) {
   const o = opts || {};
   const cwd = o.cwd || process.cwd();
+  // npm も node と同じ.Version を使う（cron の PATH は /usr/bin/npm = npm 9 / Node 18 EOL を掴む。
+  // AGENTS.md §5 の「PATH 依存は禁」に従う）
+  const npmBin = o.npmBin || "npm";
   let raw;
   try {
-    raw = runCmd("npm", ["audit", "--json"], { cwd, timeout: 180000 });
+    raw = runCmd(npmBin, ["audit", "--json"], { cwd, timeout: 180000 });
   } catch (e) {
-    // npm audit は脆弱性が見つかると exit code != 0 で終了する（出力は stdout にある）
-    if (e.stdout) raw = e.stdout;
-    else {
+    // npm audit は脆弱性が見つかると exit code != 0 で終了する（出力は stdout にある）。
+    // ただし「lockfile 不在」「レジストリ到達不可」のときも stdout に {"error":...} が出���るため、
+    // ここでは「stdout が取れなければ実行失敗」とし、JSON の解釈は parseNpmAudit 側に任せる
+    // （parseNpmAudit が error JSON を検出して throw する）。
+    if (e.stdout && String(e.stdout).trim()) {
+      raw = e.stdout;
+    } else {
       return {
         source: "npm", status: "error",
         summary: "npm audit を実行できない",
@@ -408,24 +458,30 @@ async function checkNpmAudit(opts) {
   } catch (e) {
     return {
       source: "npm", status: "error",
-      summary: "npm audit の出力を解析できない",
+      summary: "npm audit の結果を解釈できない",
       findings: [finding("npm:audit-parse-failed", "critical", "npm",
-        "npm audit の出力を解析できない", e.message)],
+        "npm audit の結果を解釈できない",
+        String(e && e.message ? e.message : e))],
     };
   }
-  const findings = parsed.advisories.map((a) => finding(
-    `npm:${a.name}`,
-    // 深刻度のマッピング。npm の high を全部 critical 扱いすると
-    // 間接依存（puppeteer/firebase 系）で件数だけ増えて alert fatigue になる。
-    // critical のみ重大、high は警告、それ以外は情報（通知対象外）。
-    a.severity === "critical" ? "critical" : (a.severity === "high" ? "warning" : "info"),
-    "npm",
-    `npm 依存: ${a.name} に ${a.severity} の脆弱性`,
-    `${a.direct ? "直接依存" : "間接依存"} / 影響範囲 ${a.range || "?"} / 修正: ${a.fixAvailable ? "可能" : "要手動対応"}`
-    + (a.via.length ? `\n  ${a.via.join("\n  ")}` : ""),
-    { advisoryUrls: a.via }
-  ));
-  const status = findings.some((f) => f.severity === "critical") ? "degraded" : "ok";
+  const findings = parsed.advisories.map((a) => {
+    // key に advisory 識別子を��える: 同じパッケージでも別の advisory が出たら別で通知する
+    const ghsa = (a.via || []).map((u) => String(u).split("/").pop().replace(/[^A-Za-z0-9-]/g, "")).find((x) => /^GHSA-/.test(x));
+    const id = ghsa || a.via?.[0] || a.severity;
+    return finding(
+      `npm:${a.name}:${id}`,
+      // 深刻度のマッピング。npm の high を全部 critical 扱いすると
+      // 間接依存（puppeteer/firebase 系）で件数だけ増えて alert fatigue になる。
+      // critical のみ重大、high は警告、それ以外は情報（通知対象外）。
+      a.severity === "critical" ? "critical" : (a.severity === "high" ? "warning" : "info"),
+      "npm",
+      `npm 依存: ${a.name} に ${a.severity} の脆弱性`,
+      `${a.direct ? "直接依存" : "間接依存"} / 影響範囲 ${a.range || "?"} / 修正: ${a.fixAvailable ? "可能" : "要手動対応"}`
+      + (a.via.length ? `\n  ${a.via.join("\n  ")}` : ""),
+      { advisoryUrls: a.via }
+    );
+  });
+  const status = findings.some((f) => f.severity === "critical" || f.severity === "warning") ? "degraded" : "ok";
   const summary = parsed.advisories.length ? `要対応 ${parsed.advisories.length} 件` : "問題なし";
   return { source: "npm", status, summary, findings };
 }
@@ -452,10 +508,14 @@ async function checkOsPackages(opts) {
   const parsed = parseAptDistUpgrade(stdout);
   const findings = [];
   if (parsed.security.length) {
-    findings.push(finding("os:security-updates", "warning", "os",
-      `OS セキュリティ更新 ${parsed.security.length} 件が未適用`,
-      parsed.security.map((p) => `  - ${p}`).join("\n"),
-      { packages: parsed.security }));
+    // key をパッケージ単位にして、集合が変わったときに「新規」として通知できるようにする
+    for (const entry of parsed.security) {
+      const pkg = entry.split(" ")[0];
+      findings.push(finding(`os:security:${pkg}`, "warning", "os",
+        `OS セキュリティ更新が未適用: ${pkg}`,
+        `更新が security pocket から配信されています: ${entry}`,
+        { packages: [entry] }));
+    }
   }
   const status = parsed.security.length ? "degraded" : "ok";
   const summary = parsed.security.length ? `未適用 ${parsed.security.length} 件` : "最新";
