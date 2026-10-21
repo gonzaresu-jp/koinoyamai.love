@@ -29,7 +29,6 @@ PATCH_JS="$REPO_ROOT/scripts/nginx/apply-display-location.js"
 # node は明示指定する（sudo 実行では nvm の PATH が読めず /usr/bin/node = v18 EOL を掴むため。AGENTS.md §5）
 NODE_BIN="${NODE_BIN:-/home/yuzuki/.nvm/versions/node/v24.22.0/bin/node}"
 
-[ "$(id -u)" -eq 0 ] || { echo "[ERR] sudo で実行してください"; exit 1; }
 [ -f "$CONF" ] || { echo "[ERR] $CONF が見つかりません"; exit 1; }
 [ -f "$BLOCK_FILE" ] || { echo "[ERR] $BLOCK_FILE が見つかりません"; exit 1; }
 [ -f "$PATCH_JS" ] || { echo "[ERR] $PATCH_JS が見つかりません"; exit 1; }
@@ -42,6 +41,7 @@ echo "  リポジトリ: $REPO_ROOT"
 echo "  node     : $NODE_BIN ($("$NODE_BIN" -v))"
 
 if [ "$APPLY" = "0" ]; then
+  # dry-run は変更しないので root 不要（他の apply-*.sh と同じ運用）
   echo "--- dry-run: 適用後の確認手順 ---"
   cat <<'TXT'
   sudo bash scripts/nginx/apply-display-location.sh --apply
@@ -50,6 +50,9 @@ if [ "$APPLY" = "0" ]; then
 TXT
   exit 0
 fi
+
+# 以降は nginx.conf を書き換えるので root が必要
+[ "$(id -u)" -eq 0 ] || { echo "[ERR] 適用には root が必要です（sudo bash ... --apply で実行）"; exit 1; }
 
 BAK="$CONF.bak-display-location-$(date +%Y%m%d-%H%M%S)"
 cp -a "$CONF" "$BAK"
