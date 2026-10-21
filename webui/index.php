@@ -725,6 +725,8 @@
     <script src="./dist/auth-settings-bridge.min.js?v=<?= @filemtime(__DIR__ . '/dist/auth-settings-bridge.min.js') ?: time(); ?>" defer></script>
     <script src="./dist/heatmap.min.js?v=<?= @filemtime(__DIR__ . '/dist/heatmap.min.js') ?: time(); ?>" defer></script>
     <script src="./dist/notification-stats.min.js?v=<?= @filemtime(__DIR__ . '/dist/notification-stats.min.js') ?: time(); ?>" defer></script>
+    <!-- 配信開始アラームの設定（Android アプリのみ。ブラウザでは JS 側で非表示） -->
+    <script src="./dist/stream-alarm.min.js?v=<?= @filemtime(__DIR__ . '/dist/stream-alarm.min.js') ?: time(); ?>" defer></script>
 
     <!-- 通知履歴 リスト/ヒートマップ タブ切替（JSでクラス付替＝WebViewでも確実に動作） -->
     <script src="/js/index-history-tabs.js?v=<?= @filemtime(__DIR__ . '/js/index-history-tabs.js') ?: time(); ?>"></script>

@@ -108,6 +108,9 @@ function buildFcmData(payload, type, settingKey) {
   put("url", data.url);
   put("icon", data.icon);
   put("image", data.image);
+  // 配信の開始時刻（ISO）。Android アプリが端末内アラームを予約하기に使う。
+  // 値が無い通知（通常の新着通知など）には付けない。
+  put("start_time", data.start_time);
   if (type) put("type", type);
   if (settingKey) put("settingKey", settingKey);
   return out;

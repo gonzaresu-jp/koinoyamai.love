@@ -362,6 +362,13 @@ class MainActivity : AppCompatActivity() {
         // インストール許可の設定画面から戻った時にアップデート案内を再表示する。
         // 通常時は6時間クールダウンで弾かれるため、起動直後の二重表示にはならない
         web.postDelayed({ com.yuzuki.mai_notification.UpdateChecker.checkOnLaunch(this) }, 1500)
+        // 配信開始アラームをスケジュールを取り直して登録し直す
+        // （アラーム設定が有効な場合のみ・Exact Alarm 権限が無ければ何もしない）
+        try {
+            com.yuzuki.mai_notification.AlarmScheduler.rescheduleFromServer(this)
+        } catch (e: Exception) {
+            Log.w("MainActivity", "アラームの再登録に失敗: ${e.message}")
+        }
     }
 
     override fun onPause() {

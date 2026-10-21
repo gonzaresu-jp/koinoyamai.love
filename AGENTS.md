@@ -738,6 +738,40 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     JST 変換で 9 時間ずれるので使わない）。
   検証は `bash scripts/deploy/verify-deploy.sh webui/dl/desktop.json` 相当（配信バイト数 == ディスクのバイト数）。
 
+### 10.2 配信開始アラーム（Android v1.7.3 で追加）
+- **目的**: 配信の 15 分前（など）に**端末内アラーム**を鳴らして、寝ていても起きて配信を見られるようにする。
+  通知（FCM push）に頼らないので、push が届かない・遅延する環境でも鳴る。
+- **方式は `AlarmManager.setAlarmClock()`**（`mai_notification/.../AlarmScheduler.kt`）:
+  - 公式ドキュメント: 「the system never adjusts their delivery time / leaves low-power modes
+    if necessary」→ **Doze（画面オフ・スリープ）でも正確な時刻に発火**する。
+  - 「次のアラーム」としてシステムに登録されるので、ステータスバーにアラームアイコンが出る。
+  - 権限: API 33+ は `USE_EXACT_ALARM`（自動付与・取り消し不可）／API 31/32 は
+    `SCHEDULE_EXACT_ALARM`。**このアプリは Play ではなく APK 直配布**なので
+    exact alarm の用途制限（Play ポリシー）は該当しない。
+  - 権限が無い／取り消された場合は `canScheduleExactAlarms()` が false になり、
+    アプリは**設定画面への誘導**に徹する（黙って不被にしない）。
+  - 再起動でアラームは消えるため `RECEIVE_BOOT_COMPLETED` の receiver で再登録する。
+- **スケジュールの取得**: サーバーの `GET /api/events?status=scheduled`（公開）。
+  通知の `data.start_time` でも即時に登録できる（サーバーの `notifyPlannedFromRss` と
+  `buildEventNotificationPayload` が `start_time` を載せる。`services/notification.js` の
+  `buildFcmData` が `start_time` を FCM data に含める）。
+- ⚠️ **サーバーの `start_time` はタイムゾーン表記が混在している**
+  （`"2026-10-18T23:45:51"` = JST naive / `"...Z"` = UTC）。
+  **オフセットが無いものは JST（+09:00）として解釈する**（`AlarmScheduler.parseServerTime`）。
+  `§6.9` の smart-display と同じ前提。
+- **設定 UI はサイト側**（`webui/js/stream-alarm.js` → `webui/dist/stream-alarm.min.js`）。
+  アプリは WebView ラッパーなので、通知設定と同じ場所に UI を置いている。
+  ブラウザ（Web のみ）では `window.MaiApp` が無いので非表示。
+  - JS ブリッジ（`MaiWebBridge.kt`）: `getStreamAlarmState` / `setStreamAlarmEnabled` /
+    `setStreamAlarmOffsetMin` / `openExactAlarmSettings` / `getNextStreamStartAt` /
+    `openSystemAlarmSetScreen`
+- **「標準のアラーム時計に設定」は補助手段**（`ACTION_SET_ALARM`）:
+  ⚠️ 公式ドキュメント: `EXTRA_SKIP_UI` は **API 19 以降無視され、アラームアプリが必ず
+  確認 UI を出す**（＝ユーザーの 1 タップが必須）。確認画面を開くだけなので、
+  「確実に目視でセットしたい」場合の補助として使う。
+- ビルド・署名は Windows 側（`§10.1`）。`webui/dl/android.json` の更新は
+  **APK を `webui/mai-notification.apk` に配置した後**に行う（先に更新すると 404 を指す）。
+
 ## 11. コーディング/設計規約（最小限・事故に直結するもの）
 
 > 網羅的なスタイル規約ではない。「破ると事故る」ものだけ。迷ったら既存コードに倣う。
@@ -906,7 +940,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-21（§5.1 PHP 実行時ハードニングを拡張：scripts/php/apply-php-hardening.sh（enable_post_data_reading=Off で multipart パーサ無効・ffi.enable=preload で FFI 迂回を塞ぐ・post_max_size 縮小）と scripts/php/verify-php-hardening.sh（実測検証）を追加／scripts/nginx/apply-php-exec-guard.sh で elza vhost の PHP 実行を 404 化／mbstring は意図的に未導入（webui/_mb.php で代替）／§11 に PHP の「読まない・実行しない」規約を追加／§5 のリリース時刻の誤記（23:00 UTC→14:00 UTC）を修正 / §5.1 PHP コアの緊急 RCE 期間の対応（メンテナンスモードで公開 PHP ページを 503 化・patch-and-resume.sh で復旧）を追加 / §5 Node.js を v24.22.1 に更新（2026-10-21 の security release）・パッチ版移行スクリプト scripts/deploy/migrate-node-patch.sh を追加（pm2 save 必須・旧 ~/migrate-*.sh は v24.22.0 固定で参照先ではない） / §6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
+最終更新: 2026-10-22（§10.2 配信開始アラーム（Android v1.7.3）を新設：AlarmManager.setAlarmClock による端末内アラーム・exact alarm 権限・TZ 混在の扱い・標準アラームへの補助経路 / §5.1 PHP 実行時ハードニングを拡張：scripts/php/apply-php-hardening.sh（enable_post_data_reading=Off で multipart パーサ無効・ffi.enable=preload で FFI 迂回を塞ぐ・post_max_size 縮小）と scripts/php/verify-php-hardening.sh（実測検証）を追加／scripts/nginx/apply-php-exec-guard.sh で elza vhost の PHP 実行を 404 化／mbstring は意図的に未導入（webui/_mb.php で代替）／§11 に PHP の「読まない・実行しない」規約を追加／§5 のリリース時刻の誤記（23:00 UTC→14:00 UTC）を修正 / §5.1 PHP コアの緊急 RCE 期間の対応（メンテナンスモードで公開 PHP ページを 503 化・patch-and-resume.sh で復旧）を追加 / §5 Node.js を v24.22.1 に更新（2026-10-21 の security release）・パッチ版移行スクリプト scripts/deploy/migrate-node-patch.sh を追加（pm2 save 必須・旧 ~/migrate-*.sh は v24.22.0 固定で参照先ではない） / §6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
 最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10 待ちタイマーの連打による延長禁止（v1.8.5 / Issue #14）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）
