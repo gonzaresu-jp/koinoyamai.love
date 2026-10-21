@@ -444,7 +444,7 @@ security-watch が検出した、upstream には修正版があるのに **Canon
 ### 公開 PHP ページの隔離（メンテナンスモード）
 
 - **何をするか**: `sudo bash scripts/nginx/apply-maintenance.sh --on` で、**公開 PHP ページへの
-  到達を nginx 側で 503 にする**（`location ~ \.php$ { error_page 503 /__maintenance.html; return 503; }` を
+  到達を nginx 側で 503 にする**（`location ~ \.php$ { error_page 503 /error/index.html; return 503; }` を
   server ブロックの開き括弧直後に入れて、既存 `location ~ \.php$` より先にマッチさせる）。
 - **なぜ**: CVE-2026-109618 / CVE-2026-109619（CVSS v4.0 9.2・**詳細未公開**）は回避策が不明なため、
   CERT-EU の推奨（パッチが間に合わない場合は公開アプリを隔離する）に従う。
@@ -455,8 +455,8 @@ security-watch が検出した、upstream には修正版があるのに **Canon
   - `location = /status.php` のような**完全一致** location は regex より優先される。
     対象 vhost（1717 / staging）には無いが、増加する場合は確認すること。
     elza vhost（:80）の旧 PHP は別 PR #50 の `scripts/nginx/apply-php-exec-guard.sh` で 404 化する。
-  - メンテナンスページは `/var/www/html/maintenance.html`（`scripts/nginx/maintenance.html` を 644 で配置）。
-    **www-data が読めない権限だと 404 にフォールバックする**（実測）。
+  - メンテナンスページは **サイト既存の `/error/`**（`webui/error/index.html`・静的 HTML）。
+    別途ファイルを配置しないため権限の問題は発生しない（PHP も実行しない）。
 - **復旧**: `sudo bash scripts/php/patch-and-resume.sh`（パッチ適用 → パッチ状態のみ検証 →
   メンテナンス解除 → pm2 再開 → 最終確認）。検証の途中でサイトの応答を期待しないこと
   （メンテナンス中は 503 が正しい。`verify-php-security-patch.sh --patch-only` を使う）。
