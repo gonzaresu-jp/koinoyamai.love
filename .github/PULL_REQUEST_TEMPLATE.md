@@ -41,3 +41,4 @@ Closes #
 - [ ] セキュリティ（HMAC/認証/secret 取扱い）
 - [ ] `AGENTS.md §11` の規約（TZ固定 / bind 127.0.0.1 / dotenv per-dir / CSP self / fail-closed 等）
 - [ ] テスト
+- [ ] **レビュー結果を PR コメントに投稿した**（AGENTS.md §13・公開 repo なので秘密情報はマスクする）
