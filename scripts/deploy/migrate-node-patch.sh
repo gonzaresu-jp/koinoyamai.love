@@ -157,7 +157,7 @@ if [ "$APPLY" = "0" ]; then
   exit 0
 fi
 
-# --- pre-flight（B2: 確実に失敗する経路を事前检测する） ---
+# --- pre-flight（B2: 確実に失敗する経路を事前検査する） ---
 echo "--- pre-flight ---"
 PREFLIGHT_OK=1
 for ec in "${PROD_DIR}/ecosystem.config.js" "${STG_DIR}/ecosystem.config.js"; do

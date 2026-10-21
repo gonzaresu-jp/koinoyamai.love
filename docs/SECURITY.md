@@ -253,7 +253,7 @@ bash scripts/php/verify-php-security-patch.sh
 - `apt-get upgrade`（全体）はしない。`php8.3-*` だけを `--only-upgrade` で上げる。
 - 適用前のバージョンは `/var/lib/mai-push/php-rollback-<時刻>.txt` に記録（ロールバック手順つき）。
   ロールバックは dpkg の exact 依存（`php8.3-common (= 同版)`）のため**全パッケージを同版で指定**し、
-  ダウングレード，所以 `--allow-downgrades` が必要。
+  ダウングレードのため `--allow-downgrades` が必要です。
 - PPA（`--ppa`）は他パッケージ（`php8.1-*` 等）に影響しうるため、実行前に dry-run の
   シミュレーション出力を確認すること。**PPA 追加は恒久設定が残る**ため、戻す場合は:
   `sudo rm -f /etc/apt/sources.list.d/php.list && sudo apt-get update`

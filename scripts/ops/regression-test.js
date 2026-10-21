@@ -540,7 +540,7 @@ async function main() {
     try { secChecks.parseNpmAudit(JSON.stringify({ vulnerabilities: {} })); } catch (e) { auditErr2 = e; }
     ok("parseNpmAudit: metadata 無しも例外になる", auditErr2 !== null);
 
-    // 9-11. 指摘 key の粒度（同じ key のままだと新しい版本が通知されない）
+    // 9-11. 指摘 key の粒度（同じ key のままだと新しいバージョンが通知されない）
     ok("key に Node のバージョンが含まれる: node:update:24:v24.23.0",
       /node:update:24:v24\.23\.0/.test("node:update:24:v24.23.0"));
 
