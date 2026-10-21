@@ -18,12 +18,22 @@
 
     function mai_archive_fetch($path, $timeoutSec = 6)
     {
-        $url = $domain . $path;
+        // PHP の関数スコープではグローバル変数が見えない。
+        // global 宣言が無いと $domain が未定義になり、URL がパスのみになって
+        // HTTP 取得が常に失敗していた（サーバサイドSEOが空・2026-10-21 実測）。
+        global $domain, $apiBase;
         $ctx = stream_context_create(array(
             'http' => array('timeout' => $timeoutSec, 'ignore_errors' => true),
-            'ssl'  => array('verify_peer' => false, 'verify_peer_name' => false),
+            // TLS 検証は有効にする（公開ドメイン経由のフォールバック用）。
+            // ローカル API は http なので ssl 設定は使われない。
+            'ssl'  => array('verify_peer' => true, 'verify_peer_name' => true),
         ));
-        $body = @file_get_contents($url, false, $ctx);
+        // ① 同一ホスト内の Node API（速い・インターネットを経由しない）
+        $body = @file_get_contents($apiBase . $path, false, $ctx);
+        if ($body === false) {
+            // ② 接続できない場合は公開ドメイン経由（フォールバック）
+            $body = @file_get_contents($domain . $path, false, $ctx);
+        }
         if ($body === false) return null;
         $data = json_decode($body, true);
         return is_array($data) ? $data : null;

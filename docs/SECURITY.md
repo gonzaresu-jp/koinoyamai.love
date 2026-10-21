@@ -198,12 +198,28 @@ node scripts/ops/regression-test.js --port 18099
 |---|---|---|
 | バージョン | `php8.3-fpm 8.3.6-0ubuntu0.24.04.12`（noble-security） | **未修正 → 影響あり** |
 | 稼働 SAPI | **php-fpm のみ**（`php-cgi` バイナリ無し。apache2 はパッケージ未導入＝dpkg `un`・unit なし・非稼働。`/usr/sbin/apache2` に残骸バイナリは残る） | 攻撃面は nginx→FPM の HTTP のみ |
-| 公開経路 | nginx :1717 / :80 ← cloudflared トンネル（`koinoyamai.love` → :1717、`test.koinoyamai.love` → :80）+ Cloudflare プロキシ | インターネットから到達可能 |
-| アプリコード | `webui/*.php` 18 ファイル。`eval` / `unserialize` / 動的 include / `system` 系は**ゼロ** | アプリ層のトリガーは無い。リスクは PHP コア層 |
-| hardening | `disable_functions` **空** / `open_basedir` **未設定** / `allow_url_fopen=On` / `expose_php=Off` / `display_errors=Off` | **RCE 成立後の被害は大きい**（任意コマンド実行・任意ファイル読み書きが可能） |
+| 公開経路 | nginx :1717 / :80 ← cloudflared トンネル（`koinoyamai.love` → :1717、`test.koinoyamai.love` → :80）+ Cloudflare プロキシ | インターネットから到達可能。**origin :1717 は `0.0.0.0` 待ち**のため LAN からは Cloudflare を迂回して直接到達可 |
+| 公開 PHP エンドポイント | `webui/*.php` **19 ファイルすべて 200 で到達可**（`/index.php` `/archive.php` `/logs.php` `/status.php` `/wiki.php` `/guide.php` `/download.php` `/twitter-media.php` `/subtitle-compare.php` ほか） | アプリ層のトリガーは無いが、**コア層 RCE はどれでも到達できる** |
+| アプリコード | `webui/*.php` 19 ファイル。`eval` / `unserialize` / 動的 include / `system` 系は**ゼロ**。`$_POST`/`$_FILES`/`$_REQUEST` も**ゼロ**（method=post のフォームも 0 件） | アプリ層のトリガーは無い。リスクは PHP コア層 |
+| hardening（2026-10-21 適用済み） | `disable_functions`（exec 系 8 個）/ `open_basedir`（docroot 2 つ + /tmp ほか）/ `ffi.enable=preload`（**実行時 `FFI::cdef()` は拒否**＝disable_functions の迂回不可）/ `enable_post_data_reading=Off` | **コマンド実行・任意ファイル読み書きは塞がれている**。RCE 成立時も webui 配下への webshell 設置・同一オリジンフィッシング程度が想定範囲 |
 | 旧版 PHP | `php8.1-*` は**導入されていたが削除済み**（dpkg `rc`・設定だけ残存）。`masked` かつ inactive（upstream 8.1 は 2025-12-31 EOL → 修正は来ない） | 起動しなければ問題なし。追加の --------
 削除は任意 |
+| 旧 PHP（`/var/www/html` 直下） | `henkan/henkan.php`・`henkan/con.php` は `move_uploaded_file()` + `exec()` を含む。`open_basedir` で実行不可（実測: "No input file specified."）だが**ファイルは残っている** | nginx 側を塞ぐ（`scripts/nginx/apply-php-exec-guard.sh`） |
 | 自動更新 | `unattended-upgrades` enabled、`noble-security` 許可 | Canonical の USN 公開後に自動で入る（ただし数日かかる） |
+
+#### 「データ送受信」との関係（2026-10-21 実測・结论）
+
+PHP のデータ送受信は 2 層ある。**どちらが本命か**を区別して評価する。
+
+| 層 | 内容 | このシステムへの影響 |
+|---|---|---|
+| **SAPI 層**（リクエスト解析） | HTTP ヘッダ・multipart/form-data・POST ボディの解析。**PHP コア RCE の典型的な舞台** | **要注意**。PHP は既定で `enable_post_data_reading=On` のため**リクエスト開始時に必ず POST ボディをパースする**（アプリが `$_POST` を読まなくても）。→ `enable_post_data_reading=Off` でパーサ層を丸ごと無効化済み |
+| **ストリーム層**（外向き通信） | `file_get_contents` / TLS / HTTP ストリームラッパ | `CVE-2026-12184`（https + proxy で segfault）は**到達不能**（proxy 未設定・fpm の env にも proxy なし）。`CVE-2026-91766` / `CVE-2026-93682`（HTTP ストリームラッパ）は Ubuntu バックポート済み |
+
+- アプリの push/FCM 経路は **Node 側**（API/ワーカー）で、PHP はページ描画のみ。
+  `.env`（push token / FCM 鍵）は `600` + `open_basedir` 対象外 → **RCE 成立後も読めない**。
+- `archive.php` の内部 API 取得は `global $domain` 不足で壊れていた（2026-10-21 修正）。
+  修正後は公開ドメイン経由の HTTPS 取得になるが、**プロキシ未設定**なので `CVE-2026-12184` の条件には届かない。
 
 ### 適用手順
 
@@ -385,21 +401,42 @@ security-watch が検出した、upstream には修正版があるのに **Canon
   security-watch の `os:security:php8.3-fpm` がそれを検出する。
   適用後は PHP 側の指摘も自動的に解消扱いになる（監視が検知する）。
 - ⚠️ **CVE-2026-109618 / CVE-2026-109619（PHP コア RCE・CVSS v4.0 9.2）は別件**。
-  upstream の修正版が 2026-10-21 23:00 UTC（JST 23:00）にリリースされる予定で、
+  upstream の修正版が 2026-10-21 **14:00 UTC（JST 23:00）** にリリースされる予定で、
   `scripts/php/apply-php-security-patch.sh` がその 2 件を対象にしている。
 
-### 待つ間の実行時緩和策（`~/apply-php-hardening.sh` で適用）
+### 待つ間の実行時緩和策（`scripts/php/apply-php-hardening.sh` で適用）
 
 1. `disable_functions = exec,system,shell_exec,passthru,popen,proc_open,pcntl_exec,dl`
    → Web 経由の任意コマンド実行を止める
 2. `open_basedir = <本番docroot>:<staging docroot>:/tmp:/var/lib/php/sessions:/var/lib/mai-push`
    → 任意ファイル読み書きを止める
+3. `ffi.enable = preload`（pool の `php_admin_value`）
+   → 実行時に `FFI::cdef()` が拒否される（**実測確認**）。`disable_functions` の迂回経路を塞ぐ
+4. **`enable_post_data_reading = Off`**（pool の `php_admin_value`）
+   → **multipart / POST ボディのパースを止める**。PHP コア RCE の最有力の入口（リクエスト解析層）を塞ぐ
+5. `post_max_size = 16M` / `upload_max_filesize = 8M` / `max_file_uploads = 0`
+   → 元は 4G。DoS 耐性
 
-適用前の確認（いずれも grep で実測）:
+```bash
+bash scripts/php/apply-php-hardening.sh            # dry-run（root 不要・事前チェック付き）
+sudo bash scripts/php/apply-php-hardening.sh --apply
+bash scripts/php/verify-php-hardening.sh            # 実測検証（root 不要・一時プローブを自動削除）
+```
 
-- `webui/*.php` は exec 系関数を使わない（0 件）
-- `webui/*.php` は絶対パスを参照しない（require は `/head.php` 等の相対のみ）
-- `webui/*.php` はファイルに書き込まない（`file_put_contents` 等 0 件）
+- 適用スクリプトは **fail-closed**：`webui/*.php` に `$_POST`/`$_FILES`/`$_REQUEST` を読む処理、
+  method=post のフォームがある、`mb_*` 呼び出しがある、を検出したら**適用せず exit 1** する
+  （`enable_post_data_reading=Off` がアプリを壊す状況を先に止める）。
+- **前提条件は回帰テスト [10] で固定**（`npm test` / 96 項目）。
+  POST を読まない / method=post フォームなし / `mb_*` を使わない / eval・exec 等を使わない /
+  動的 include なし / `archive.php` の `global $domain` あり。
+- 適用前の確認（いずれも実測）:
+  - `webui/*.php` は exec 系関数を使わない（0 件）
+  - `webui/*.php` は絶対パスを参照しない（require は `/head.php` 等の相対のみ）
+  - `webui/*.php` はファイルに書き込まない（`file_put_contents` 等 0 件）
+  - `webui/*.php` は POST を読まない（0 件）＝ `enable_post_data_reading=Off` で挙動が変わらない
+- **旧 PHP（`/var/www/html` 直下）の nginx 側ガード**:
+  `sudo bash scripts/nginx/apply-php-exec-guard.sh --apply`
+  （elza vhost の PHP 実行を 404 にする。**本番 :1717 / staging :80 は対象外**）
 
 ### ⚠️ nginx のレート制限は適用しない
 

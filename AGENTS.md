@@ -180,11 +180,11 @@
       → その後 `sudo apt-get install --only-upgrade php8.3-fpm php8.3-cli php8.3-common
       php8.3-gd php8.3-opcache php8.3-readline` で Ubuntu 版へ戻す
     - 記録: `updatelogs.php` には「サーバーの実行環境（PHP）を更新した」として記載する
-  - 待つ間は **実行時緩和策**を適用する（下記 `~/apply-php-hardening.sh`）。
+  - 待つ間は **実行時緩和策**を適用する（下記 `scripts/php/apply-php-hardening.sh`）。
     Canonical がバックポートしたら `os:security:php8.3-fpm` が security-watch に
     現れ、適用後に PHP の指摘が解消される（監視が自動で検知する）。
   - ⚠️ **CVE-2026-109618 / 109619（PHP コア RCE・CVSS 9.2）は別件**。
-    upstream の修正版が 2026-10-21 23:00 UTC（JST 23:00）にリリースされる予定で、
+    upstream の修正版が 2026-10-21 **14:00 UTC（JST 23:00）** にリリースされる予定で、
     `scripts/php/apply-php-security-patch.sh` はその 2 件を対象にしている（現在 fail-closed）。
 - **nginx の PHP location へのレート制限（limit_req / limit_conn）は適用しない（2026-10-21 実測）**:
   - この nginx には **real_ip 設定が無く**、アクセスログの送信元は**全件 127.0.0.1** になっている
@@ -195,11 +195,40 @@
     `real_ip_header CF-Connecting-IP;` / `real_ip_recursive on;` を http ブロックに設定する。
   - RCE の主防御は `disable_functions` / `open_basedir`（下記）であり、
     レート制限は主防御ではないため、real_ip 未設定のまま入れる意味はない。
-- **PHP の実行時緩和策（適用済み・`~/apply-php-hardening.sh` で再適用可）**:
+- **PHP の実行時緩和策（適用済み・`scripts/php/apply-php-hardening.sh` で再適用可）**:
   - `disable_functions = exec,system,shell_exec,passthru,popen,proc_open,pcntl_exec,dl`
     （`webui/*.php` はこれらの関数を使わない＝grep で 0 件。任意コマンド実行を止める）
-  - `open_basedir = <本番docroot>:<staging docroot>:/tmp:/var/lib/php/sessions:/var/lib/mai-push`
+  - `open_basedir = <本番docroot>:<staging docroot>:/tmp:/var/lib/php/sessions`
+    （**`/var/lib/mai-push` は含めない**：RCE 成立時にベクトルDB や archive を読まれないようするため）
     （PHP は絶対パスを参照せず＝require は /head.php 等の相対のみ、書き込みもなし）
+  - `ffi.enable = preload`（既定値も preload。**実行時に `FFI::cdef()` が拒否される**ことを実測確認。
+    `disable_functions` の迂回経路を塞ぐ。`ffi.enable=true` に変えるな）
+  - **`enable_post_data_reading = Off`（pool の `php_admin_value`）**:
+    PHP は既定で `enable_post_data_reading=On` のため、**リクエスト開始時に POST ボディを必ずパースする**
+    （multipart パーサの層 = PHP コア RCE の最有力の入口）。
+    `webui/*.php` は `$_POST`/`$_FILES`/`$_REQUEST` を読まない（0 件）・method=post のフォームも 0 件なので、
+    Off にしても挙動は変わらない＝**パーサ層を丸ごと無効化できる**。
+  - `post_max_size = 16M` / `upload_max_filesize = 8M` / `max_file_uploads = 0`
+    （元は 4G。アップロードはこのサイトには不要なので上限を sane にする）
+  - 適用: `bash scripts/php/apply-php-hardening.sh`（dry-run）→ `sudo bash scripts/php/apply-php-hardening.sh --apply`
+    → `bash scripts/php/verify-php-hardening.sh`（実測検証。root 不要）
+  - **前提条件は回帰テスト [10] で固定**（`npm test`）:
+    POST を読まない / method=post フォームなし / `mb_*` を使わない / eval・exec 等を使わない /
+    動的 include なし / `archive.php` の `global $domain` あり。
+    **PHP を触るときは [10] を壊さないこと**。
+- **mbstring（`php8.3-mbstring`）は意図的に導入しない**:
+  - Ubuntu 8.3.6-0ubuntu0.24.04.12 に未バックポートの **CVE-2026-6104**（`mb_convert_encoding` の
+    global buffer over-read）の影響を受ける拡張。使わなければ導入しない。
+  - 過去 `subtitle-compare.php` が `mb_strlen()` を素で呼び、mbstring 不在で
+    **本番が HTTP 500** になっていた（2026-10-21 実測・修正済み）。
+  - UTF-8 の長さ・検索だけなら `webui/_mb.php`（`mai_utf8_len` / `mai_utf8_strpos`）で足りる。
+    **新しい PHP で `mb_*` を直接呼ばないこと**（回帰テスト [10] が検出する）。
+- **旧 PHP（`/var/www/html` 直下）は実行させない**:
+  - `elza` vhost（root `/var/www/html`）には `exec()` + `move_uploaded_file()` を含む
+    旧 `henkan/henkan.php` 等が残っている。`open_basedir` で今は実行できないが、
+    basedir が緩んだ瞬間に無認証の公開 RCE になる。
+  - → `sudo bash scripts/nginx/apply-php-exec-guard.sh --apply`
+    （elza vhost の PHP 実行を 404 にする。**本番 :1717 と staging :80 は対象外**）。
 - **OS の security pocket 更新は `~/apply-os-security-updates.sh` で適用する**（全体 upgrade はしない）。
 - **Ubuntu は upstream の security パッチをバックポートする運用**なので、patch を当てても
   `php -v` のバージョン文字列は `8.3.6` のまま（`-0ubuntu0.24.04.NN` のリビジョンだけ上がる）。
@@ -707,6 +736,17 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - **通知送信は `src/core/notify-sign.js` 経由**: `signNotifyPayload(secret, bodyString)` で**送信する生 JSON 文字列**に署名し
   `x-notify-hmac` + `x-notify-timestamp` を付与（`§3`, `§6.5`）。API 側は生ボディで検証・`timingSafeEqual`。`==` 比較に戻すな。
 - **fail-closed**: トークン/秘密が未設定なら認証系は 503/401 で閉じる（通すな）。
+- **PHP は「読まない・実行しない」を原則にする（2026-10-21 追加・`§5.1`）**:
+  - **`$_POST` / `$_FILES` / `$_REQUEST` を読む PHP を書かない**。
+    php-fpm は `enable_post_data_reading=Off`（pool の `php_admin_value`）で
+    **POST ボディを読まないようにしている**＝multipart パーサ層（PHP コア RCE の入口）が動かない。
+    POST が必要になったら「`enable_post_data_reading` を緩める」ではなく、
+    **Node API（`:8080`）側に受け皿を作る**（API は JSON parsed 済みで検証も書ける）。
+  - **`mb_*`（mbstring）を直接呼ばない**。mbstring は未導入（未バックポート CVE-2026-6104 の回避）。
+    UTF-8 の長さ・検索は `webui/_mb.php` の `mai_utf8_len()` / `mai_utf8_strpos()` を使う。
+  - **`eval` / `system` / `exec` / `shell_exec` / `unserialize` / 動的 include を書かない**。
+    `disable_functions` / `open_basedir` は**多層防御の1枚**であり、アプリ層も無害で保つこと。
+  - この 3 条件は **回帰テスト [10]** で機械的に検査される（`npm test`）。
 - **検知経路は状態を報告する（壊れても気づけるように）**: 通知・検知の主要な経路は
   `POST /api/internal/scraper-status`（`x-notify-token`）へ状態を報告し、
   管理画面（`GET /api/scraper-status`）と Discord で確認できるようにする。
@@ -779,6 +819,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 | `routes/`・`services/`・`lib/`・スクレイパーの追加/改名/削除 | `docs/ARCHITECTURE.md §4`（§3 のフローも該当時） |
 | DB スキーマ（`services/database.js` の `initDatabase()`） | `docs/ARCHITECTURE.md §5` |
 | env キー追加/変更 | `AGENTS.md §3` / `docs/ARCHITECTURE.md §6` |
+| **PHP ランタイムの実行時設定（enable_post_data_reading / disable_functions / open_basedir / ffi.enable）** | `AGENTS.md §5.1` / `docs/SECURITY.md` |
 | 通知・認証・HMAC | `AGENTS.md §2,§3` / `docs/SECURITY.md` |
 | デプロイ/検証の作法 | `AGENTS.md §7` / `docs/DEVELOPMENT-WORKFLOW.md` |
 | webui 構成/CSP/静的配信 | `docs/ARCHITECTURE.md §4.5` / `AGENTS.md §6.6` |
@@ -847,7 +888,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-21（§5.1 PHP コアの緊急 RCE 期間の対応（メンテナンスモードで公開 PHP ページを 503 化・patch-and-resume.sh で復旧）を追加 / §5 Node.js を v24.22.1 に更新（2026-10-21 の security release）・パッチ版移行スクリプト scripts/deploy/migrate-node-patch.sh を追加（pm2 save 必須・旧 ~/migrate-*.sh は v24.22.0 固定で参照先ではない） / §6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
+最終更新: 2026-10-21（§5.1 PHP 実行時ハードニングを拡張：scripts/php/apply-php-hardening.sh（enable_post_data_reading=Off で multipart パーサ無効・ffi.enable=preload で FFI 迂回を塞ぐ・post_max_size 縮小）と scripts/php/verify-php-hardening.sh（実測検証）を追加／scripts/nginx/apply-php-exec-guard.sh で elza vhost の PHP 実行を 404 化／mbstring は意図的に未導入（webui/_mb.php で代替）／§11 に PHP の「読まない・実行しない」規約を追加／§5 のリリース時刻の誤記（23:00 UTC→14:00 UTC）を修正 / §5.1 PHP コアの緊急 RCE 期間の対応（メンテナンスモードで公開 PHP ページを 503 化・patch-and-resume.sh で復旧）を追加 / §5 Node.js を v24.22.1 に更新（2026-10-21 の security release）・パッチ版移行スクリプト scripts/deploy/migrate-node-patch.sh を追加（pm2 save 必須・旧 ~/migrate-*.sh は v24.22.0 固定で参照先ではない） / §6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
 最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10 待ちタイマーの連打による延長禁止（v1.8.5 / Issue #14）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）

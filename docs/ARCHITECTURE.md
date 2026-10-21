@@ -215,6 +215,8 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 | `info.php` / `guide.php` / `future.php` | 案内/FAQ/将来 |
 | `download.php` | アプリDL（`dl/*.json` 参照） |
 | `twitter-media.php` | Twitter メディア |
+| `_domain.php` | ドメインの単一ソース（`Host` / `X-Forwarded-Proto` から導出する `$domain`） |
+| `_mb.php` | mbstring 非依存の UTF-8 補助関数（`mai_utf8_len` / `mai_utf8_strpos`）。mbstring は未導入（`AGENTS.md §5.1`） |
 | `admin.html` / `chat.html` / `compare.html` | 管理/チャット/比較の各画面 |
 | `js/` | 画面別 JS。`index-*`, `admin-*`, `wave-*`, `header-auth.js`, `header-jst.js`, `pushService.js`, `palette.js` 等 |
 | `css/`, `style.css`, `sp.css` | スタイル。`css/header.css` は非 minify で `?v=filemtime` 読込 |
@@ -225,6 +227,11 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 
 - **CSP は `script-src 'self'`**（nginx `scripts/nginx/mai-test.conf` 等）。インライン JS 不可 → 新規 JS は `/js/*.js` に置く。
 - 公開 HTML の反映は `bash scripts/deploy/verify-deploy.sh webui/<file>` でバイト比較（`open_file_cache` 切詰め検出、`AGENTS.md §7.1`）。同スクリプトは配信ファイルが other 読み取り可か（php-fpm から読めるか）も検査する。
+- **PHP 実行時ハードニング（`AGENTS.md §5.1`）**: `disable_functions` / `open_basedir` / `ffi.enable=preload` /
+  `enable_post_data_reading=Off`（multipart パーサ無効）が php-fpm に設定されている。
+  そのため **`webui/*.php` は POST を読まない**（`$_POST`/`$_FILES` 0 件）ので、
+  POST を受けたい処理は Node API 側（`:8080`）に置く。**mbstring は未導入**のため `mb_*` は使わず
+  `_mb.php` の代替関数を使う。前提条件は回帰テスト [10] が固定する。
 
 ### 4.5b 旅先ディスプレイ（`/display/`）
 
@@ -247,8 +254,8 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 - **`security/`**: 脆弱性・更新の自動監視（`security-watch.js` = 本体 / `checks.js` = 判定ロジック / `notify.js` = 状態管理・通知）。Node.js / PHP 8.3 / npm 依存 / OS パッケージの 4 系統を日次判定し、新規検出分のみ通知する。`AGENTS.md §5.2` / `docs/SECURITY.md` 参照
 - **`tools/`**: `build-android-apk.sh` / 単発メンテ（`dedupe-media`・`mine-personality`・`twitter-stats`・`whisper-subs`・`render-compare-html`・`fix-notification-platform`）
 - **`hooks/`**（pre-push）
-- **`nginx/`**: vhost 設定（`mai-test.conf` 等）と適用スクリプト（`apply-domain-final.sh` / `setup-staging-nginx.sh` / `default.conf`）
-- **`php/`**: PHP ランタイムの緊急パッチ適用（`apply-php-security-patch.sh` = dry-run/`--apply`/`--ppa` / `verify-php-security-patch.sh` = 適用結果の検証）。`sudo` 必要・`AGENTS.md §5.1` / `docs/SECURITY.md` 参照
+- **`nginx/`**: vhost 設定（`mai-test.conf` 等）と適用スクリプト（`apply-domain-final.sh` / `setup-staging-nginx.sh` / `default.conf` / `apply-display-location.sh` / `apply-php-exec-guard.sh` = elza vhost の PHP 実行を 404 にするガード・`apply-php-exec-guard.js` = パッチ本体）
+- **`php/`**: PHP ランタイムの緊急パッチ適用（`apply-php-security-patch.sh` = dry-run/`--apply`/`--ppa` / `verify-php-security-patch.sh` = 適用結果の検証）と実行時ハードニング（`apply-php-hardening.sh` = `disable_functions`/`open_basedir`/`ffi.enable=preload`/`enable_post_data_reading=Off` を適用・事前チェック付き / `verify-php-hardening.sh` = 実測検証・root 不要）。`sudo` 必要・`AGENTS.md §5.1` / `docs/SECURITY.md` 参照
 - **`archive/`**（旧スクリプト・参照用。`anomaly-check{,2,3}.js` = 字幕検査の版違い、`minutes-test.js` = 要約生成の単体試験）
 > すべて**リポジトリ直下から実行**する前提（root は `dirname/../..` で解決）。cron はフルパスで `scripts/{deploy,ops}/...` を指す。
 
