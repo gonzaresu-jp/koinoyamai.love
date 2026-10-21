@@ -256,7 +256,13 @@ bash scripts/php/verify-php-security-patch.sh
   ダウングレードのため `--allow-downgrades` が必要です。
 - PPA（`--ppa`）は他パッケージ（`php8.1-*` 等）に影響しうるため、実行前に dry-run の
   シミュレーション出力を確認すること。**PPA 追加は恒久設定が残る**ため、戻す場合は:
-  `sudo rm -f /etc/apt/sources.list.d/php.list && sudo apt-get update`
+  `sudo bash scripts/php/rollback-to-ubuntu-php.sh --apply`
+  - ⚠️ **バージョンを明示しない `--only-upgrade` だけでは動かない**
+    （upstream 版 > Ubuntu 版なので「すでに最新」で止まる。`--allow-downgrades` が必要）。
+  - `php.ini` / `pool.d/www.conf` は dpkg の conffile。`DEBIAN_FRONTEND=noninteractive` で
+    ローカル版（ハードニング設定）を保持させる。
+  - 実行前に **ターゲット版の changelog に修正CVEがあるか**を機械確認する
+    （無ければ「戻さない」＝fail-closed）。
 - ラッパ: `~/apply-php-security-patch.sh` / `~/verify-php-security-patch.sh`（本番ツリーを優先して実体を解決）。
 
 ### パッチ前の緩和策（2026-10-21 夜〜リリースまで）
