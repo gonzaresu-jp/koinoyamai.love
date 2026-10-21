@@ -279,7 +279,9 @@ bash scripts/php/verify-php-security-patch.sh
 
 1. `disable_functions` に `exec,system,shell_exec,passthru,popen,proc_open,pcntl_exec,dl` を追加
    → 任意コマンド実行の抑止（`/etc/php/8.3/fpm/php.ini`）
-2. `open_basedir` を webui の docroot + `/tmp` + `/var/lib/mai-push` に限定 → 任意ファイル読み書きの抑止
+2. `open_basedir` を webui の docroot + `/tmp` + `/var/lib/php/sessions` に限定
+   → 任意ファイル読み書きの抑止（**`/var/lib/mai-push` は含めない**：
+   RCE 成立時にベクトルDB や archive を読まれないようするため。実装は AGENTS.md §5.1 参照）
 3. nginx の PHP location に `limit_req` / `limit_conn` を追加
 4. Cloudflare 側で一時的なレート制限 / WAF ルール追加（ダッシュボード操作）
 5. `nginx access.log` と `/var/log/php8.3-fpm.log` の注視

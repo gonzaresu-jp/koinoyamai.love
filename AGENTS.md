@@ -198,9 +198,13 @@
         （入っていない版へ戻すと RCE が再導入される）。
     - ⚠️ **ロールバックすると upstream 比でカバレッジが 3 件落ちる**（実測 2026-10-22）:
       `CVE-2026-12184` / `CVE-2026-17544` / `CVE-2026-17545` は upstream 8.3.36 では
-      修正済みだが Ubuntu .13 には未収録。ただし **PPA 導入前（.12）でも同じく未修正**で、
-      ベースライン比では 109618/109619 のみ改善している＝Accepted Risk。
-      （17544 は本節の「未バックポート 3 件」リストに元々入っていない＝doc drift）
+      修正済みだが **Ubuntu .13 の Debian changelog 基準**では未収録。
+      ただし **PPA 導入前（.12）でも同じく未修正**で、ベースライン比では
+      109618/109619 のみ改善している＝Accepted Risk。
+      - 参照基準が 2 つあるので区別する:
+        **upstream ChangeLog-8.php 基準**（security-watch の PHP 判定）= 12184 / 9672 / 17545
+        **Debian changelog 基準**（Ubuntu パッケージの收录）= 12184 / 9672 / 17544 / 17545 が不在
+      - 17544 は upstream 側リストに元々入っていない＝doc drift（Ubuntu 側 changelog には無い）
     - **Canonical がバックポートをリリース済み**（2026-10-22 実測）:
       `php8.3-common 8.3.6-0ubuntu0.24.04.13`（noble-security）に
       "SECURITY UPDATE: Remote RCE via state corruption issue"（= CVE-2026-109618/109619）が含まれる。

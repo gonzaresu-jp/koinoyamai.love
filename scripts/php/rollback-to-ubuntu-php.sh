@@ -29,7 +29,11 @@
 # 検証:
 #   bash scripts/php/verify-php-security-patch.sh   # パッチ状態
 #   bash scripts/php/verify-php-hardening.sh        # 実行時ハードニング
-set -euo pipefail
+# `-E`（errtrace）: 関数内・管道内でも ERR trap を発火させる。
+# なお `cmd || { echo ...; exit 1; }` 形式の exit は**コマンド失敗ではない**ため
+# ERR trap は発火しない（設定の復元が走らない）。そのため該当箇所は
+# `on_error` を**明示的に呼ぶ**（N-1 対応）。
+set -Eeuo pipefail
 
 APPLY=0
 [[ "${1:-}" == "--apply" ]] && APPLY=1
@@ -45,6 +49,8 @@ if dpkg-query -W -f='${Status}' libapache2-mod-php8.3 2>/dev/null | grep -q "ins
   PKGS+=(libapache2-mod-php8.3)
 fi
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# テスト用に差し替え可能にする（既定は実パス）
+APT_SOURCES_DIR="${APT_SOURCES_DIR:-/etc/apt/sources.list.d}"
 
 TMPDIR_="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_"' EXIT
@@ -61,7 +67,7 @@ echo "  php -v           : $CUR_PHP"
 # third-party/universe リストまで rm しないため）。
 find_ppa_files() {
   local f
-  for f in /etc/apt/sources.list.d/*; do
+  for f in "$APT_SOURCES_DIR"/*; do
     [ -f "$f" ] || continue
     if grep -qiE 'packages\.sury\.org|ppa\.launchpadcontent\.net/ondrej' "$f" 2>/dev/null; then
       basename "$f"
@@ -93,6 +99,35 @@ for p in "${PKGS[@]}"; do
   [ "$v" = "$TARGET" ] || ALREADY_UBUNTU=0
 done
 if [ "$ALREADY_UBUNTU" = "1" ]; then
+  if [ -n "$PPA_LIST" ]; then
+    # パッケージは Ubuntu 公式版なのに **PPA の設定だけ残存**している。
+    # 残置すると次の `apt-get update` で sury 版へ乗り戻るため、
+    # 「PPA 依存はない」とは言えない＝除去してから終わる。
+    echo "[要対応] PHP パッケージは Ubuntu 公式版（$TARGET）ですが、**PPA の設定が残存**しています: $PPA_LIST"
+    echo "          残置すると次の apt-get update で sury 版へ乗り戻る可能性があります。"
+    if [ "$APPLY" = "0" ]; then
+      echo
+      echo "--- dry-run: 適用後の手順 ---"
+      echo "  sudo bash $(basename "$0") --apply   # PPA 設定のみ除去する（パッケージの降格は発生しません）"
+      exit 0
+    fi
+    [ "$(id -u)" -eq 0 ] || { echo "[ERR] 適用には root が必要です" >&2; exit 1; }
+    STAMP="$(date +%Y%m%d-%H%M%S)"
+    BAK_DIR="/var/lib/mai-push/php-rollback-${STAMP}"
+    mkdir -p "$BAK_DIR"
+    for l in $PPA_LIST; do
+      cp -a "$APT_SOURCES_DIR/$l" "$BAK_DIR/apt-$l" 2>/dev/null || true
+    done
+    echo "==> PPA 設定の除去（パッケージ降格は不要）"
+    for l in $PPA_LIST; do
+      rm -f "$APT_SOURCES_DIR/$l"
+      echo "  除去: $APT_SOURCES_DIR/$l"
+    done
+    retire_sury_keyring "$BAK_DIR"
+    apt-get update || true
+    echo "[OK] PPA 設定を除去しました（PHP パッケージは Ubuntu 公式版のまま）"
+    exit 0
+  fi
   echo "[OK] 既に全パッケージが Ubuntu 公式版（$TARGET）です。PPA 依存はありません。"
   exit 0
 fi
@@ -135,15 +170,18 @@ for p in "${PKGS[@]}"; do SPEC="$SPEC $p=$TARGET"; done
 echo
 echo "--- 実行する操作（dry-run）---"
 cat <<TXT
-  1) sudo rm -f /etc/apt/sources.list.d/php.list     # PPA の設定が残っていれば削除
+  1) 検出した PPA 設定を除去（下記「PPA の設定」欄のファイルだけ）
+     ※ 固定名ではなく「内容（sury / ondrej の URI）」で検出したものを除去する
   2) sudo apt-get update
   3) sudo DEBIAN_FRONTEND=noninteractive UCF_FORCE_CONFFOLD=1 \
        apt-get install -y -o Dpkg::Options::="--force-confold" --allow-downgrades${SPEC}
      ※ バージョンを明示しない（--only-upgrade だけだと「すでに最新」で動かない）
      ※ pool.d/www.conf は dpkg conffile（--force-confold）／php.ini は ucf 管理（UCF_FORCE_CONFFOLD）
      ※ 降格後に apply-php-hardening.sh --apply でハードニングを再適用する
-  4) sudo systemctl restart php8.3-fpm
-  5) bash scripts/php/verify-php-security-patch.sh
+  4) bash scripts/php/apply-php-hardening.sh --apply   # ハードニングの再適用（php.ini 保険）
+  5) sudo systemctl restart php8.3-fpm
+  6) sury のキーリング退置（/etc/apt/trusted.gpg.d と keyring パッケージの purge）
+  7) bash scripts/php/verify-php-security-patch.sh
      bash scripts/php/verify-php-hardening.sh
 TXT
 
@@ -211,7 +249,7 @@ trap on_error ERR
 # ※ 削除は apt 成功後に行う（apt 失敗時に「PPA だけ消えて PHP は sury のまま」になるのを防ぐ）
 PPA_FILES="$PPA_LIST"
 for l in $PPA_FILES; do
-  cp -a "/etc/apt/sources.list.d/$l" "$BAK_DIR/apt-$l" 2>/dev/null || true
+  cp -a "$APT_SOURCES_DIR/$l" "$BAK_DIR/apt-$l" 2>/dev/null || true
 done
 
 echo "==> apt-get update"
@@ -227,6 +265,30 @@ echo "==> apt-get install --allow-downgrades"
 DEBIAN_FRONTEND=noninteractive UCF_FORCE_CONFFOLD=1 \
   apt-get install -y -o Dpkg::Options::="--force-confold" --allow-downgrades $SPEC
 
+# --- sury のキーリング・keyring パッケージを退置する ---
+# ※ `/etc/apt/trusted.gpg.d/` の鍵は apt の**グローバル信頼**なので最優先で退置する。
+#   `/usr/share/keyrings/` 側は dpkg パッケージ（debsuryorg-archive-keyring）が
+#   管理しているため、ファイル移動ではなく**パッケージを purge** する。
+#   退置に失敗したら**警告を出して続行**する（無言で失敗させない）。
+retire_sury_keyring() {
+  local bak_dir="$1" k
+  for k in /etc/apt/trusted.gpg.d/*sury* /etc/apt/trusted.gpg.d/*ondrej*; do
+    [ -f "$k" ] || continue
+    if mv "$k" "$bak_dir/" 2>/dev/null; then
+      echo "  退置: $k → $bak_dir/$(basename "$k")"
+    else
+      echo "  [WARN] 退置に失敗しました（残存）: $k" >&2
+    fi
+  done
+  if dpkg-query -W -f='${Status}' debsuryorg-archive-keyring 2>/dev/null | grep -q "install ok installed"; then
+    if DEBIAN_FRONTEND=noninteractive apt-get remove -y --purge debsuryorg-archive-keyring >/dev/null 2>&1; then
+      echo "  削除: debsuryorg-archive-keyring（keyring パッケージを purge）"
+    else
+      echo "  [WARN] debsuryorg-archive-keyring の purge に失敗しました（残存）" >&2
+    fi
+  fi
+}
+
 # --- B9: Ubuntu 版は /usr/share/doc/php8.3-fpm を symlink にする。
 #   sury 版は実ディレクトリが残っており、そのままだと unpack が失敗しうるため先に除く。
 if [ -d /usr/share/doc/php8.3-fpm ] && [ ! -L /usr/share/doc/php8.3-fpm ]; then
@@ -236,31 +298,35 @@ fi
 
 echo "==> PPA 設定の除去（apt 成功後）"
 for l in $PPA_FILES; do
-  rm -f "/etc/apt/sources.list.d/$l"
-  echo "  除去: /etc/apt/sources.list.d/$l"
+  rm -f "$APT_SOURCES_DIR/$l"
+  echo "  除去: $APT_SOURCES_DIR/$l"
 done
 PPA_REMOVED_LIST="$PPA_FILES"
 apt-get update || true
 
 echo "==> ハードニングの再適用（php.ini が ucf で置換されていた場合の保険）"
+HARDENING_RESTARTED=0
 if [ -f "$REPO_ROOT/scripts/php/apply-php-hardening.sh" ]; then
-  bash "$REPO_ROOT/scripts/php/apply-php-hardening.sh" --apply \
-    || { echo "[ERR] ハードニングの再適用に失敗しました（ロールバックは続ける）" >&2; }
+  if bash "$REPO_ROOT/scripts/php/apply-php-hardening.sh" --apply; then
+    HARDENING_RESTARTED=1   # 既にこのスクリプト内で php-fpm を再起動している
+  else
+    echo "[ERR] ハードニングの再適用に失敗しました（ロールバックは続ける）" >&2
+  fi
 else
   echo "  (apply-php-hardening.sh が見つからないためスキップ)"
 fi
 
-echo "==> php-fpm の再起動"
-systemctl restart php8.3-fpm
+if [ "$HARDENING_RESTARTED" = "0" ]; then
+  echo "==> php-fpm の再起動"
+  systemctl restart php8.3-fpm
+fi
 sleep 2
 systemctl is-active php8.3-fpm
-php-fpm8.3 -t || { echo "[ERR] php-fpm の設定チェックに失敗" >&2; exit 1; }
+# `exit 1` では ERR trap が発火せず設定の復元が走らないため on_error を明示的に呼ぶ
+php-fpm8.3 -t || { echo "[ERR] php-fpm の設定チェックに失敗" >&2; on_error $?; }
 
-# ---------- N-4: sury の GPG キーリングも退置する ----------
-for k in /etc/apt/trusted.gpg.d/*sury* /etc/apt/trusted.gpg.d/*ondrej*; do
-  [ -f "$k" ] || continue
-  mv "$k" "$BAK_DIR/" 2>/dev/null && echo "  退置: $k → $BAK_DIR/$(basename "$k")"
-done
+# ---------- N-4: sury のキーリング・keyring パッケージも退置する ----------
+retire_sury_keyring "$BAK_DIR"
 
 echo
 echo "--- 適用結果 ---"
@@ -268,7 +334,7 @@ dpkg-query -W -f='  ${Package} ${Version}\n' "${PKGS[@]}" 2>/dev/null || true
 php -v | head -1
 echo
 echo "--- 検証（自動）---"
-bash "$REPO_ROOT/scripts/php/verify-php-security-patch.sh" || { echo "[ERR] パッチ状態の検証に失敗" >&2; exit 1; }
-bash "$REPO_ROOT/scripts/php/verify-php-hardening.sh" || { echo "[ERR] ハードニングの検証に失敗" >&2; exit 1; }
+bash "$REPO_ROOT/scripts/php/verify-php-security-patch.sh" || { echo "[ERR] パッチ状態の検証に失敗" >&2; on_error $?; }
+bash "$REPO_ROOT/scripts/php/verify-php-hardening.sh" || { echo "[ERR] ハードニングの検証に失敗" >&2; on_error $?; }
 echo "検証: bash scripts/php/verify-php-security-patch.sh && bash scripts/php/verify-php-hardening.sh"
 echo "ロールバック（PPA 版へ戻す場合）: バックアップは $BAK_DIR"
