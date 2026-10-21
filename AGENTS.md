@@ -352,6 +352,10 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - `_appWindow.Changed`（.AppWindow イベント）も UI スレッドのコールバック。例外境界を置き、
     `UpdateCaptionPadding` のように **最小化/復帰で不正値になり得る値**（`TitleBar.RightInset` は
     NaN/Infinity になり得る）を UI に代入する前に弾くこと（v1.8.5 教訓）。
+  - **UI コールバックの例外ログは連発を制限する**（v1.8.6 教訓, Issue #17）。`AppWindow.Changed` や
+    `EnqueueUi` の例外境界は繰り返し失敗しうるため、毎回 `Diagnostics.Log` すると
+    UI スレッドの同期ファイル書き込みが連発して操作がもたくなり、`log.txt` も溢れる。
+    `Diagnostics.ThrottledFault`（5 秒に 1 回へ制限し、抑制件数を 1 行で併記）を使うこと。
   - 非表示（トレイ格納）・**最小化中**はストリップを閉じた状態に戻す（`ResetTabStripHidden`）。
     最小化でも `IsWindowVisible` は true なので `IsIconic` も見ること。ドラッグ中に隠れた場合に備え
     ポインターキャプチャとドラッグ状態もここで畳む。
@@ -373,7 +377,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 
 - **バージョンは3箇所を揃える（Windows）**
   - `MaiPushWinUI.csproj` の `<Version>` / `installer.iss` の `#define MyAppVersion` /
-    `UpdateChecker.cs` の `CurrentVersion`（`new(1, 8, 5)` のようにリリース版と揃える）。
+    `UpdateChecker.cs` の `CurrentVersion`（`new(1, 8, 6)` のようにリリース版と揃える）。
   - `UpdateChecker.cs` を忘れると**最新版なのに「アップデートがあります」通知が出る**。
   - **機械検査が_parse可能になった**（2026-10-21 追加）:
     ```bash

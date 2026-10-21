@@ -120,6 +120,57 @@ internal static class Diagnostics
             $"cwd={Environment.CurrentDirectory} exe={exe} --hidden={Environment.GetCommandLineArgs().Contains("--hidden")}");
     }
 
+    /// <summary>
+    /// 連発する例外ログの記録頻度を制限する（UI スレッドの同期ファイル書き込みで
+    /// メッセージポンプが詰まるのを防ぐ）。
+    ///
+    /// 同じ例外が繰り返し発生する場合、間隔（既定 5 秒）内の再発は記録せず件数だけ数え、
+    /// 次に記録する時に「(N faults suppressed in the last 5s)」を 1 行だけ併記する。
+    /// AGENTS.md §10「WndProc のログは 5 秒に 1 回へ制限」と同じ考え方。
+    /// 1 インスタンス＝1 ソースごとに使うこと（UI スレッドからのみ使う想定）。
+    /// </summary>
+    internal sealed class ThrottledFault
+    {
+        private readonly long _minIntervalMs;
+        private readonly object _lock = new();
+        private long _lastLogMs;
+        private int _suppressed;
+
+        public ThrottledFault(long minIntervalMs = 5000) => _minIntervalMs = minIntervalMs;
+
+        public void Report(string source, Exception? ex)
+        {
+            Report(source, ex?.ToString() ?? "(no exception object)");
+        }
+
+        /// <summary>例外ではないメッセージ版の.Report（同じ連発抑制を適用する）</summary>
+        public void Report(string source, string message)
+        {
+            int suppressed;
+            lock (_lock)
+            {
+                long now = Environment.TickCount64;
+                if (_lastLogMs != 0 && now - _lastLogMs < _minIntervalMs)
+                {
+                    _suppressed++;
+                    return;
+                }
+                suppressed = _suppressed;
+                _lastLogMs = now;
+                _suppressed = 0;
+            }
+            // 抑制した件数も残す（同じ例外の連発か、別の不具合が増えたかを後から判別できるように）
+            // 秒が割り切れない間隔では ms で表記する（"0s" のような表記を避ける）
+            string window = _minIntervalMs % 1000 == 0
+                ? $"{_minIntervalMs / 1000}s"
+                : $"{_minIntervalMs}ms";
+            var prefix = suppressed > 0
+                ? $"({suppressed} faults suppressed in the last {window}){Environment.NewLine}"
+                : "";
+            Log(source, prefix + message);
+        }
+    }
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern uint RegisterApplicationRestart(string? commandLine, uint flags);
 }
