@@ -197,7 +197,7 @@ node scripts/ops/regression-test.js --port 18099
 | 観点 | 実測 | 判定 |
 |---|---|---|
 | バージョン | `php8.3-fpm 8.3.6-0ubuntu0.24.04.12`（noble-security） | **未修正 → 影響あり** |
-| 稼働 SAPI | **php-fpm のみ**（`php-cgi` バイナリ無し・apache2 未導入） | 攻撃面は nginx→FPM の HTTP のみ |
+| 稼働 SAPI | **php-fpm のみ**（`php-cgi` バイナリ無し。apache2 はパッケージ未導入＝dpkg `un`・unit なし・非稼働。`/usr/sbin/apache2` に残骸バイナリは残る） | 攻撃面は nginx→FPM の HTTP のみ |
 | 公開経路 | nginx :1717 / :80 ← cloudflared トンネル（`koinoyamai.love` → :1717、`test.koinoyamai.love` → :80）+ Cloudflare プロキシ | インターネットから到達可能 |
 | アプリコード | `webui/*.php` 18 ファイル。`eval` / `unserialize` / 動的 include / `system` 系は**ゼロ** | アプリ層のトリガーは無い。リスクは PHP コア層 |
 | hardening | `disable_functions` **空** / `open_basedir` **未設定** / `allow_url_fopen=On` / `expose_php=Off` / `display_errors=Off` | **RCE 成立後の被害は大きい**（任意コマンド実行・任意ファイル読み書きが可能） |
@@ -224,9 +224,16 @@ bash scripts/php/verify-php-security-patch.sh
   正しくは **Debian changelog に CVE ID が載っているか** で判定する（`verify-php-security-patch.sh` が自動化）。
 - **upstream の修正版は `https://www.php.net/ChangeLog-8.php` から機械判定する**
   （リリース案内ページ `releases/8_3_XX.php` には CVE ID が載らない・URL も不安定）。
-  2026-10-21 時点: latest 8.3.x = 8.3.35（Ubuntu `.12` にsecurity 分はバックポート済み）。今晚は 8.3.36 相当。
+  判定するのは「CVE を含む**最小**の 8.3.x」（`>=` 比較の基準）。
+  2026-10-21 時点: latest 8.3.x = 8.3.35（8.2=8.2.34 / 8.4=8.4.26 / 8.5=8.5.11）。今晚は 8.3.36 相当。
+  ※ Ubuntu の `8.3.6-0ubuntu0.24.04.12` は 8.3.35 の CVE 11 件中 **10 件**をバックポート済みだが、
+  upstream 8.3.32 の CVE-2026-12184 / 8.3.33 の CVE-2026-9672 / 8.3.35 の CVE-2026-17545（Windows 専用）は
+  **未収録**。Canonical の USN を待つ運用ではこの差も考慮すること。
 - **スクリプトは fail-closed。** upstream の修正版を検出できない・candidate が変わらない・
-  シミュレーションで削除（Remv）が出る場合は **いずれも exit 1** で「完了」を出さない。
+  シミュレーションに削除（Remv）が出る・シミュレーション自体が失敗する場合は
+  **いずれも exit 1** で「完了」を出さない。
+  `--force` は **upstream 判定（ChangeLog 取得失敗・HTML 構造変化）を飛ばす**ためだけの escape hatch で、
+  Ubuntu に更新が無い場合は `--ppa` が必要になる。
 - `apt-get upgrade`（全体）はしない。`php8.3-*` だけを `--only-upgrade` で上げる。
 - 適用前のバージョンは `/var/lib/mai-push/php-rollback-<時刻>.txt` に記録（ロールバック手順つき）。
   ロールバックは dpkg の exact 依存（`php8.3-common (= 同版)`）のため**全パッケージを同版で指定**し、

@@ -93,7 +93,9 @@
 
 ### 5.1 PHP ランタイム（php-fpm）
 - **PHP は 8.3 系（Ubuntu 24.04 の `php8.3-fpm`）**。`webui/*.php` の配信 SAPI は **php-fpm のみ**
-  （`php-cgi` バイナリ無し・apache2 も未導入）。nginx は `/run/php/php8.3-fpm.sock` を向く
+  （`php-cgi` バイナリ無し。apache2 はパッケージ未導入＝dpkg `un`・unit なし・非稼働。
+  `/usr/sbin/apache2` に残骸バイナリは残るが web サーバーとしては動いていない）。
+  nginx は `/run/php/php8.3-fpm.sock` を向く
   （`scripts/nginx/mai-test.conf` / 本番 `/etc/nginx/nginx.conf`）。
 - **Ubuntu は upstream の security パッチをバックポートする運用**なので、patch を当てても
   `php -v` のバージョン文字列は `8.3.6` のまま（`-0ubuntu0.24.04.NN` のリビジョンだけ上がる）。
@@ -102,9 +104,14 @@
   （upstream 8.1 は 2025-12-31 EOL → 緊急修正は来ない）。**起動させない**（nginx も 8.3 しか向かない）。
 - **upstream の修正版は `https://www.php.net/ChangeLog-8.php` から機械判定する**
   （リリース案内ページ `releases/8_3_XX.php` には CVE ID が載らない・URL も不安定）。
-  2026-10-21 時点: latest 8.3.x = 8.3.35（Ubuntu `.12` に security 分はバックポート済み）。今晚は 8.3.36 相当。
+  判定するのは「CVE を含む**最小**の 8.3.x」（`>=` 比較の基準）。
+  2026-10-21 時点: latest 8.3.x = 8.3.35。今晚は 8.3.36 相当。
+  ※ Ubuntu の `8.3.6-0ubuntu0.24.04.12` は 8.3.35 の CVE 11 件中 **10 件**をバックポート済みだが、
+    upstream 8.3.32 の CVE-2026-12184 / 8.3.33 の CVE-2026-9672 / 8.3.35 の CVE-2026-17545
+    （Windows 専用）は**未収録**。「8.3.35 まで入っている」は不正確なので注意。
 - **スクリプトは fail-closed。** 修正版を検出できない・candidate が変わらない・削除が絡む場合は
-  **exit 1** で「完了」を出さない。
+  **exit 1** で「完了」を出さない。`--force` は **upstream 判定だけを飛ばす**ための escape hatch で、
+  Ubuntu に更新が無い場合は `--ppa` が必要。
 - **緊急パッチの適用は本家スクリプトで**（`sudo` 必要・dry-run → `--apply` の2段。`~/apply-php-security-patch.sh` はラッパ）:
   ```bash
   bash scripts/php/apply-php-security-patch.sh                   # dry-run（root 不要）

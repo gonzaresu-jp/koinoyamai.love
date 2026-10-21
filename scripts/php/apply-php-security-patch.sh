@@ -16,6 +16,7 @@
 #
 #   upstream の修正版は **ChangeLog-8.php** から機械判定する
 #   （リリース案内ページ releases/8_3_XX.php には CVE ID が載らない・URL も不安定）。
+#   判定するのは「CVE を含む**最小**の 8.3.x」（>= 比較の基準になるため）。
 #
 # 使い方:
 #   bash scripts/php/apply-php-security-patch.sh               # dry-run（既定・root 不要）
@@ -23,13 +24,14 @@
 #   sudo bash scripts/php/apply-php-security-patch.sh --apply --ppa
 #       # Ubuntu archive に修正が無い場合: ondrej/sury PPA で upstream 版を入れる
 #   sudo bash scripts/php/apply-php-security-patch.sh --apply --force
-#       # upstream のリリース判定（上流CDN障害等）を飛ばしたい場合のみ
+#       # upstream の判定（ChangeLog 取得失敗・HTML 構造変化など）を飛ばしたい場合のみ。
+#       # Ubuntu に更新が無いときは --ppa が必要（--force はそれ Specifiesれを消さない）。
 #
 # 設計方針（fail-closed）:
 #   - 修正が利用できない場合は **必ず exit 1**。「完了」を出さずに終わる。
 #   - 適用済み（changelog に CVE 記載あり）なら何もしない（冪等）。
 #   - `apt-get upgrade`（全体）はしない。`php8.3-*` だけを `--only-upgrade` で上げる。
-#     シミュレーションに「削除(Remv)」が出る場合は中断する。
+#     シミュレーションに削除(Remv)が出る場合・シミュレーション自体が失敗する場合は中断する。
 #   - 適用前のバージョンを /var/lib/mai-push/ に記録し、ロールバック手順を提示。
 #   - **Web 公開ツリー（/var/www/html）へは何も書かない**。
 #
@@ -44,7 +46,7 @@ for arg in "$@"; do
     --apply) APPLY=1 ;;
     --ppa)   USE_PPA=1 ;;
     --force) FORCE=1 ;;
-    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
+    -h|--help) awk 'NR>1 && /^#/ {print} NR>1 && !/^#/ {exit}' "$0"; exit 0 ;;
     *) echo "error: 不明な引数: $arg（--apply / --ppa / --force のみ）" >&2; exit 1 ;;
   esac
 done
@@ -81,10 +83,13 @@ installed_ver() { dpkg-query -W -f='${Version}' php8.3-fpm 2>/dev/null || echo "
 pkg_upstream_ver() { local v; v="$(installed_ver)"; echo "${v#*:}" | sed 's/+.*//; s/-.*//'; }
 # ※ apt の出力が日本語ロケールだと "Candidate:" が "候補:" になるため LC_ALL=C を固定する
 candidate_ver()   { LC_ALL=C apt-cache policy php8.3-fpm 2>/dev/null | awk '/Candidate:/{print $2}'; }
-# 実際に版数を持つ php8.3-* パッケージ（仮想パッケージは除外）
-installed_php83_pkgs() { dpkg-query -W -f='${Package} ${Version}\n' 'php8.3-*' 2>/dev/null | awk '$2!="" {print $1}'; }
-# A >= B（バージョン比較。8.3.36 >= 8.3.36+200 のような比較は前の欠落で loose に扱う）
-version_ge() { [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -1)" = "$2" ]; }
+# 実際に「導入済み」の php8.3-* のみ（rc 状態・仮想パッケージは除外）
+installed_php83_pkgs() {
+  dpkg-query -W -f='${Package} ${Version} ${db:Status-Status}\n' 'php8.3-*' 2>/dev/null \
+    | awk '$3=="installed" {print $1}'
+}
+# 各パッケージの現在版（ロールバック用）
+pkg_version_of() { dpkg-query -W -f='${Version}' "$1" 2>/dev/null || echo ""; }
 # ローカルの Debian changelog に修正CVEが載っているか（Ubuntu バックポート判定）
 changelog_has_cve() {
   local f
@@ -102,9 +107,8 @@ http_code() {
 
 # --- upstream 判定（ChangeLog-8.php をパース） --------------------------
 # 出力形式（KEY=VALUE）:
-#   latest_83=<最新8.3.x> fix_83=<CVEを含む最初の8.3.x（無ければ空）>
+#   latest_83=<最新8.3.x> fix_83=<CVEを含む最小の8.3.x（無ければ空）>
 #   latest_82/fix_82, latest_84/fix_84, latest_85/fix_85
-UPSTREAM_INFO=""
 fetch_upstream_info() {
   local tmp rc=1
   tmp="$(mktemp)"
@@ -121,9 +125,8 @@ for series in ('8.2', '8.3', '8.4', '8.5'):
     vs.sort(key=key)
     latest = vs[-1] if vs else ''
     fix = ''
-    for v in reversed(vs):                      # 新しい順に見て最初の日付=ship 済み
-        body = dict(pairs)[v]
-        if all(c in body for c in cves):
+    for v in vs:                                # 昇順 = 修正を含む最小版（>= 比較の基準）
+        if all(c in dict(pairs)[v] for c in cves):
             fix = v
             break
     print(f'latest_{series.replace(".", "")}={latest}')
@@ -149,6 +152,7 @@ echo "  php -v       : $(php -v 2>/dev/null | head -1 || echo '（php コマン�
 echo "  fpm サービス : $(systemctl is-active "$FPM_SERVICE" 2>/dev/null || true) / enabled=$(systemctl is-enabled "$FPM_SERVICE" 2>/dev/null || true)"
 echo "  ソケット     : $( [ -S "$FPM_SOCK" ] && echo あり || echo なし )"
 echo "  チャンジログ : $(changelog_has_cve && echo '修正CVE記載あり（適用済み）' || echo '修正CVE記載なし（未適用）')"
+echo "  適用前応答   : origin=$(http_code "${ORIGIN}/") / public=$(http_code "${PUBLIC_URL}/")"
 echo
 
 # 適用済みなら何もしない（冪等）
@@ -159,6 +163,7 @@ fi
 
 # --- 2. upstream の修正版を判定 ----------------------------------------
 log "2) upstream 修正版の判定（${UPSTREAM_CHANGELOG}）"
+UPSTREAM_FIXED=0
 if UPSTREAM_INFO="$(fetch_upstream_info)" && [ -n "$UPSTREAM_INFO" ]; then
   eval "$UPSTREAM_INFO"
   echo "  latest upstream 8.3.x : ${latest_83:-不明}"
@@ -202,23 +207,26 @@ if [ "$UPSTREAM_FIXED" = "0" ] && [ "$FORCE" = "0" ]; then
      23:00（JST）のリリース後に再実行してください:
        bash scripts/php/apply-php-security-patch.sh            # dry-run
        sudo bash scripts/php/apply-php-security-patch.sh --apply
-     （判定を飛ばして続行する場合は --force）"
+     （upstream 判定だけを飛ばす場合は --force）"
 fi
-if [ -n "$CAND" ] && [ "$CAND" != "$INST" ]; then
-  ROUTE="ubuntu"
-  echo "  → 経路A: Ubuntu archive に修正が存在（${INST} → ${CAND}）"
-elif [ "$USE_PPA" = "1" ]; then
+if [ "$USE_PPA" = "1" ]; then
+  ROUTE="ppa"
+  echo "  → 経路B: ondrej/sury PPA（--ppa 指定）"
+  if [ -n "$CAND" ] && [ "$CAND" != "$INST" ]; then
+    warn "Ubuntu archive にも更新（${CAND}）がありますが、--ppa 指定により sury 版に切り替えます。"
+  fi
   if [ "$UPSTREAM_FIXED" = "0" ] && [ "$FORCE" = "0" ]; then
     die "upstream の修正版が未リリースです。--ppa で未修正の版を入れることはしない。"
   fi
-  ROUTE="ppa"
-  echo "  → 経路B: ondrej/sury PPA（--ppa 指定）"
+elif [ -n "$CAND" ] && [ "$CAND" != "$INST" ]; then
+  ROUTE="ubuntu"
+  echo "  → 経路A: Ubuntu archive に修正が存在（${INST} → ${CAND}）"
 else
-  die "Ubuntu archive に修正がありません（candidate=${CAND:-不明} = installed）。
+  die "Ubuntu archive に修正がありません（candidate=${CAND:-不明} = installed=${INST}）。
      選択肢:
        - Canonical の USN が出るまで待つ（unattended-upgrades が自動適用）
        - upstream 版を入れる: sudo bash scripts/php/apply-php-security-patch.sh --apply --ppa
-       - 判定を飛ばす: sudo bash scripts/php/apply-php-security-patch.sh --apply --force"
+     ※ --force は upstream 判定だけを飛ばすもので、Ubuntu に更新が無ければ適用対象がありません。"
 fi
 echo
 
@@ -268,42 +276,51 @@ if [ "$CAND" = "$INST" ]; then
   die "candidate が installed と同じ（${CAND}）。修正が配布されていないか apt の更新に失敗しています。"
 fi
 
-# 5b. シミュレーション（削除が絡むなら中断）
+# 5b. シミュレーション（失敗したら中断・削除が絡むなら中断）
 PKGS="$(installed_php83_pkgs | tr '\n' ' ')"
 PKGS="${PKGS% }"
-[ -n "$PKGS" ] || die "php8.3-* パッケージが見つかりません"
+[ -n "$PKGS" ] || die "導入済みの php8.3-* パッケージが見つかりません"
 echo "  - 対象パッケージ: ${PKGS}"
 echo "  - シミュレーション（apt-get -s install --only-upgrade）"
-SIM="$(LC_ALL=C apt-get -s install --only-upgrade $PKGS 2>&1 || true)"
+if ! SIM="$(LC_ALL=C apt-get -s install --only-upgrade $PKGS 2>&1)"; then
+  echo "$SIM" | sed 's/^/    /' >&2
+  die "シミュレーションが失敗しました（安全ゲートのため中止します）"
+fi
 echo "$SIM" | grep -E '^(Inst|Conf|Remv|The following packages|[0-9]+ upgraded)' | sed 's/^/    /' || true
 if echo "$SIM" | grep -q '^Remv'; then
   die "シミュレーションでパッケージの削除（Remv）が検出されました。適用を中止します。"
 fi
 
-# 5c. ロールバック記録
+# 5c. ロールバック記録（0600 で作成）
 mkdir -p "$STATE_DIR"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 ROLLBACK_FILE="${STATE_DIR}/php-rollback-${STAMP}.txt"
-{
-  echo "# PHP パッチ適用前記録（${STAMP}）"
-  echo "date        : $(date -Is)"
-  echo "pkg_version : ${INST}"
-  echo "pkg_upstream: $(pkg_upstream_ver)"
-  echo "php -v      : $(php -v 2>/dev/null | head -1)"
-  echo "packages    : ${PKGS}"
-  echo "apt policy  :"
-  LC_ALL=C apt-cache policy php8.3-fpm | sed 's/^/  /'
-  echo
-  echo "# ロールバック手順:"
-  echo "#   1) 旧版は noble-updates に残っている場合がある（dpkg の exact 依存のため全パッケージを同版で指定）:"
-  echo "#      sudo apt-get update"
-  echo "#      sudo apt-get install -y --allow-downgrades ${PKGS// /=$INST }"
-  echo "#      sudo systemctl restart ${FPM_SERVICE}"
-  echo "#   2) 旧版が archive から消えている場合はロールバック不可（apt-cache policy で確認すること）"
-  echo "#   3) sury PPA を使った場合は PPA の削除も検討:"
-  echo "#      sudo rm -f ${SURY_LIST} && sudo apt-get update"
-} > "$ROLLBACK_FILE"
-chmod 600 "$ROLLBACK_FILE"
+ROLLBACK_SPEC=""
+for p in $PKGS; do ROLLBACK_SPEC="${ROLLBACK_SPEC} ${p}=$(pkg_version_of "$p")"; done
+ROLLBACK_SPEC="${ROLLBACK_SPEC# }"
+( umask 077
+  {
+    echo "# PHP パッチ適用前記録（${STAMP}）"
+    echo "date        : $(date -Is)"
+    echo "pkg_version : ${INST}"
+    echo "pkg_upstream: $(pkg_upstream_ver)"
+    echo "php -v      : $(php -v 2>/dev/null | head -1)"
+    echo "packages    : ${PKGS}"
+    echo "apt policy  :"
+    LC_ALL=C apt-cache policy php8.3-fpm | sed 's/^/  /'
+    echo
+    echo "# ロールバック手順:"
+    echo "#   1) 旧版は noble-updates 等に残っている場合がある。dpkg の exact 依存"
+    echo "#      （php8.3-common (= 同版)）のため、**全パッケージを同版で指定**すること。"
+    echo "#      ダウングレードになるので --allow-downgrades が必要:"
+    echo "#      sudo apt-get update"
+    echo "#      sudo apt-get install -y --allow-downgrades ${ROLLBACK_SPEC}"
+    echo "#      sudo systemctl restart ${FPM_SERVICE}"
+    echo "#   2) 旧版が archive から消えている場合はロールバック不可（apt-cache policy で確認）"
+    echo "#   3) sury PPA を使った場合は PPA の削除も検討:"
+    echo "#      sudo rm -f ${SURY_LIST} && sudo apt-get update"
+  } > "$ROLLBACK_FILE"
+)
 echo "  - ロールバック記録: $ROLLBACK_FILE"
 
 # 5d. アップグレード（全体 upgrade はしない）

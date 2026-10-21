@@ -45,7 +45,7 @@ changelog_has_cve() {
   done
   return 1
 }
-# upstream の「CVE を含む最初の 8.3.x」を ChangeLog から取得
+# upstream の「CVE を含む最小の 8.3.x」を ChangeLog から取得（>= 比較の基準）
 upstream_fix_version() {
   local tmp
   tmp="$(mktemp)"
@@ -59,7 +59,7 @@ pairs = [(secs[i], secs[i+1]) for i in range(1, len(secs)-1, 2)]
 vs = [v for v, _ in pairs if v.startswith('8.3.')]
 def key(v): return tuple(int(x) for x in v.split('.'))
 vs.sort(key=key)
-for v in reversed(vs):
+for v in vs:                            # 昇順 = 修正を含む最小版
     if all(c in dict(pairs)[v] for c in cves):
         print(v)
         break
@@ -87,8 +87,8 @@ if changelog_has_cve; then
 fi
 FIX_VER="$(upstream_fix_version || true)"
 if [ -n "$FIX_VER" ]; then
-  info "upstream の修正版: ${FIX_VER}"
-  if [ "$UPV" != "$INST" ] && version_ge "$UPV" "$FIX_VER"; then
+  info "upstream の修正版（最小含有版）: ${FIX_VER}"
+  if version_ge "$UPV" "$FIX_VER"; then
     ok "upstream ${UPV} >= ${FIX_VER}（修正を同梱した版）"
     PATCHED=1
   fi

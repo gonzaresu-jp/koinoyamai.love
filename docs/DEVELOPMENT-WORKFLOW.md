@@ -74,6 +74,10 @@ bash scripts/deploy/promote.sh <branch> [--sync-staging] [--no-restart] [--dry-r
 5. sudo が必要な作業（nginx / cloudflared の設定反映）はエージェント不可 → 手動で行う
    - nginx: `sudo cp /home/yuzuki/koinoyamai.love-test/scripts/nginx/mai-test.conf /etc/nginx/mai-test.conf && sudo nginx -t && sudo systemctl reload nginx`
    - cloudflared: config.yml はリモート管理のためダッシュボードの Public Hostname で変更
+6. **PHP ランタイムの更新も sudo 必須 → 手動で行う**（`AGENTS.md §5.1`）
+   - `bash scripts/php/apply-php-security-patch.sh`（dry-run）→ `sudo bash ... --apply` → `bash scripts/php/verify-php-security-patch.sh`
+   - 判定は `php -v` ではなく Debian changelog の CVE 記載で行う（Ubuntu は upstream 版番号が変わらない）
+   - 緊急 RCE (CVE-2026-109618 / 109619) の詳細は `docs/SECURITY.md`
 
 ## セキュリティ履歴（2026-09-20 実施）
 
