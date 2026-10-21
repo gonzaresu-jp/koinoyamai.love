@@ -141,10 +141,20 @@ if (!phpLoc) {
   process.exit(1)
 }
 
-// 対象 2: `location = /henkan/henkan.php`
+// 対象 2: `location = /henkan/henkan.php`（無認証・allow all の旧 RCE 経路）
 const henkanLoc = pickLocation((s) => s === '= /henkan/henkan.php')
 if (!henkanLoc) {
   console.error('ABORT: elza vhost 内の `location = /henkan/henkan.php` が 0 件または複数です（何も書き換えません）')
+  process.exit(1)
+}
+
+// 対象 3: `location = /status.php`（auth_basic 付きだが basedir を緩めると解放される）
+// ★ ガードの目的は「elza vhost で PHP を一切実行しない」ことなので、
+//   **完全一致 location も全て** 404 化する（放置すると basedir を緩めた瞬間に
+//   唯一開いたままの穴が残る）。対象が無ければ ABORT（fail-closed）。
+const statusLoc = pickLocation((s) => s === '= /status.php')
+if (!statusLoc) {
+  console.error('ABORT: elza vhost 内の `location = /status.php` が 0 件または複数です（何も書き換えません）')
   process.exit(1)
 }
 
@@ -155,8 +165,12 @@ function isGuarded(loc) {
   const region = conf.slice(Math.max(0, loc.start - 600), loc.endIdx + 1)
   return region.includes(MARK)
 }
-if (isGuarded(phpLoc) && isGuarded(henkanLoc)) {
+if (isGuarded(phpLoc) && isGuarded(henkanLoc) && isGuarded(statusLoc)) {
   console.log(`SKIP: 適用済み（${MARK} マーカーが存在）`)
+  // ★ 出力ファイルへ**元の conf をコピーして**から exit する。
+  //   これをしないと、ラッパーの `install -m 0644 "$TMP" "$CONF"` が
+  //   **0 byte のファイルで conf を上書き**（＝nginx.conf が空になる・Critical）。
+  fs.writeFileSync(outPath, fs.readFileSync(confPath))
   process.exit(0)
 }
 
@@ -186,6 +200,11 @@ const phpNote = [
   '無認証の公開 RCE になる。よってこの vhost では PHP を実行しない（404）。',
 ].join('\n')
 
+const statusNote = [
+  'guard: 完全一致 location（= /status.php）も 404 化する。',
+  'auth_basic 付きで現状は塞がっているが、open_basedir を緩めた瞬間に',
+  '旧 status.php（shell_exec を 4 回呼ぶ）の RCE 経路が開くため。',
+].join('\n')
 const henkanNote = [
   'exec() と move_uploaded_file() を含む旧処理。allow all で無認証のため無効化。',
 ].join('\n')
@@ -194,6 +213,7 @@ const henkanNote = [
 let out = conf
 const replacements = [
   guardBlock(conf, henkanLoc, henkanNote),
+  guardBlock(conf, statusLoc, statusNote),
   guardBlock(conf, phpLoc, phpNote),
 ].sort((a, b) => b.start - a.start)
 for (const r of replacements) {
@@ -203,5 +223,5 @@ for (const r of replacements) {
 const dest = outPath || confPath
 fs.writeFileSync(dest, out, 'utf8')
 console.log(`OK: elza vhost の PHP 実行を 404 にしました（${MARK}）`)
-console.log(`   対象: location ${phpLoc.spec} / location ${henkanLoc.spec}`)
+console.log(`   対象: location ${phpLoc.spec} / location ${henkanLoc.spec} / location ${statusLoc.spec}`)
 if (dest !== confPath) console.log(`   書き出し先: ${dest}（atomic install は呼び出し側）`)

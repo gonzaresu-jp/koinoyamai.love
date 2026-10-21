@@ -17,7 +17,8 @@ INI="/etc/php/8.3/fpm/php.ini"
 POOL="/etc/php/8.3/fpm/pool.d/www.conf"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PROBE_DIR="${PROBE_DIR:-/var/www/html/koinoyamai.love/webui}"
-PROBE_NAME="_php_hardening_probe_tmp.php"
+# ランダム名（同時に走ったプローブと衝突しない／痕跡を残しにくい）
+PROBE_NAME="_php_hardening_probe_$(date +%s)_$$_$RANDOM.php"
 PROBE="$PROBE_DIR/$PROBE_NAME"
 ORIGIN="${ORIGIN:-http://127.0.0.1:1717}"
 
@@ -59,7 +60,9 @@ echo "--- 2. ランタイムの実測（FPM ワーカーの解釈） ---"
 if [ ! -w "$PROBE_DIR" ]; then
   echo "  [SKIP] $PROBE_DIR に書き込めない（プローブをskip）"
 else
-  cat > "$PROBE" <<'PHP'
+  trap 'rm -f "$PROBE"' EXIT
+
+cat > "$PROBE" <<'PHP'
 <?php
 header('Content-Type: text/plain');
 echo "sapi=", php_sapi_name(), PHP_EOL;

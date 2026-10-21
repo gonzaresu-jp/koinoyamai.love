@@ -16,7 +16,9 @@
 #   [php.ini]（FPM 全体で有効）
 #     disable_functions = exec,system,shell_exec,passthru,popen,proc_open,pcntl_exec,dl
 #       → 任意コマンド実行を止める
-#     open_basedir = <本番docroot>:<staging docroot>:/tmp:/var/lib/php/sessions:/var/lib/mai-push
+#     open_basedir = <本番docroot>:<staging docroot>:/tmp:/var/lib/php/sessions
+#     ※ /var/lib/mai-push は**含めない**（RCE 成立時にベクトルDB や archive を
+#       読めないようするため。backups/ はもともと 750 で www-data から到達不可）
 #       → 任意ファイル読み書きを止める
 #   [pool.d/www.conf]（php_admin_value = スクリプト側の php_value で上書きできない）
 #     php_admin_value[enable_post_data_reading] = Off
@@ -46,7 +48,7 @@ APPLY=0
 [[ "${1:-}" == "--apply" ]] && APPLY=1
 
 DISABLE_FUNCS="exec,system,shell_exec,passthru,popen,proc_open,pcntl_exec,dl"
-OPEN_BASEDIR="/var/www/html/koinoyamai.love/webui:/home/yuzuki/koinoyamai.love-test/webui:/tmp:/var/lib/php/sessions:/var/lib/mai-push"
+OPEN_BASEDIR="/var/www/html/koinoyamai.love/webui:/home/yuzuki/koinoyamai.love-test/webui:/tmp:/var/lib/php/sessions"
 
 echo "=== PHP 実行時ハードニングの適用 ==="
 [ -f "$INI" ] || { echo "[ERR] $INI が見つかりません" >&2; exit 1; }

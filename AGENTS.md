@@ -198,7 +198,8 @@
 - **PHP の実行時緩和策（適用済み・`scripts/php/apply-php-hardening.sh` で再適用可）**:
   - `disable_functions = exec,system,shell_exec,passthru,popen,proc_open,pcntl_exec,dl`
     （`webui/*.php` はこれらの関数を使わない＝grep で 0 件。任意コマンド実行を止める）
-  - `open_basedir = <本番docroot>:<staging docroot>:/tmp:/var/lib/php/sessions:/var/lib/mai-push`
+  - `open_basedir = <本番docroot>:<staging docroot>:/tmp:/var/lib/php/sessions`
+    （**`/var/lib/mai-push` は含めない**：RCE 成立時にベクトルDB や archive を読まれないようするため）
     （PHP は絶対パスを参照せず＝require は /head.php 等の相対のみ、書き込みもなし）
   - `ffi.enable = preload`（既定値も preload。**実行時に `FFI::cdef()` が拒否される**ことを実測確認。
     `disable_functions` の迂回経路を塞ぐ。`ffi.enable=true` に変えるな）

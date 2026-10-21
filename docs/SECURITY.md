@@ -199,8 +199,8 @@ node scripts/ops/regression-test.js --port 18099
 | バージョン | `php8.3-fpm 8.3.6-0ubuntu0.24.04.12`（noble-security） | **未修正 → 影響あり** |
 | 稼働 SAPI | **php-fpm のみ**（`php-cgi` バイナリ無し。apache2 はパッケージ未導入＝dpkg `un`・unit なし・非稼働。`/usr/sbin/apache2` に残骸バイナリは残る） | 攻撃面は nginx→FPM の HTTP のみ |
 | 公開経路 | nginx :1717 / :80 ← cloudflared トンネル（`koinoyamai.love` → :1717、`test.koinoyamai.love` → :80）+ Cloudflare プロキシ | インターネットから到達可能。**origin :1717 は `0.0.0.0` 待ち**のため LAN からは Cloudflare を迂回して直接到達可 |
-| 公開 PHP エンドポイント | `webui/*.php` **18 ファイルすべて 200 で到達可**（`/index.php` `/archive.php` `/logs.php` `/status.php` `/wiki.php` `/guide.php` `/download.php` `/twitter-media.php` `/subtitle-compare.php` ほか） | アプリ層のトリガーは無いが、**コア層 RCE はどれでも到達できる** |
-| アプリコード | `webui/*.php` 18 ファイル。`eval` / `unserialize` / 動的 include / `system` 系は**ゼロ**。`$_POST`/`$_FILES`/`$_REQUEST` も**ゼロ**（method=post のフォームも 0 件） | アプリ層のトリガーは無い。リスクは PHP コア層 |
+| 公開 PHP エンドポイント | `webui/*.php` **19 ファイルすべて 200 で到達可**（`/index.php` `/archive.php` `/logs.php` `/status.php` `/wiki.php` `/guide.php` `/download.php` `/twitter-media.php` `/subtitle-compare.php` ほか） | アプリ層のトリガーは無いが、**コア層 RCE はどれでも到達できる** |
+| アプリコード | `webui/*.php` 19 ファイル。`eval` / `unserialize` / 動的 include / `system` 系は**ゼロ**。`$_POST`/`$_FILES`/`$_REQUEST` も**ゼロ**（method=post のフォームも 0 件） | アプリ層のトリガーは無い。リスクは PHP コア層 |
 | hardening（2026-10-21 適用済み） | `disable_functions`（exec 系 8 個）/ `open_basedir`（docroot 2 つ + /tmp ほか）/ `ffi.enable=preload`（**実行時 `FFI::cdef()` は拒否**＝disable_functions の迂回不可）/ `enable_post_data_reading=Off` | **コマンド実行・任意ファイル読み書きは塞がれている**。RCE 成立時も webui 配下への webshell 設置・同一オリジンフィッシング程度が想定範囲 |
 | 旧版 PHP | `php8.1-*` は**導入されていたが削除済み**（dpkg `rc`・設定だけ残存）。`masked` かつ inactive（upstream 8.1 は 2025-12-31 EOL → 修正は来ない） | 起動しなければ問題なし。追加の --------
 削除は任意 |
@@ -426,7 +426,7 @@ bash scripts/php/verify-php-hardening.sh            # 実測検証（root 不要
 - 適用スクリプトは **fail-closed**：`webui/*.php` に `$_POST`/`$_FILES`/`$_REQUEST` を読む処理、
   method=post のフォームがある、`mb_*` 呼び出しがある、を検出したら**適用せず exit 1** する
   （`enable_post_data_reading=Off` がアプリを壊す状況を先に止める）。
-- **前提条件は回帰テスト [10] で固定**（`npm test` / 94 項目）。
+- **前提条件は回帰テスト [10] で固定**（`npm test` / 96 項目）。
   POST を読まない / method=post フォームなし / `mb_*` を使わない / eval・exec 等を使わない /
   動的 include なし / `archive.php` の `global $domain` あり。
 - 適用前の確認（いずれも実測）:

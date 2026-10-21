@@ -76,11 +76,25 @@ trap 'rm -f "$TMP"' EXIT
 
 # atomic: 一時ファイルへ書き出してから install で差し替える
 "$NODE_BIN" "$PATCH_JS" "$CONF" "$TMP"
+# ★ 出力が空（= 0 byte）なら install しない。
+#   空ファイルを install すると nginx.conf が **0 byte になり**、サイトの全面停止につながる。
+#   （SKIP 経路の JS が outfile を書かない実装だった既知の不具合。双重に防ぐ。）
+if [ ! -s "$TMP" ]; then
+  echo "[ERR] パッチの出力（$TMP）が空です。conf を書き換えずに中断します" >&2
+  exit 1
+fi
 install -m 0644 "$TMP" "$CONF"
 
 # nginx -t が失敗したらバックアップへ戻す（壊れた config を残さない）
 if ! nginx -t; then
   echo "[ERR] nginx -t が失敗したためバックアップへ戻します" >&2
+  # バックアップ取得後に他プロセスが conf を変更していないか確認する。
+  # 変更されている場合（並行した適用）は **復元しない**（他方の変更を潰さない）。
+  if ! cmp -s "$CONF" "$BAK"; then
+    echo "     なお $CONF はバックアップ取得後に変更されています（並行した変更が疑われます）。" >&2
+    echo "     他方の変更を潰さないよう **復元せず中断**します。" >&2
+    exit 1
+  fi
   cp -a "$BAK" "$CONF"
   echo "復元: $CONF" >&2
   if nginx -t; then
