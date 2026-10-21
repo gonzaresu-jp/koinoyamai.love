@@ -35,7 +35,35 @@
 
 ## 5. 依存関係
 - **sqlite3 は 6.0.1 に昇格済み（2026-09-22 本番反映）**。npm audit critical は解消。
-  依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト(41/41) → smoke」を通すこと。
+  依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト(83/83) → smoke」を通すこと。
+- **依存更新の反映は `scripts/deploy/npm-deploy.sh` で行う（2026-10-21 追加）**:
+  - `git pull` は **package-lock.json しか更新しない**。node_modules が旧版のままでは
+    「lockfile 上は安全 / 実際のコードは脆弱」という食い違いが起きる。
+    `npm audit` も lockfile 基準なので、**この乖離を放置すると security-watch が
+    「critical 解消」と誤報する**（偽の安全感）。
+  - `bash scripts/deploy/npm-deploy.sh`（dry-run）→ `--apply` で乖離を検出・修正する。
+    pm2 を停止 → `npm install` → 乖離とモジュールのロードを検証 → 再起動、まで自動。
+    失敗時は lockfile を git から戻して復旧する。
+  - `npm ci` は node_modules を全削除するため**本番では使わない**（レジストリ障害時に
+    依存ごと無くなる）。`npm install` を使う。
+  - `check-drift.sh` が `package-lock.json` の md5 と node_modules の主要パッケージの
+    バージョンを照合して乖離を検出する（`[3]` / `[3.5]`）。
+- **2026-10-21 の依存更新（npm audit fix・force なし）**:
+  | パッケージ | 変更 | 備考 |
+  |---|---|---|
+  | proxy-addr | 2.0.7 → 2.0.8 | **critical 解消**（express の trust proxy 経由の IP スプーフィング） |
+  | undici | 7.22.0 → 7.30.1 | high 解消（利用は cheerio 経由のみ。`globalThis.fetch` は Node 内蔵） |
+  | follow-redirects | 1.16.0 → 1.16.1 | high 解消 |
+  | @fastify/busboy | 3.2.0 → 3.2.3 | high 解消 |
+  | sharp | 0.35.4 → 0.35.5 | libvips 1.3.3 → 1.3.4。ネイティブ再ビルド |
+  | esbuild | 0.28.0 → 0.28.2 | patched 版 |
+  | **firebase（クライアント SDK）** | **削除** | **未使用だった**（Node 側は firebase-admin のみ。webui は gstatic の CDN 版）。削除で advisory 3 件と推移 45 パッケージが消えた |
+  | gaxios | 6.7.1 → 6.3.0 | **ダウングレード**。gaxios 6.4.0+ が脆弱な uuid を依存し 6.x に修正版が無いための意図的な pin 解決 |
+  - 監査結果: **total 28 → 17**（critical **1 → 0** / high 18 → 10 / moderate 7 → 6 / low 2 → 1）
+  - 残 17 件は direct 依存の更新が必要（`puppeteer` → 25.x / `firebase-admin` → 14.x /
+    `@simplewebauthn/server` → 13.3.3）。**破壊的変更を伴うため次回以降に検討**。
+- **`npm audit fix --force` は禁止**。npm の `fixAvailable` は信用せず、
+  ダウングレード提案（例: `firebase` → 9.14.0）はセキュリティ後退なので却下する。
 - **Node.js は v24.22.0 に統一（2026-10-21 反映）**。全プロセスで同じ版を使う。
   - API（`mai-push-api` / `mai-push-api-test`）/ ワーカー（`mai-push-worker` / `mai-push-worker-test`）/
     `discord-bot` = **v24.22.0**（`ecosystem.config.js` の `interpreter` で**全プロセス明示指定**）
@@ -677,7 +705,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-21（§13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す） / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に）
+最終更新: 2026-10-21（§5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
 最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10 待ちタイマーの連打による延長禁止（v1.8.5 / Issue #14）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）
