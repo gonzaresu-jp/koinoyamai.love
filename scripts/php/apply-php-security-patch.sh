@@ -199,7 +199,9 @@ log "4) 適用経路の判定"
 ROUTE=""
 if [ "$UPSTREAM_FIXED" = "0" ] && [ "$FORCE" = "0" ]; then
   die "upstream の修正版が未リリース、または ChangeLog を取得できませんでした。
-     23:00（JST）のリリース後に再実行してください。
+     23:00（JST）のリリース後に再実行してください:
+       bash scripts/php/apply-php-security-patch.sh            # dry-run
+       sudo bash scripts/php/apply-php-security-patch.sh --apply
      （判定を飛ばして続行する場合は --force）"
 fi
 if [ -n "$CAND" ] && [ "$CAND" != "$INST" ]; then
@@ -215,8 +217,8 @@ else
   die "Ubuntu archive に修正がありません（candidate=${CAND:-不明} = installed）。
      選択肢:
        - Canonical の USN が出るまで待つ（unattended-upgrades が自動適用）
-       - upstream 版を入れる: --ppa を付ける
-       - 判定を飛ばす: --force"
+       - upstream 版を入れる: sudo bash scripts/php/apply-php-security-patch.sh --apply --ppa
+       - 判定を飛ばす: sudo bash scripts/php/apply-php-security-patch.sh --apply --force"
 fi
 echo
 
