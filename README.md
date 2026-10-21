@@ -3,6 +3,12 @@
 このリポジトリは「まいちゃん」に関する通知を確実に受け取るための Web 通知サービスの説明と設定手順をまとめたものです。  
 サイト本体は WebUI を介して通知の購読設定を行います。
 
+[![CI](https://github.com/gonzaresu-jp/koinoyamai.love/actions/workflows/ci.yml/badge.svg)](https://github.com/gonzaresu-jp/koinoyamai.love/actions/workflows/ci.yml)
+[![サイト稼働中](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fkoinoyamai.love%2Fapi%2Fhealth&query=%24.status&label=%E3%82%B5%E3%82%A4%E3%83%88&color=green)](https://koinoyamai.love/)
+[![PWA](https://img.shields.io/badge/PWA-%E5%B0%8E%E5%85%A5%E5%8F%AF-6A1FB2?logo=googlechrome&logoColor=white)](https://koinoyamai.love/)
+[![Windows版](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fgonzaresu-jp%2Fkoinoyamai.love%2Fmain%2Fwebui%2Fdl%2Fdesktop.json&query=%24.version&label=Windows%E7%89%88&color=0078D6)](https://koinoyamai.love/download.php)
+[![Android版](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fgonzaresu-jp%2Fkoinoyamai.love%2Fmain%2Fwebui%2Fdl%2Fandroid.json&query=%24.versionName&label=Android%E7%89%88&color=3DDC84)](https://koinoyamai.love/mai-notification.apk)
+
 ---
 
 ## <a href="#user-content-iphoneios">iPhone(iOS)の設定</a>
@@ -39,6 +45,11 @@
 * 記念日通知（デビュー日からの日数、お誕生日、周年など）
 
 > 配信・動画（ツイキャス / YouTube）は5~10秒の遅延で届きます。Twitter は約1分、YouTubeコミュニティ / Pixiv Fanbox は約3分の遅延が発生する場合があります。
+
+[![YouTube](https://img.shields.io/badge/YouTube-%E3%81%BE%E3%81%84%E3%81%A1%E3%82%83%E3%82%93-FF0000?logo=youtube&logoColor=white)](https://www.youtube.com/@koinoyamaich)
+[![TwitCasting](https://img.shields.io/badge/TwitCasting-%E3%81%BE%E3%81%84%E3%81%A1%E3%82%83%E3%82%93-F5A623?logo=twitcasting&logoColor=white)](https://twitcasting.tv/c:koinoya_mai)
+[![X](https://img.shields.io/badge/X-%E3%81%BE%E3%81%84%E3%81%A1%E3%82%83%E3%82%93-000000?logo=x&logoColor=white)](https://x.com/koinoya_mai)
+[![Pixiv Fanbox](https://img.shields.io/badge/Pixiv%20Fanbox-%E3%81%BE%E3%81%84%E3%81%A1%E3%82%83%E3%82%93-FF69B4?logo=pixiv&logoColor=white)](https://www.fanbox.cc/@koinoya-mai)
 
 ---
 
@@ -167,6 +178,13 @@
 ---
 
 ## 開発者メモ
+
+### 技術スタック
+
+[![Node.js](https://img.shields.io/badge/Node.js-22.12.0-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Express](https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white)](https://expressjs.com/)
+[![SQLite](https://img.shields.io/badge/SQLite-3-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![Web Push](https://img.shields.io/badge/Web%20Push-%E9%80%9A%E7%9F%A5%E5%B0%8E%E5%85%A5-ff69b4)](https://developer.mozilla.org/docs/Web/API/Push_API)
 
 # pm2
 
