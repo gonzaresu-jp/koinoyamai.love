@@ -25,6 +25,10 @@ const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
+// dotenv は環境ディレクトリ固定（staging が本番 .env を読む事故を防ぐ。AGENTS.md §11）
+// ※ cron 実行時は環境変数が空なので、.env を読まないと通知が一切飛ばない。
+require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env'), quiet: true });
+
 const CVE_LIST = ['CVE-2026-109618', 'CVE-2026-109619'];
 const LOG_DIR = path.join(__dirname, '..', '..', 'logs');
 const LOG_FILE = path.join(LOG_DIR, 'php-backport-check.log');
@@ -127,9 +131,12 @@ function usingUpstreamBuild() {
   // Discord 通知（失敗しても監視自体は失敗扱いにしない）
   try {
     const notify = require(path.join(__dirname, '..', 'security', 'notify.js'));
-    const hook = process.env.DISCORD_WEBHOOK_URL || '';
-    if (hook && notify.sendDiscord) {
-      await notify.sendDiscord(hook, { title: 'PHP バックポート検知', description: msg, color: 5793266 });
+    // ※ security/notify.js の sendDiscord は **Bot API 実装**（{token, channelId}）。
+    //   webhook URL を渡すと必ず失敗する（DISCORD_WEBHOOK_URL は 2026-10-20 に削除済み）。
+    const cfg = { token: process.env.DISCORD_BOT_TOKEN, channelId: process.env.DISCORD_CHANNEL_ID };
+    if (cfg.token && cfg.channelId && notify.sendDiscord) {
+      const res = await notify.sendDiscord(cfg, { title: 'PHP バックポート検知', description: msg, color: 5793266 });
+      log(res && res.ok ? 'Discord に通知しました' : `Discord 通知に失敗: ${(res && res.error) || 'unknown'}`);
       log('Discord に通知しました');
     } else {
       log('（Discord webhook 未設定のため通知はスキップ）');
