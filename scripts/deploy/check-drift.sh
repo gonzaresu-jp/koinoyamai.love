@@ -107,7 +107,7 @@ say ""
 say "[3] ファイル内容の一致（主要ファイル）"
 # .byte比較で改行コード差も検出する（SHA で厳密に）
 MISMATCH=0
-for f in server.js main.js webui/service-worker.js webui/index.php webui/header.php; do
+for f in server.js main.js package-lock.json webui/service-worker.js webui/index.php webui/header.php; do
   pa="$PROD_DIR/$f"; sa="$STG_DIR/$f"
   [ -f "$pa" ] && [ -f "$sa" ] || continue
   ph=$(md5sum "$pa" | cut -d' ' -f1); sh=$(md5sum "$sa" | cut -d' ' -f1)
@@ -119,6 +119,38 @@ for f in server.js main.js webui/service-worker.js webui/index.php webui/header.
   fi
 done
 [ $MISMATCH -eq 1 ] && drift=1
+
+# --- 3.5 node_modules が package-lock.json に追随しているか ---
+# git pull は lockfile しか更新しないため、node_modules が旧版のままでは
+# 「lockfile では安全 / 実際のコードは脆弱」という食い違いが起きる。
+# npm audit も lockfile 基準なので、この乖離を検出しないと監視が嘘を言う。
+say ""
+say "[3.5] node_modules と package-lock.json の乖離"
+NM_DRIFT=0
+for d in "$PROD_DIR" "$STG_DIR"; do
+  who=$(basename "$d")
+  out=$(cd "$d" && node -e '
+const lock = require("./package-lock.json");
+const pkgs = ["proxy-addr","sharp","esbuild","undici","follow-redirects","firebase-admin","puppeteer","sqlite3","bcrypt"];
+const out = [];
+for (const name of pkgs) {
+  const locked = lock.packages && lock.packages["node_modules/"+name] && lock.packages["node_modules/"+name].version;
+  let installed = null;
+  try { installed = require("./node_modules/"+name+"/package.json").version; } catch (e) {}
+  if (locked && installed && locked !== installed) out.push(`${name} lock=${locked} installed=${installed}`);
+  else if (locked && !installed) out.push(`${name} lock=${locked} installed=(未インストール)`);
+}
+console.log(out.join("\n"));
+' 2>/dev/null || echo "")
+  if [ -n "$out" ]; then
+    say "  ⚠ $who : node_modules が lockfile に追随していません"
+    echo "$out" | sed 's/^/       /' | while IFS= read -r line; do say "$line"; done
+    NM_DRIFT=1
+  else
+    say "  ✓ $who : 乖離なし"
+  fi
+done
+[ $NM_DRIFT -eq 1 ] && drift=1
 
 # --- 4. 未コミット変更 ---
 say ""

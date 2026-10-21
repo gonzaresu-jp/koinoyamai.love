@@ -62,3 +62,40 @@ jobs:
 
       - name: 回帰テスト
         run: npm test
+
+      - name: ネイティブモジュールの実動作 smoke
+        # 回帰テストはネイティブモジュールを「require できる」ことしか見ないため、
+        # 依存更新でネイティブ実体が壊れても気付けない（2026-10-21 レビュー指摘）。
+        # 実際に変換・API 呼出しまで通して、ABI と実装の両方を確認する。
+        run: |
+          node -e "
+          // sharp: 実際にエンコードする（libvips / N-API の整合）
+          const sharp = require('sharp');
+          sharp({ create: { width: 32, height: 32, channels: 3, background: { r: 255, g: 0, b: 0 } } })
+            .jpeg().toBuffer()
+            .then((b) => {
+              if (!b || b.length === 0) throw new Error('sharp のエンコード結果が空');
+              console.log('[smoke] sharp OK', b.length, 'bytes / vips', sharp.versions.vips);
+            })
+            .then(() => {
+              // firebase-admin: FCM 送出に使う API の表面
+              const admin = require('firebase-admin');
+              if (typeof admin.messaging !== 'function') throw new Error('firebase-admin.messaging が無い');
+              if (typeof admin.initializeApp !== 'function') throw new Error('firebase-admin.initializeApp が無い');
+              console.log('[smoke] firebase-admin OK');
+              // web-push: VAPID 設定が通るか（通知経路の入口）。
+              // 鍵は前のステップで生成した vapid.json を使う（ハードコードしない）
+              const wp = require('web-push');
+              const vapid = require('./vapid.json');
+              wp.setVapidDetails('mailto:ci@example.com', vapid.vapidPublicKey, vapid.vapidPrivateKey);
+              console.log('[smoke] web-push OK');
+              // sqlite3 / bcrypt: ネイティブのロードと実際の演算
+              const sqlite3 = require('sqlite3');
+              if (typeof sqlite3.Database !== 'function') throw new Error('sqlite3.Database が無い');
+              const bcrypt = require('bcrypt');
+              const h = bcrypt.hashSync('smoke', 4);
+              if (!bcrypt.compareSync('smoke', h)) throw new Error('bcrypt の照合が失敗');
+              console.log('[smoke] sqlite3 / bcrypt OK');
+            })
+            .catch((e) => { console.error('[smoke] NG:', e.message); process.exit(1); });
+          "
