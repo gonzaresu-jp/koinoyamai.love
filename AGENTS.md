@@ -197,6 +197,11 @@ bash scripts/deploy/verify-deploy.sh webui/<file>.php      # PHP（バイト比�
   `verify-deploy.sh` は other 読み取り不可を検出して exit 1 する。
   `promote.sh` / `deploy-staging.sh` は `umask 002` を固定済み。**手動 `git pull` をするときも
   `umask 002` を先に実行すること**（または pull 後に `chmod 664` を確認）。
+  - ⚠️ **手動の `git checkout --` / `git restore` などの作業ツリー書き換えも同じ**。
+    2026-10-21 実事故: `umask 077` のシェルで `git checkout --` した5ファイルが mode 600 になり、
+    php-fpm (www-data) が読めずトップページが 403・CSS が 404 になった（`chmod 664` で復旧）。
+    **書き換え前に `umask 002`**、書き換えた後に `bash scripts/deploy/verify-deploy.sh <file>` で
+    「other 読み取り不可」が出ていないことを確認する（verify-deploy は権限を検査して exit 1 する）。
 
 ### 7.2 ポート位相の検証（本番操作の**前**に必須）
 ```bash

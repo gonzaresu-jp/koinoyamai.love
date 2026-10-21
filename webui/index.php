@@ -472,7 +472,7 @@
 
             <!-- 次の予定（dotsの下／通知履歴風 左サムネ・右詳細／予定なしは非表示） -->
             <a id="next-event" class="ne-card" href="#" target="_blank" rel="noopener" aria-live="polite">
-                <div class="ne-thumb"><img id="ne-img" src="" alt="次の予定のサムネイル" loading="lazy" referrerpolicy="no-referrer"></div>
+                <div class="ne-thumb"><img id="ne-img" alt="次の予定のサムネイル" loading="lazy" referrerpolicy="no-referrer"></div>
                 <div class="ne-body">
                     <span class="ne-badge">次の予定</span>
                     <div class="ne-title" id="ne-title">—</div>
