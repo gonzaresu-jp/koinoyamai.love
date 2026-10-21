@@ -371,6 +371,35 @@ pm2 logs mai-push-worker --lines 50 | grep '購読リクエスト成功\|成功 
   - `rotate-youtube-webhook-token.sh` … トークンローテーション（.env 差し替え→再起動→再購読）
   - `fix-nginx-token-leak.sh` … http レベルの error_log を debug→notice ＋ ログローテート（sudo）
 
+### 6.9 旅先ディスプレイ（`/display/`）— 2026-10-21 追加
+
+- **https://koinoyamai.love/display/** = サンフランシスコ旅行中に
+  まいちゃんの予定・通知と**現地（America/Los_Angeles）と日本（Asia/Tokyo）の時刻**を
+  確認するための静的ページ。対象端末は Surface Pro 5（2736×1824 / 3:2）。
+- **実体とビルド元は別リポジトリ**（private `gonzaresu-jp/smart-display`）。
+  成果物は `/var/www/html/smart-display/` に置き、nginx の
+  `location ^~ /display/ { alias /var/www/html/smart-display/; index display.html; }` で配信する。
+  - nginx の location 追加: `sudo bash scripts/nginx/apply-display-location.sh --apply`
+    （`display-location.conf` が実体。冪等・fail-closed・`nginx -t` 失敗時は自動復元）
+  - 資産のビルド・配置: smart-display リポジトリの `bash scripts/deploy-display.sh --apply`
+    （`npm run build:display` → rsync → 644/755）
+- **同一オリジンで配信するのが要点**:
+  - 画面は `/api/...` を**絶対パス**で叩く（`API_BASE = ''`）。
+    API の CORS 許可オリジンは `server.js` の `allowedCorsOrigins`（`koinoyamai.love` /
+    `test.koinoyamai.love` / `PUBLIC_URL` / localhost 系）に限られるため、
+    **別オリジンで配信するとブラウザがブロックする**。
+    同一オリジン配信にすることで **CORS 許可オリジンの変更が不要になる**
+    （許可オリジンへ追加する運用も可能だが、公開オリジンを増やす avoidable なので採らない）。
+  - `add_header` を Location に**書かない**ことで server レベルの CSP 等を継承させる（`§11`）。
+- **git 管理ツリーに入れない**: 配置先を `/var/www/html/smart-display/`（リポジトリ外）に置くと、
+  本番ツリーが dirty にならず `check-drift.sh` に引っかからない。
+- ⚠️ **API の `start_time` はタイムゾーン表記が混在している**
+  （`"2026-10-18T23:45:51"` = JST naive / `"...Z"` = UTC）。
+  素の `new Date(str)` はブラウザのローカル TZ で解釈され**現地では16時間ずれる**。
+  smart-display 側は `parseServerTime()` で「オフセット無ければ JST (+09:00)」に統一している。
+  新しい画面を作るときは**必ず `Intl.DateTimeFormat` の `timeZone` を明示**する
+  （端末の TZ 設定に依存させない）。
+
 ## 7. 自動化スクリプト（2026-09-26 追加）— AI はこれを使う
 手動でのミスを防ぐため、以下を実装済み。**作業の対応するフェーズで必ず実行すること。**
 
@@ -713,6 +742,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 | 通知・認証・HMAC | `AGENTS.md §2,§3` / `docs/SECURITY.md` |
 | デプロイ/検証の作法 | `AGENTS.md §7` / `docs/DEVELOPMENT-WORKFLOW.md` |
 | webui 構成/CSP/静的配信 | `docs/ARCHITECTURE.md §4.5` / `AGENTS.md §6.6` |
+| nginx への新ルート追加（例: `/display/`） | `AGENTS.md §6.9` / `docs/ARCHITECTURE.md §4.5b` / `docs/SECURITY.md` |
 | アーカイブ API | `docs/ARCHIVE-ADMIN-SPEC.md` |
 | 予定抽出/スケジュール | `docs/SCHEDULE-FEATURES.md` |
 | 依存パッケージ更新 | `AGENTS.md §5` |
@@ -777,7 +807,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-21（§5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
+最終更新: 2026-10-21（§6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
 最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10 待ちタイマーの連打による延長禁止（v1.8.5 / Issue #14）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）
