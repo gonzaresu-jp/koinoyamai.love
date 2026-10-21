@@ -260,3 +260,88 @@ bash scripts/php/verify-php-security-patch.sh
   EOL 版 PHP の稼働も併せて確認する。
 - 適用後は `journalctl -u php8.3-fpm -n 50` と `nginx access.log` を 10 分程度目視する。
 
+
+---
+
+## 脆弱性・更新の自動監視（security-watch）— 2026-10-21 追加
+
+### なぜ作ったか
+
+これまで PHP / Node.js / npm 依存 / OS パッケージの脆弱性は
+**管理者が偶然チェックした時しか发现されなかった**。
+特に 2026-10-21 の PHP コア RCE（CVE-2026-109618 / CVE-2026-109619）は
+「誰かがタイムラインを見た」ことで対処できたが、
+検知の主体は人であり、**運用の仕組みとして検知が成立していない**状態だった。
+
+`scripts/security/security-watch.js` はこの状態を解消するため、
+**日次 cron で 4 系統を機械判定し、新規に検出されたものだけを通知する**。
+
+### 監視対象と判定方法
+
+| 系統 | データソース | 判定 |
+|---|---|---|
+| Node.js | `https://nodejs.org/dist/index.json` | 導入版より新しいリリースに `security: true` があれば重大。`NODE_EOL` 表で EOL 判定 |
+| PHP 8.3 | `https://www.php.net/ChangeLog-8.php` ＋ `/usr/share/doc/php8.3-fpm/changelog.Debian.gz` | upstream の CVE 集合 − Ubuntu 側 changelog の CVE 集合 ＝ 未バックポート。**バージョン比較はしない**（下記） |
+| npm 依存 | `npm audit --json` | critical=重大 / high=警告 / moderate・low=情報 |
+| OS パッケージ | `apt-get -s dist-upgrade` | `noble-security` pocket からの未適用更新 |
+
+### PHP はバージョン比較では判定できない
+
+Ubuntu は upstream のバージョン文字列（`8.3.6`）を固定したまま、
+**Debian リビジョン**（`-0ubuntu0.24.04.12`）でセキュリティ修正をバックポートする。
+そのため「導入版 < upstream 最新版」だけでは
+**バックポート済みでも常に差分が出てしまう**。
+
+正の判定は **CVE 集合の包含関係**で行う:
+
+```
+未適用 = {upstream 8.3.x（base より新しい）の CVE} − {Ubuntu 側 changelog に記載された CVE}
+```
+
+さらに、Ubuntu が遡及的に言及しない古い CVE で誤検出しないよう、
+upstream 側の公開日が 365 日以内のものだけを対象にする。
+
+> 実測（2026-10-21 / 導入版 `8.3.6-0ubuntu0.24.04.12`）:
+> 未適用 3 件 = CVE-2026-12184（upstream 8.3.32）/ CVE-2026-9672（8.3.33）/ CVE-2026-17545（8.3.35, Windows 専用）
+
+### 通知経路
+
+| 行き先 | 内容 | 備考 |
+|---|---|---|
+| Discord | 指摘の詳細（CVE ID・URL・パッケージ名を含む） | `DISCORD_BOT_TOKEN` / `DISCORD_CHANNEL_ID`（healthcheck.sh と同じ Bot API 方式） |
+| 管理画面 / 公開 status ページ | **カテゴリと件数だけ** | `/api/internal/scraper-status` は**公開エンドポイント**なので CVE ID を流さない |
+| 運用ログ | 全詳細 | `logs/security-watch-YYYYMMDD.log` |
+
+### .alert fatigue 対策（重要）
+
+- **初回は全件を通知しない**。ベースライン登録のみ（概要 1 通）。
+  既に存在する指摘を一斉に鳴らすと通知が埋もれて本当に重要なものを見落とすため。
+- 承受できる指摘は `--ack` で承認する。承認済みはサマリにだけ残り、通知対象外になる。
+- 重大（critical）の指摘が 7 日以上続く場合は「継続中」として 1 回だけ再通知する。
+- 検知できた項目は**再通知しない**（解消したら次の実行で状態から消える）。
+
+### 運用コマンド
+
+```bash
+node scripts/security/security-watch.js --list                    # 現在の指摘と承認済み一覧
+node scripts/security/security-watch.js --ack <key> --note "理由"  # 承認（以降の通知対象外）
+node scripts/security/security-watch.js --unack <key>             # 承認解除
+node scripts/security/security-watch.js --dry-run                  # 通知せず判定だけ
+node scripts/security/security-watch.js --json                     # 判定結果を JSON
+```
+
+- 状態ファイル: `data/security-watch-state.json`（`/data` は gitignore 済み）
+- 実行: `bash scripts/ops/security-watch-cron.sh`（cron は `30 4 * * *`）
+- 解析ロジックのユニットテスト: `scripts/ops/regression-test.js` の `[9]`
+
+### 検知と通知のみ（適用はしない）
+
+`security-watch` は **検知と通知まで**を行う。
+パッチインストール・`npm update`・pm2 の再起動は**行わない**（§5.2）。
+適用は人が判断して行う。PHP の適用手順は上記の「PHP ランタイム」節を参照。
+
+### 監視そのものが壊れていないか
+
+判定できなかった項目は「正常」ではなく **監視失敗（fail-closed）** として扱い、
+`exit code 2` を返す。外部 API の一時的な障害で「正常」と誤判定しない
+（php.net の CDN は時折 504 を返すため、リトライを入れる）。

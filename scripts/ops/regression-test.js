@@ -408,6 +408,106 @@ async function main() {
     server2.close();
     try { fs.unlinkSync(tmpRawLog); } catch (_) {}
 
+    // --- 9. セキュリティ監視の解析ロジック ---
+    // 脆弱性監視（scripts/security/）の判定ロジックは素朴に壊れやすい。
+    // ネットワークに出ない純粋な解析部分だけをフィクスチャで検証する。
+    console.log("[9] セキュリティ監視の解析ロジック");
+    const secChecks = require(path.join(projectDir, "scripts", "security", "checks.js"));
+    const secNotify = require(path.join(projectDir, "scripts", "security", "notify.js"));
+
+    // 9-1. バージョン比較
+    ok("compareVersions: 24.22.0 < 24.22.1", secChecks.compareVersions("v24.22.0", "24.22.1") === -1);
+    ok("compareVersions: 24.22.0 == 24.22.0", secChecks.compareVersions("24.22.0", "v24.22.0") === 0);
+    ok("compareVersions: 24.9.0 > 24.10.0 は false（数値比較に落とし込まない）",
+      secChecks.compareVersions("24.9.0", "24.10.0") === -1);
+
+    // 9-2. node index.json の解析（security フラグの判定）
+    const nodeIdx = secChecks.parseNodeIndex(JSON.stringify([
+      { version: "v24.22.1", date: "2026-11-01", security: true, lts: "Krypton" },
+      { version: "v24.22.0", date: "2026-10-14", security: false, lts: "Krypton" },
+      { version: "v25.0.0", date: "2026-11-01", security: false, lts: false },
+    ]));
+    ok("parseNodeIndex: 件数", nodeIdx.releases.length === 3);
+    ok("parseNodeIndex: security フラグを読む", nodeIdx.releases[0].security === true);
+    ok("parseNodeIndex: security=false を保持", nodeIdx.releases[1].security === false);
+
+    // 9-3. PHP ChangeLog の解析（8.3.x セクションと CVE の抽出）
+    const phpHtml = `
+      <h3>Version 8.3.35</h3><b><time class='releasedate' datetime='2026-09-24'>24 Sep 2026</time></b>
+      <p>Fixed bug GHSA-xxxx (CVE-2026-17545).</p>
+      <h3>Version 8.3.34</h3><b><time class='releasedate' datetime='2026-08-01'>01 Aug 2026</time></b>
+      <p>Fixed bug GHSA-yyyy (CVE-2026-20000).</p>
+      <h3>Version 8.2.9</h3><p>Fixed bug (CVE-2026-30000).</p>
+    `;
+    const phpParsed = secChecks.parsePhpChangelog(phpHtml);
+    ok("parsePhpChangelog: 8.3.35 の CVE を取得", (phpParsed["8.3.35"].cves || []).includes("CVE-2026-17545"));
+    ok("parsePhpChangelog: 公開日を取得", phpParsed["8.3.35"].date === "2026-09-24");
+    ok("parsePhpChangelog: 8.2 系は含めない（8.3 系のみ）", !("8.2.9" in phpParsed));
+
+    // 9-4. Debian パッケージ版から upstream 版を取り出す
+    ok("upstreamPhpBaseFromPackage: 8.3.6-0ubuntu0.24.04.12 -> 8.3.6",
+      secChecks.upstreamPhpBaseFromPackage("8.3.6-0ubuntu0.24.04.12") === "8.3.6");
+    ok("upstreamPhpBaseFromPackage: 8.3.15-1ubuntu8.3 -> 8.3.15",
+      secChecks.upstreamPhpBaseFromPackage("8.3.15-1ubuntu8.3") === "8.3.15");
+
+    // 9-5. apt の dist-upgrade 出力（security pocket の判定）
+    const aptOut = [
+      "Inst ca-certificates [20260601~24.04.1] (20260816ubuntu0.24.04.1 Ubuntu:24.04/noble-security [all])",
+      "Inst google-chrome-stable [155.0.1-1] (156.0.2-1 Google:1.0/stable [amd64])",
+      "Inst liblzma5 [5.6.1+really5.4.5-1ubuntu0.3] (5.6.1+really5.4.5-1ubuntu0.4 Ubuntu:24.04/noble-security [amd64])",
+    ].join("\n");
+    const aptParsed = secChecks.parseAptDistUpgrade(aptOut);
+    ok("parseAptDistUpgrade: security は 2 件", aptParsed.security.length === 2);
+    ok("parseAptDistUpgrade: security 以外は other", aptParsed.other.length === 1);
+    ok("parseAptDistUpgrade: パッケージ名を取り出す", aptParsed.security[0].startsWith("ca-certificates "));
+
+    // 9-6. npm audit の解析
+    const auditParsed = secChecks.parseNpmAudit(JSON.stringify({
+      vulnerabilities: {
+        proxyaddr: { name: "proxy-addr", severity: "critical", isDirect: false, range: "1.1.0 - 2.0.7", fixAvailable: true, via: [{ url: "https://github.com/advisories/GHSA-jqcg-44mw-7w3h" }] },
+        lowpkg: { name: "lowpkg", severity: "low", isDirect: true, range: "1.0.0", fixAvailable: false, via: [] },
+      },
+    }));
+    ok("parseNpmAudit: 件数", auditParsed.advisories.length === 2);
+    ok("parseNpmAudit: critical が先", auditParsed.advisories[0].severity === "critical");
+    ok("parseNpmAudit: advisory URL を保持", (auditParsed.advisories[0].via || []).some((u) => String(u).includes("GHSA-")));
+
+    // 9-7. 通知の差分判定（新規 / 継続 / 解消 / 承認済み）
+    const nowIso = new Date().toISOString();
+    const f1 = { key: "php:CVE-2026-0001", severity: "critical", source: "php", title: "A" };
+    const f2 = { key: "npm:foo", severity: "warning", source: "npm", title: "B" };
+    const st0 = { findings: {}, acknowledged: {} };
+    const d1 = secNotify.diffFindings(st0, [f1, f2], { now: nowIso });
+    ok("diffFindings: 初回は全部新規", d1.isNew.length === 2 && d1.repeating.length === 0);
+
+    const st1 = { findings: d1.current, acknowledged: {} };
+    const d2 = secNotify.diffFindings(st1, [f1, f2], { now: nowIso });
+    ok("diffFindings: 2回目は新規なし", d2.isNew.length === 0 && d2.repeating.length === 0);
+
+    // 8 日後に critical が残る → 継続として再通知
+    const later = new Date(Date.now() + 8 * 24 * 3600 * 1000).toISOString();
+    const d3 = secNotify.diffFindings(st1, [f1, f2], { now: later });
+    ok("diffFindings: critical は 7 日超で再通知", d3.repeating.length === 1 && d3.repeating[0].key === f1.key);
+    ok("diffFindings: warning は再通知しない", d3.repeating.every((f) => f.severity === "critical"));
+
+    // 解消
+    const d4 = secNotify.diffFindings(st1, [f1], { now: nowIso });
+    ok("diffFindings: 解消を検出", d4.resolved.includes("npm:foo"));
+
+    // 承認済みは通知対象外
+    const st2 = { findings: d1.current, acknowledged: { "php:CVE-2026-0001": { note: "影響なし", at: nowIso } } };
+    const d5 = secNotify.diffFindings(st2, [f1, f2], { now: nowIso });
+    ok("diffFindings: 承認済みは new/repeating に出ない", d5.isNew.length === 0 && d5.repeating.length === 0);
+    ok("diffFindings: 承認済みは acknowledged に残る", d5.acknowledged.length === 1);
+
+    // 9-8. 公開サマリに詳細（CVE ID）を漏らさない
+    const pub = secChecks.publicSummary([
+      { source: "php", status: "degraded", summary: "要対応 3 件", findings: [{ severity: "critical", key: "php:CVE-2026-12184" }] },
+      { source: "node", status: "ok", summary: "最新", findings: [] },
+    ]);
+    ok("publicSummary: CVE ID を含まない", !pub.includes("CVE-2026-12184"));
+    ok("publicSummary: 件数だけ出す", pub.includes("要対応 1 件"));
+
     console.log(`\n結果: ${passed} passed, ${failed} failed`);
   } catch (e) {
     failed++;

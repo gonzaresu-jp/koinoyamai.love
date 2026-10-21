@@ -134,6 +134,44 @@
   - **2026-10-21 の件**: CVE-2026-109618 / CVE-2026-109619（PHP コア RCE / CVSS v4.0 9.2）が
     2026-10-21 14:00 UTC（JST 23:00）にリリース。詳細と影響評価は `docs/SECURITY.md` を参照。
 
+### 5.2 脆弱性・更新の自動監視（security-watch）
+- **目的**: 「管理者が偶然見つけないと気づけない」を解消する。`scripts/security/security-watch.js` が
+  **日次 cron**（`30 4 * * *`・`scripts/ops/security-watch-cron.sh`）で 4 系統を機械判定し、
+  **新規に検出されたものだけ**を Discord と管理画面へ通知する。
+- **監視対象（4 系統）**:
+  | 系統 | 判定方法 | 重大度 |
+  |---|---|---|
+  | Node.js | nodejs.org/dist/index.json の `security` フラグ＋EOL 表 | 修正込みリリース=重大 |
+  | PHP 8.3 | upstream ChangeLog-8.php の CVE 集合 − Ubuntu 側 changelog の CVE 集合 | 重大 |
+  | npm 依存 | `npm audit --json`（critical=重大 / high=警告 / 他=情報） | 重大・警告 |
+  | OS パッケージ | `apt-get -s dist-upgrade` の security pocket 差分 | 警告 |
+- **PHP の判定はバージョン比較をしない**（`§5.1` のとおり Ubuntu は upstream のバージョン文字列を
+  固定して Debian リビジョンでバックポートするため）。**CVE 集合の包含関係**で判定し、
+  古い CVE は公開日ベース（365日）で除外する。
+- **検知と通知のみ。適用（パッチインストール・npm update・pm2 再起動）はしない**。適用は人が判断して行う。
+- **通知の再発火制御**:
+
+  ```bash
+  node scripts/security/security-watch.js --list                 # 現在の指摘と承認済み一覧
+  node scripts/security/security-watch.js --ack <key> [--note "理由"]  # 承認（以降の通知対象外）
+  node scripts/security/security-watch.js --unack <key>          # 承認を解除
+  node scripts/security/security-watch.js --dry-run               # 通知せず判定だけ
+  ```
+  - 初回実行は**全件を通知しない**（ベースライン登録のみ・概要 1 通）。
+    既に存在する指摘を一斉に鳴らすと警报が埋もれて alert fatigue になるため。
+  - 承受できる指摘は `--ack` で承認する。承認済みはサマリにだけ残す。
+  - 重大（critical）の指摘が 7 日以上続く場合は「継続中」として 1 回だけ再通知する。
+- **fail-closed**: 判定できなかった項目は「正常」ではなく「監視失敗」として扱い、exit code 2 を返す。
+  監視そのものが壊れていて気づかない状態を作らない。
+- **公開 status ページへ出すのは「カテゴリと件数」だけ**。CVE ID などの詳細は
+  `/api/scraper-status`（**公開エンドポイント**）に流さない。詳細は Discord と運用ログのみ。
+- **報告先は `ecosystem.config.js` から解決する**（cwd が一致するアプリの PORT）。
+  staging ツリーから実行したときに**本番 API（8080）に報告してはいけない**（`§1` のポート位相）。
+- 状態ファイル: `data/security-watch-state.json`（`/data` は gitignore 済み）。
+  解析ロジックのユニットテストは `scripts/ops/regression-test.js` の `[9]`。
+- **新しい Node.js LTS が出たら `scripts/security/checks.js` の `NODE_EOL` 表に追記すること**
+  （表に無いメジャーは EOL 判定をしない）。
+
 ## 6. 検証の作法
 - 変更後は `node --check <file>` → pm2 再起動（`--update-env`）→ **正しいポート**で `/api/health`。
 - 本番 pm2 再起動は作業者の明示承認後にのみ実施。
@@ -353,14 +391,15 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 0 3 * * *   /var/www/html/koinoyamai.love/scripts/ops/backup.sh
 */15 * * * * /var/www/html/koinoyamai.love/scripts/ops/healthcheck.sh
 30 9 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/minutes-gen-cron.sh
+30 4 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/security-watch-cron.sh
 ```
 - いずれも `crontab -l`（yuzuki ユーザー）で確認済み。ログは `logs/`（gitignore 対象）。
 - 追加・変更するときは `crontab -l` の実体とこの表を**同じコミットで**更新する。
 - リポジトリ外の job（`/home/yuzuki/temp.sh` の温度ログ等）は本表の対象外。
 - **cron は `PATH` が `/usr/bin/node`（Node v18 = EOL）を掴む**ため、node を実行する
-  スクリプト（`update-subscribers-and-commit.sh` / `minutes-gen-cron.sh`）は
-  `NODE_BIN` で v24.22.0 を明示指定している（`§5`）。cron ジョブを追加するときは
-  node 実行の有無を確認して同じ扱いにする。
+  スクリプト（`update-subscribers-and-commit.sh` / `minutes-gen-cron.sh` /
+  `security-watch-cron.sh`）は `NODE_BIN` で v24.22.0 を明示指定している（`§5`）。
+  cron ジョブを追加するときは node 実行の有無を確認して同じ扱いにする。
 
 ### 7.7 改行コード
 `.gitattributes` で `text=auto eol=lf` を設定済み。LF→CRLF 混入で作業ツリーが
