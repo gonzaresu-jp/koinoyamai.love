@@ -114,6 +114,9 @@ admin/webauthn.js
 
 # ---------- 依存関係・フォント ----------
 node_modules/
+# worktree で `ln -s` した node_modules は symlink（=ファイル扱い）で
+# `node_modules/` にマッチしない。`git add -A` での誤コミット防止にスラッシュ無しも併記。
+node_modules
 Windows/**/node_modules/
 webui/fontawesome-free-7.2.0-web
 webui/styles

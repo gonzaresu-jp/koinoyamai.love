@@ -23,7 +23,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
 # node は明示指定する（PATH 依存だと cron/sudo 経由で /usr/bin/node = v18 EOL を掴むため。AGENTS.md §5）
-NODE_BIN="/home/yuzuki/.nvm/versions/node/v24.22.0/bin/node"
+NODE_BIN="/home/yuzuki/.nvm/versions/node/v24.22.1/bin/node"
 
 # 期待値（AGENTS.md §1 と整合。tree ごとに別ファイルへ hardcode しない）
 PROD_PORT=8080

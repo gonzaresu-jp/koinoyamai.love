@@ -25,7 +25,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
-NODE_BIN="/home/yuzuki/.nvm/versions/node/v24.22.0/bin/node"
+NODE_BIN="/home/yuzuki/.nvm/versions/node/v24.22.1/bin/node"
 LOG_PREFIX="[subscribers-commit]"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $LOG_PREFIX $*"; }

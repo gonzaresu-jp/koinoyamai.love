@@ -64,28 +64,37 @@
     `@simplewebauthn/server` → 13.3.3）。**破壊的変更を伴うため次回以降に検討**。
 - **`npm audit fix --force` は禁止**。npm の `fixAvailable` は信用せず、
   ダウングレード提案（例: `firebase` → 9.14.0）はセキュリティ後退なので却下する。
-- **Node.js は v24.22.0 に統一（2026-10-21 反映）**。全プロセスで同じ版を使う。
+- **Node.js は v24.22.1 に統一（2026-10-21 反映）**。全プロセスで同じ版を使う。
+  - v24.22.1 は **2026-10-21 リリースの security release**（CVE-2026-105481/105482/105483/106069/106073/106074/111497
+    + OpenSSL 3.5.9 / NSS 3.131.1 / c-ares 1.34.9 / timezone 2026e / undici 7.30.1）。
   - API（`mai-push-api` / `mai-push-api-test`）/ ワーカー（`mai-push-worker` / `mai-push-worker-test`）/
-    `discord-bot` = **v24.22.0**（`ecosystem.config.js` の `interpreter` で**全プロセス明示指定**）
-  - systemd `pi-vector.service` = v24.22.0（`~/.config/systemd/user/pi-vector.service` の `ExecStart`）
-  - **pm2 デーモン（God Daemon）も v24.22.0**（2026-10-21 移行済み）。
-    systemd `pm2-yuzuki.service` の `Environment=PATH` の先頭に nvm の bin を追加してあるので、
-    `pm2 resurrect` で起動する daemon も v24.22.0 で動く。
-    移行は `~/migrate-pm2-daemon-node24.sh`（dry-run → `sudo ... --apply`。unit と dump のバックアップ付き）。
+    `discord-bot` = **v24.22.1**（`ecosystem.config.js` の `interpreter` で**全プロセス明示指定**）
+  - systemd `pi-vector.service` = v24.22.1（`~/.config/systemd/user/pi-vector.service` の `ExecStart`）
+  - **pm2 デーモン（God Daemon）も v24.22.1 にする**（systemd `pm2-yuzuki.service` の
+    `Environment=PATH` の先頭に nvm の bin を追加してある。`pm2 resurrect` で起動する daemon の Node）。
     ※ daemon の Node はアプリの実行 Node には影響しない（全アプリが `exec_interpreter` の絶対パスを保持）が、
-    **interpreter 未指定で追加したプロセスが PATH 解決で EOL 版を掴むのを防ぐ**ため揃えている。
-  - **他プロジェクト（fcpass / air-monitor / hitori-twitter / squiish / upload-file）も v24.22.0 に統一（2026-10-21）。**
+    **interpreter 未指定で追加したプロセスが PATH 解決で EOL 版を掴むのを防ぐ**ため揃える。
+  - **パッチ版の移行は `scripts/deploy/migrate-node-patch.sh` を使う**（`--from` / `--to` 指定可）。
+    `~/migrate-pm2-daemon-node24.sh` / `~/migrate-other-apps-node24.sh` は **v24.22.0 固定で古い**ので
+    参照先にならない（_patch 版の適用は本リポジトリ内のスクリプトで統一する_）。
+    - 本リポジトリ4本（`mai-push-api` / `mai-push-worker` / `discord-bot` / `mai-push-api-test`）は
+      `ecosystem.config.js --only`、他5本は `--interpreter` 明示で起動。
+      1本ずつ移行し `/proc/<pid>/exe` とポート応答を検証、失敗したアプリだけ旧版へ戻す。
+    - **リポジトリ外**（root 必要・別手順）: systemd `pm2-yuzuki.service` の PATH /
+      `pi-vector.service` の ExecStart / `/opt/hitori-twitter/hitori-twitter.service` の ExecStart /
+      `/var/www/html/upload/ecosystem.config.js` の interpreter。
+      移行スクリプトの完了メッセージに残作业一覧が出る。
+  - **他プロジェクト（fcpass / air-monitor / hitori-twitter / squiish / upload-file）も v24.22.1 に統一（2026-10-21）。**
     同じ pm2 デーモンが管理している別プロジェクト。git 管理外・ネイティブモジュールなし
     （express / multer / qrcode / cors / serve のみ）なので、応答バイト数が一致することを
-    確認済み。移行は `~/migrate-other-apps-node24.sh`（dry-run → `--apply`。
-    1本ずつ移行し失敗時は旧 interpreter へロールバック・pm2 jlist のバックアップ付き）。
+    確認済み。移行は `scripts/deploy/migrate-node-patch.sh`（本リポジトリ内・dry-run → `--apply`）。
     - `fcpass` :7080 / `air-monitor` :3131 / `hitori-twitter` :3333 / `squiish` :5000 / `upload-file` :3100
     - `upload-file` は `/var/www/html/upload/ecosystem.config.js` を持つ（interpreter も更新済み・バックアップあり）
-    - `squiish` は `npm run serve` を起動するため **pm2 の exec は npm 本体**（`.../v24.22.0/bin/npm`）。
+    - `squiish` は `npm run serve` を起動するため **pm2 の exec は npm 本体**（`.../v24.22.1/bin/npm`）。
       `DEV_PORT=5000` を引き継ぐこと
     - `/opt/hitori-twitter/hitori-twitter.service` は systemd 未導入のテンプレート unit だが、
-      `ExecStart` が `/usr/bin/node`（v18 EOL）参照のままだったので v24.22.0 に更新済み
-  - cron 実行スクリプト（`update-subscribers-and-commit.sh` / `minutes-gen-cron.sh`）= v24.22.0（`NODE_BIN` で固定）
+      `ExecStart` が `/usr/bin/node`（v18 EOL）参照のままだったので v24.22.1 に更新済み
+  - cron 実行スクリプト（`update-subscribers-and-commit.sh` / `minutes-gen-cron.sh`）= v24.22.1（`NODE_BIN` で固定）
   - CI（`.github/workflows/ci.yml`）= `node-version: '24'`
   - **過去の既定値（process ごとのバージョン違い）は 2026-10-21 に廃止した。**
     当時は API=v22.12.0 / ワーカー・discord-bot=v20.18.1(EOL) / cron=`/usr/bin/node`=v18.19.1(EOL) と
@@ -115,8 +124,9 @@
   `mai-push-worker-test` は常時停止運用（x.com 等への負荷）なので、対象を `--only` で明示する
   （`scripts/deploy/restart.sh` の `all` は本番3プロセスだけを対象にしている）。
 - ネイティブモジュール（sqlite3 / bcrypt / sharp / esbuild）は N-API のため v22 でも v24 でもロードできる（実測済み）。
-  ただし**ビルドと実行の Node を揃える**こと。ネイティブモジュールをビルドする際は `PATH` を v24 優先にして
-  `npm install` すること。
+  **パッチ版（v24.22.0 → v24.22.1）も同一の `NODE_MODULE_VERSION`（napi 10 / modules 137）で互換**（実測済み）。
+  ただし**ビルドと実行の Node を揃える**こと（major/minor を跨ぐ場合は再ビルドが必要）。
+  ネイティブモジュールをビルドする際は `PATH` を v24 優先にして `npm install` すること。
 - **`package.json` の `allowScripts` を触らないこと**（npm 11 の install script 許可リスト）。
   Node 24 同梱の npm 11 は install script を「警告のみ」で実行するが、将来の Phase 2 で
   unreviewed な package の script をブロックする。sqlite3 / bcrypt は N-API だが **install script 無しでは
@@ -495,7 +505,7 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 - リポジトリ外の job（`/home/yuzuki/temp.sh` の温度ログ等）は本表の対象外。
 - **cron は `PATH` が `/usr/bin/node`（Node v18 = EOL）を掴む**ため、node を実行する
   スクリプト（`update-subscribers-and-commit.sh` / `minutes-gen-cron.sh` /
-  `security-watch-cron.sh`）は `NODE_BIN` で v24.22.0 を明示指定している（`§5`）。
+  `security-watch-cron.sh`）は `NODE_BIN` で v24.22.1 を明示指定している（`§5`）。
   cron ジョブを追加するときは node 実行の有無を確認して同じ扱いにする。
 
 ### 7.7 改行コード
@@ -536,7 +546,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   ※ 旧「EMBEDDING_ENDPOINT（ollama bge-m3）停止で `/api/ask` が 503」の記述は**失効（解消済み）**。
   ※ `pi-vector-service/` は 32bit Pi 向け依存ゼロ実装を母艦へ移設したもので**削除禁止**。
     unit は `~/.config/systemd/user/pi-vector.service`（`Restart=always`・enabled）。
-    `ExecStart` は Node v24.22.0（§5 のとおり全プロセス統一）。依存ゼロコードのため実害は 없었으나、
+    `ExecStart` は Node v24.22.1（§5 のとおり全プロセス統一）。依存ゼロコードのため実害は 없었으나、
     EOL 版（v20）を掴んでいたので 2026-10-21 に更新した。
   ※ 「ローカルLLM運用は不可（ユーザー指示）」は**回答生成LLMに限る**。埋め込みは上記の通り
     ローカル（llama.cpp）で稼働しており、この指示の対象外。
@@ -680,9 +690,9 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     `services/db-guard.js` が Database.prototype に既定のエラーコールバックを差すので、
     これを require している（`server.js` / `main.js` / `services/context.js`）。
     **新しい DB 実装でも require を忘れないこと**
-- **ネイティブビルドは Node v24 優先**: 全プロセスが v24.22.0（`§5`）。
+- **ネイティブビルドは Node v24 優先**: 全プロセスが v24.22.1（`§5`）。
   ビルドと実行の Node を揃えること（別の版でビルドして別の版で実行すると ABI 不一致）。
-  `PATH` は `~/.nvm/versions/node/v24.22.0/bin` を先頭に置く。
+  `PATH` は `~/.nvm/versions/node/v24.22.1/bin` を先頭に置く。
 - **nginx の `add_header` は Location に 1 つでもあれば server レベルを継承しない（2026-10-21 実測）**:
   - 公開 vhost は Cache-Control / Pragma / Expires を Location ごとに書いていたため、
     server レベルに置いていた **CSP / X-Frame-Options などが PHP 配信ページ（サイトの本体）
@@ -807,7 +817,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-21（§6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
+最終更新: 2026-10-21（§5 Node.js を v24.22.1 に更新（2026-10-21 の security release）・パッチ版移行スクリプト scripts/deploy/migrate-node-patch.sh を追加（pm2 save 必須・旧 ~/migrate-*.sh は v24.22.0 固定で参照先ではない） / §6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
 最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10 待ちタイマーの連打による延長禁止（v1.8.5 / Issue #14）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）

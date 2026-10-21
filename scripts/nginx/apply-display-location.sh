@@ -27,7 +27,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BLOCK_FILE="$REPO_ROOT/scripts/nginx/display-location.conf"
 PATCH_JS="$REPO_ROOT/scripts/nginx/apply-display-location.js"
 # node は明示指定する（sudo 実行では nvm の PATH が読めず /usr/bin/node = v18 EOL を掴むため。AGENTS.md §5）
-NODE_BIN="${NODE_BIN:-/home/yuzuki/.nvm/versions/node/v24.22.0/bin/node}"
+NODE_BIN="${NODE_BIN:-/home/yuzuki/.nvm/versions/node/v24.22.1/bin/node}"
 
 [ -f "$CONF" ] || { echo "[ERR] $CONF が見つかりません"; exit 1; }
 [ -f "$BLOCK_FILE" ] || { echo "[ERR] $BLOCK_FILE が見つかりません"; exit 1; }

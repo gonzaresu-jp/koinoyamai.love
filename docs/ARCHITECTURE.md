@@ -40,7 +40,7 @@
 | `discord-bot` | – | – | `/var/www/html/koinoyamai.love/discord-bot.js` | |
 | `php8.3-fpm` | – | unix socket | `/etc/php/8.3/fpm/php-fpm.conf` | `webui/*.php` の配信 SAPI。`/run/php/php8.3-fpm.sock`。nginx が `fastcgi_pass` で向く（`AGENTS.md §5.1`） |
 
-- 定義は `ecosystem.config.js`。**Node は v24.22.0 に統一**し、全プロセスで `interpreter` を明示指定する
+- 定義は `ecosystem.config.js`。**Node は v24.22.1 に統一**し、全プロセスで `interpreter` を明示指定する
   （既定 node = nvm alias に依存すると版が混在する／cron の `PATH` は `/usr/bin/node`=v18 を掴む）。`AGENTS.md §5` 参照。
 - **`curl localhost:8081` は staging**。本番検証と誤認しないこと（`AGENTS.md §1`）。検証前に `bash scripts/deploy/assert-port.sh prod|staging`。
 
@@ -242,7 +242,7 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 - 配置手順は smart-display リポジトリの `scripts/deploy-display.sh`（`--apply` で rsync）。
 
 ### 4.6 `scripts/`（運用）
-- **`deploy/`**: `deploy-staging.sh` / `promote.sh`（staging→prod）/ `verify-deploy.sh`（バイト比較＋権限検査）/ `assert-port.sh` / `check-drift.sh` / `sync-test-db.sh` / `restart.sh` / `migrate-domain-final.sh`（ドメイン最終移行の適用スクリプト・1回限り）
+- **`deploy/`**: `deploy-staging.sh` / `promote.sh`（staging→prod）/ `verify-deploy.sh`（バイト比較＋権限検査）/ `assert-port.sh` / `check-drift.sh` / `sync-test-db.sh` / `restart.sh` / `migrate-domain-final.sh`（ドメイン最終移行の適用スクリプト・1回限り）/ `npm-deploy.sh`（node_modules 乖離の検出・修正）/ `migrate-node-patch.sh`（Node パッチ版の移行。`--from`/`--to` 指定可。1本ずつ移行し exe とポートを検証・失敗は旧版へ戻す・最後に `pm2 save`）
 - **`ops/`**: `regression-test.js`（`npm test`）/ `health-check.js`（`npm run health`）/ `backup.sh` / `healthcheck.sh` / `count-lines.sh` / `check-native.{sh,js}` / `minutes-gen*` / `update-subscribers*` / `security-watch-cron.sh`（脆弱性監視の cron ラッパ・flock・ログは `logs/security-watch-YYYYMMDD.log`）
 - **`security/`**: 脆弱性・更新の自動監視（`security-watch.js` = 本体 / `checks.js` = 判定ロジック / `notify.js` = 状態管理・通知）。Node.js / PHP 8.3 / npm 依存 / OS パッケージの 4 系統を日次判定し、新規検出分のみ通知する。`AGENTS.md §5.2` / `docs/SECURITY.md` 参照
 - **`tools/`**: `build-android-apk.sh` / 単発メンテ（`dedupe-media`・`mine-personality`・`twitter-stats`・`whisper-subs`・`render-compare-html`・`fix-notification-platform`）

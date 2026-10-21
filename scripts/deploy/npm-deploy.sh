@@ -28,7 +28,7 @@
 set -euo pipefail
 
 ROOT="${ROOT:-/var/www/html/koinoyamai.love}"
-NODE_BIN="${NODE_BIN:-/home/yuzuki/.nvm/versions/node/v24.22.0/bin/node}"
+NODE_BIN="${NODE_BIN:-/home/yuzuki/.nvm/versions/node/v24.22.1/bin/node}"
 NPM_BIN="$(dirname "$NODE_BIN")/npm"
 APPLY=0
 [[ "${1:-}" == "--apply" ]] && APPLY=1
