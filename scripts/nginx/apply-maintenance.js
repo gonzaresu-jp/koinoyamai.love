@@ -81,12 +81,13 @@ function findServerBlock(conf, cond) {
 let rc = 0
 for (const file of files) {
   if (!fs.existsSync(file)) {
-    console.error(`SKIP: ${file} がありません`)
+    console.error(`ABORT: ${file} がありません`)
+    rc = 1
     continue
   }
   const conf = fs.readFileSync(file, 'utf8')
-  const isMaiTest = file.endsWith('mai-test.conf')
-  const cond = isMaiTest
+  // 対象は server_name で判定する（ファイル名依存にしない）
+  const cond = /server_name[^;]*test\.koinoyamai\.love/.test(conf)
     ? { serverName: 'test.koinoyamai.love' }
     : { listen: '1717', serverName: 'koinoyamai.love' }
 

@@ -154,9 +154,17 @@
     止まらない（＝通知は届き続け、デスクトップアプリも動く）。
   - ⚠️ **`location = /status.php` のような完全一致 location は regex より優先される**。
     該当 vhost（1717 / staging）には無いが、追加する場合は確認すること。
-    elza vhost（:80）の旧 PHP は `scripts/nginx/apply-php-exec-guard.sh` を使う。
+    elza vhost（:80）の旧 PHP（`location = /henkan/henkan.php` 等）は完全一致のため本スニペットでは
+    止まらない。**別 PR #50 の `scripts/nginx/apply-php-exec-guard.sh`** で 404 化する
+    （elza vhost は Cloudflare トンネル対象外・tailnet 限定のため攻撃面は限定的）。
   - **パッチ適用後の復旧は `sudo bash scripts/php/patch-and-resume.sh` 1 本**
-    （パッチ適用 → 検証 → メンテナンス解除 → pm2 再開 → 最終確認）。
+    （パッチ適用 → パッチ状態のみ検証 → メンテナンス解除 → pm2 再開 → 最終確認）。
+    ※ 検証は `verify-php-security-patch.sh --patch-only` で行う（メンテナンス中は
+    サイトの応答が 503 なので、200 を期待する通常モードでは必ず失敗する）。
+  - **メンテナンスページは `/var/www/html/maintenance.html`（リポジトリ外）**。
+    実体は `scripts/nginx/maintenance.html` で、`apply-maintenance.sh --on` が 644 で配置する。
+    **www-data（nginx worker）が読めない権限だと `try_files` が 404 にフォールバックし
+    503 にならない**（実測）ため、配置後に権限を必ず確認する。
 - **未バックポートの CVE は「Canonical のバックポートを待つ」方針（2026-10-21 決定）**:
   - security-watch が検出した未適用 3 件:
     **CVE-2026-12184**（upstream 8.3.32）/ **CVE-2026-9672**（8.3.33）/ **CVE-2026-17545**（8.3.35・Windows 専用）

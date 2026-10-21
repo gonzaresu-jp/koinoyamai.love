@@ -15,6 +15,17 @@
 # 終了コード: 0 = 修正済み / 1 = 未修正 or 異常あり
 set -uo pipefail
 
+# --patch-only: パッチ状態（changelog の CVE 記載・fpm 稼働・バイナリ）だけを確認する。
+# サイトの応答はメンテナンスモード解除後にはじめて 200 になるため、
+# パッチ直後（メンテナンス中）の検証では 503 が正しい。
+PATCH_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --patch-only) PATCH_ONLY=1 ;;
+    *) echo "error: 不明な引数: $arg（--patch-only のみ）" >&2; exit 1 ;;
+  esac
+done
+
 CVE_RE="CVE-2026-10961[89]"
 CVE_LIST=("CVE-2026-109618" "CVE-2026-109619")
 UPSTREAM_CHANGELOG="https://www.php.net/ChangeLog-8.php"
@@ -156,14 +167,18 @@ fi
 echo
 
 # --- 4) サイトの応答 ----------------------------------------------------
-echo "--- 4) サイトの応答 ---"
-C1="$(http_code "${ORIGIN}/")"
-[ "$C1" = "200" ] && ok "本番 vhost 直叩き ${ORIGIN}/ : HTTP $C1" || ng "本番 vhost 直叩き ${ORIGIN}/ : HTTP $C1"
-C2="$(http_code "${PUBLIC_URL}/")"
-[ "$C2" = "200" ] && ok "公開 URL ${PUBLIC_URL}/ : HTTP $C2" || ng "公開 URL ${PUBLIC_URL}/ : HTTP $C2"
-C3="$(http_code "${ORIGIN}/index.php")"
-[ "$C3" = "200" ] && ok "PHP 直実行 ${ORIGIN}/index.php : HTTP $C3" || ng "PHP 直実行 ${ORIGIN}/index.php : HTTP $C3"
-echo
+if [ "$PATCH_ONLY" = "1" ]; then
+  echo "--- 4) サイトの応答: スキップ（--patch-only: メンテナンス中は 503 が正しい）---"
+else
+  echo "--- 4) サイトの応答 ---"
+  C1="$(http_code "${ORIGIN}/")"
+  [ "$C1" = "200" ] && ok "本番 vhost 直叩き ${ORIGIN}/ : HTTP $C1" || ng "本番 vhost 直叩き ${ORIGIN}/ : HTTP $C1"
+  C2="$(http_code "${PUBLIC_URL}/")"
+  [ "$C2" = "200" ] && ok "公開 URL ${PUBLIC_URL}/ : HTTP $C2" || ng "公開 URL ${PUBLIC_URL}/ : HTTP $C2"
+  C3="$(http_code "${ORIGIN}/index.php")"
+  [ "$C3" = "200" ] && ok "PHP 直実行 ${ORIGIN}/index.php : HTTP $C3" || ng "PHP 直実行 ${ORIGIN}/index.php : HTTP $C3"
+  echo
+fi
 
 # --- 5) webshell 簡易チェック -------------------------------------------
 echo "--- 5) .php の混入チェック（webshell 簡易）---"

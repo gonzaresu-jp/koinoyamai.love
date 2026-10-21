@@ -89,11 +89,14 @@ bash scripts/deploy/promote.sh <branch> [--sync-staging] [--no-restart] [--dry-r
      - `nginx` の `add_header` は **Location 内に 1 つでもあれば server レベルを継承しない**ため、
        include を各 Location から入れる必要がある（`AGENTS.md §11`）
    - cloudflared: config.yml はリモート管理のためダッシュボードの Public Hostname で変更
-6. **nginx への新ルート追加も sudo 必須 → 手動で行う**（`AGENTS.md §6.9`）
+6. **PHP コア RCE 期間の隔離・復旧も sudo 必須 → 手動で行う**（`AGENTS.md §5.1`）
+   - 隔離: `sudo bash scripts/nginx/apply-maintenance.sh --on`（公開 PHP ページを 503 化。解除は `--off`）
+   - 復旧: `sudo bash scripts/php/patch-and-resume.sh`（パッチ適用 → 検証 → 解除 → pm2 再開 → 最終確認）
+7. **nginx への新ルート追加も sudo 必須 → 手動で行う**（`AGENTS.md §6.9`）
    - 旅先ディスプレイ: `sudo bash scripts/nginx/apply-display-location.sh --apply`
      （冪等・fail-closed・`nginx -t` 失敗時は自動復元。資産の配置は
      smart-display リポジトリの `scripts/deploy-display.sh --apply` で行う）
-7. **PHP ランタイムの更新も sudo 必須 → 手動で行う**（`AGENTS.md §5.1`）
+8. **PHP ランタイムの更新も sudo 必須 → 手動で行う**（`AGENTS.md §5.1`）
    - `bash scripts/php/apply-php-security-patch.sh`（dry-run）→ `sudo bash ... --apply` → `bash scripts/php/verify-php-security-patch.sh`
    - 判定は `php -v` ではなく Debian changelog の CVE 記載で行う（Ubuntu は upstream 版番号が変わらない）
    - 緊急 RCE (CVE-2026-109618 / 109619) の詳細は `docs/SECURITY.md`
