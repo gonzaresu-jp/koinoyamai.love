@@ -49,5 +49,13 @@
   },
   "devDependencies": {
     "esbuild": "^0.28.0"
+  },
+  "allowScripts": {
+    "@firebase/util": true,
+    "bcrypt": true,
+    "esbuild": true,
+    "protobufjs": true,
+    "puppeteer": true,
+    "sqlite3": true
   }
 }
