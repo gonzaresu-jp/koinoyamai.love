@@ -5,7 +5,7 @@
 ;   出力: installer\MaiPush-<MyAppVersion>-Setup.exe
 
 #define MyAppName "まいちゃん通知"
-#define MyAppVersion "1.8.5"
+#define MyAppVersion "1.8.6"
 #define MyAppPublisher "koinoyamai"
 #define MyAppURL "https://koinoyamai.love"
 #define MyAppExeName "まいちゃん通知.exe"

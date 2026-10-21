@@ -40,6 +40,8 @@ public sealed partial class MainWindow : Window
 
     // タブドラッグ中は HTCAPTION を抑制する
     private bool _tabStripPointerPressed = false;
+    // AppWindow.Changed の例外ログは 5 秒に 1 回へ制限する（連発でログが溢れる・UI が詰まる）
+    private readonly Diagnostics.ThrottledFault _appWindowFaultLog = new(5000);
     // AddButton 右端の物理ピクセル X（Chrome 方式: これより右がウィンドウドラッグ領域）
     private int _tabAreaRight = 0;
     // フローティングドラッグゴースト用
@@ -52,7 +54,6 @@ public sealed partial class MainWindow : Window
     // 400ms のタイマーが延長され続けて折りたたまれない不具合の防止, Issue #14）
     private bool _collapsePending = false;
     private DispatcherQueueTimer? _collapseTimer;
-    private DispatcherQueueTimer? _showTimer;
     private DispatcherQueueTimer? _animTimer;
     private double _animFromY, _animToY;
     private long _animStartMs;
@@ -79,10 +80,11 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         StyleCaptionButtons();
         // AppWindow.Changed は UI スレッドのコールバック。例外境界で包む（§10 / Issue #10 と同じ方針）
+        // 最小化/復帰や監視構成変更で連発しうるのでログは 5 秒に 1 回へ制限する（Issue #17）
         _appWindow.Changed += (_, _) =>
         {
             try { UpdateCaptionPadding(); }
-            catch (Exception ex) { Diagnostics.Log("AppWindow.Changed", ex); }
+            catch (Exception ex) { _appWindowFaultLog.Report("AppWindow.Changed", ex); }
         };
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, UpdateDragRects);
 
@@ -238,26 +240,26 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private long _lastWndProcLogMs;
-    private int _wndProcFaultSuppressed;
+    // WndProc の例外ログは 5 秒に 1 回へ制限する（メッセージポンプの詰まり防止）
+    private readonly Diagnostics.ThrottledFault _wndProcFaultLog = new(5000);
 
     /// <summary>WndProc の例外ログを 5 秒に1回へ制限する（メッセージポンプの詰まり防止）</summary>
-    private void LogWndProcFault(Exception ex)
+    private void LogWndProcFault(Exception ex) => _wndProcFaultLog.Report("WndProc", ex);
+
+    // UI コールバックの例外ログもソースごとに連発を制限する（Issue #17 / task 1）。
+    // 例外境界に入れた箇所は繰り返し失敗しうるため、同期ファイル書き込みが連発すると
+    // UI スレッドが詰まり、log.txt も溢れる（AppWindow.Changed は最小化/復帰・監視変更で連発）。
+    private readonly Dictionary<string, Diagnostics.ThrottledFault> _uiFaultLogs = new();
+
+    /// <summary>ソースごとの連発抑制ロガーを返す（UI スレッドからのみ使う想定）</summary>
+    private Diagnostics.ThrottledFault UiFaultLog(string source)
     {
-        long now = Environment.TickCount64;
-        if (_lastWndProcLogMs != 0 && now - _lastWndProcLogMs < 5000)
+        if (!_uiFaultLogs.TryGetValue(source, out var log))
         {
-            _wndProcFaultSuppressed++;
-            return;
+            log = new Diagnostics.ThrottledFault();
+            _uiFaultLogs[source] = log;
         }
-        int suppressed = _wndProcFaultSuppressed;
-        _lastWndProcLogMs = now;
-        _wndProcFaultSuppressed = 0;
-        // 抑制した件数も残す（同じ例外の連発か、別の不具合が増えたかを後から判別できるように）
-        var prefix = suppressed > 0
-            ? $"({suppressed} faults suppressed in the last 5s){Environment.NewLine}"
-            : "";
-        Diagnostics.Log("WndProc", prefix + ex);
+        return log;
     }
 
     /// <summary>UI スレッドへ投げる処理を例外境界で包む（DispatcherQueue のコールバックで落とさない）</summary>
@@ -266,7 +268,7 @@ public sealed partial class MainWindow : Window
         DispatcherQueue.TryEnqueue(() =>
         {
             try { action(); }
-            catch (Exception ex) { Diagnostics.Log(source, ex); }
+            catch (Exception ex) { UiFaultLog(source).Report(source, ex); }
         });
     }
 
@@ -448,7 +450,6 @@ public sealed partial class MainWindow : Window
         }
         // 停止は最後に行う（ClearDragState 内のキャプチャ解放が EndTabDrag 経由で
         // 折りたたみタイマーを起動しうるため）
-        _showTimer?.Stop();
         _collapsePending = false;
         _collapseTimer?.Stop();
     }
@@ -596,23 +597,6 @@ public sealed partial class MainWindow : Window
         _collapsePending = false;
         _collapseTimer?.Stop();
     }
-
-    // ストリップ表示を遅延させる（素通りで出ないように）
-    private void StartShowTimer()
-    {
-        _showTimer?.Stop();
-        _showTimer = DispatcherQueue.CreateTimer();
-        _showTimer.Interval = TimeSpan.FromMilliseconds(250);
-        _showTimer.IsRepeating = false;
-        _showTimer.Tick += (_, _) =>
-        {
-            try { ShowTabStrip(); }
-            catch (Exception ex) { Diagnostics.Log("TabStripShow", ex); }
-        };
-        _showTimer.Start();
-    }
-
-    private void CancelShowTimer() => _showTimer?.Stop();
 
     // AddButton 右端を物理ピクセルでキャッシュ（タブ追加・削除・選択変更後に呼ぶ）
     private void UpdateTabAreaRight()

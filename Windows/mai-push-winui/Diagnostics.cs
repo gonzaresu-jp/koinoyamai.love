@@ -120,6 +120,42 @@ internal static class Diagnostics
             $"cwd={Environment.CurrentDirectory} exe={exe} --hidden={Environment.GetCommandLineArgs().Contains("--hidden")}");
     }
 
+    /// <summary>
+    /// 連発する例外ログの記録頻度を制限する（UI スレッドの同期ファイル書き込みで
+    /// メッセージポンプが詰まるのを防ぐ）。
+    ///
+    /// 同じ例外が繰り返し発生する場合、間隔（既定 5 秒）内の再発は記録せず件数だけ数え、
+    /// 次に記録する時に「(N faults suppressed in the last 5s)」を 1 行だけ併記する。
+    /// AGENTS.md §10「WndProc のログは 5 秒に 1 回へ制限」と同じ考え方。
+    /// 1 インスタンス＝1 ソースごとに使うこと（UI スレッドからのみ使う想定）。
+    /// </summary>
+    internal sealed class ThrottledFault
+    {
+        private readonly long _minIntervalMs;
+        private long _lastLogMs;
+        private int _suppressed;
+
+        public ThrottledFault(long minIntervalMs = 5000) => _minIntervalMs = minIntervalMs;
+
+        public void Report(string source, Exception? ex)
+        {
+            long now = Environment.TickCount64;
+            if (_lastLogMs != 0 && now - _lastLogMs < _minIntervalMs)
+            {
+                _suppressed++;
+                return;
+            }
+            int suppressed = _suppressed;
+            _lastLogMs = now;
+            _suppressed = 0;
+            // 抑制した件数も残す（同じ例外の連発か、別の不具合が増えたかを後から判別できるように）
+            var prefix = suppressed > 0
+                ? $"({suppressed} faults suppressed in the last {_minIntervalMs / 1000}s){Environment.NewLine}"
+                : "";
+            Log(source, prefix + (ex?.ToString() ?? "(no exception object)"));
+        }
+    }
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern uint RegisterApplicationRestart(string? commandLine, uint flags);
 }
