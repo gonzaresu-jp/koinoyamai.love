@@ -361,8 +361,18 @@ echo
 
 FAILED=0
 changelog_has_cve || { warn "changelog に修正CVEの記載がありません（Ubuntu バックポートの反映漏れの可能性）"; FAILED=1; }
-[ "$ORIG_CODE" = "200" ] || { warn "本番 vhost が 200 ではありません（HTTP ${ORIG_CODE}）"; FAILED=1; }
-[ "$PUB_CODE" = "200" ] || { warn "公開 URL が 200 ではありません（HTTP ${PUB_CODE}）"; FAILED=1; }
+# メンテナンスモード中は公開ページが 503 になる（仕様）。
+# その場合は 503 も正常応答として扱う（さもないと適用が成功しても exit 1 になる）。
+MAINT_ON=0
+if grep -q "snippets/maintenance.conf" /etc/nginx/nginx.conf 2>/dev/null; then MAINT_ON=1; fi
+if [ "$MAINT_ON" = "1" ]; then
+  echo "  メンテナンスモード ON のため、公開ページの 503 は正常として扱います"
+  [ "$ORIG_CODE" = "200" ] || [ "$ORIG_CODE" = "503" ] || { warn "本番 vhost が 200/503 ではありません（HTTP ${ORIG_CODE}）"; FAILED=1; }
+  [ "$PUB_CODE" = "200" ] || [ "$PUB_CODE" = "503" ] || { warn "公開 URL が 200/503 ではありません（HTTP ${PUB_CODE}）"; FAILED=1; }
+else
+  [ "$ORIG_CODE" = "200" ] || { warn "本番 vhost が 200 ではありません（HTTP ${ORIG_CODE}）"; FAILED=1; }
+  [ "$PUB_CODE" = "200" ] || { warn "公開 URL が 200 ではありません（HTTP ${PUB_CODE}）"; FAILED=1; }
+fi
 
 if [ "$FAILED" != "0" ]; then
   die "適用後の検証で問題が見つかりました。ロールバックを検討してください（記録: $ROLLBACK_FILE）"
