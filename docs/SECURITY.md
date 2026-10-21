@@ -259,10 +259,18 @@ bash scripts/php/verify-php-security-patch.sh
   `sudo bash scripts/php/rollback-to-ubuntu-php.sh --apply`
   - ⚠️ **バージョンを明示しない `--only-upgrade` だけでは動かない**
     （upstream 版 > Ubuntu 版なので「すでに最新」で止まる。`--allow-downgrades` が必要）。
-  - `php.ini` / `pool.d/www.conf` は dpkg の conffile。`DEBIAN_FRONTEND=noninteractive` で
-    ローカル版（ハードニング設定）を保持させる。
+  - 設定ファイルの保持（実測 2026-10-22）:
+    `pool.d/www.conf` = **dpkg の conffile**（`--force-confold` で保持）
+    `php.ini` = **ucf 管理**（`/var/lib/ucf/registry`）→ `--force-confold` は**効かない**。
+    `UCF_FORCE_CONFFOLD=1` を併せて渡し、降格後に `apply-php-hardening.sh --apply` で
+    ハードニングを再適用する（ucf が php.ini を置換していた場合の保険）。
   - 実行前に **ターゲット版の changelog に修正CVEがあるか**を機械確認する
     （無ければ「戻さない」＝fail-closed）。
+- ⚠️ **ロールバックすると upstream 比でカバレッジが 3 件落ちる**（実測 2026-10-22）:
+  `CVE-2026-12184` / `CVE-2026-17544` / `CVE-2026-17545` は upstream 8.3.36 では修正済みだが
+  Ubuntu .13 には未収録。PPA 導入前（.12）でも同じく未修正なので、ベースライン比では
+  109618/109619 のみ改善＝Accepted Risk。security-watch は「インストール済み changelog の
+  CVE 集合」ベース判定のため、ロールバック後は上記 3 件が「Ubuntu 未収録」として再通知される。
 - ラッパ: `~/apply-php-security-patch.sh` / `~/verify-php-security-patch.sh`（本番ツリーを優先して実体を解決）。
 
 ### パッチ前の緩和策（2026-10-21 夜〜リリースまで）

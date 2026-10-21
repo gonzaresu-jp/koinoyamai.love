@@ -187,11 +187,20 @@
       - ⚠️ **`apt-get install --only-upgrade php8.3-fpm` だけでは動かない**
         （upstream 版 8.3.36 > Ubuntu 版 8.3.6-0ubuntu0.24.04.13 なので「すでに最新」で止まる）。
         **バージョンを明示**し `--allow-downgrades` が必要。
-      - `/etc/php/8.3/fpm/php.ini` と `pool.d/www.conf` は **dpkg の conffile**。
-        ローカル修正（ハードニング設定）を保つため `DEBIAN_FRONTEND=noninteractive` で
-        「ローカル版を保持」させる。
+      - 設定ファイルの保持（実測 2026-10-22）:
+        `/etc/php/8.3/fpm/pool.d/www.conf` = **dpkg の conffile**
+        → `-o Dpkg::Options::="--force-confold"` でローカル版を保持
+        `/etc/php/8.3/fpm/php.ini` = **ucf 管理**（`/var/lib/ucf/registry`）
+        → `--force-confold` は**効かない**。`UCF_FORCE_CONFFOLD=1` を併せて渡す
+        → 降格後に `apply-php-hardening.sh --apply` でハードニングを**再適用**する
+        （ucf が php.ini を置換していた場合の保険）
       - 戻す前に **ターゲット版に修正CVEが入っているか**を changelog で機械確認する
         （入っていない版へ戻すと RCE が再導入される）。
+    - ⚠️ **ロールバックすると upstream 比でカバレッジが 3 件落ちる**（実測 2026-10-22）:
+      `CVE-2026-12184` / `CVE-2026-17544` / `CVE-2026-17545` は upstream 8.3.36 では
+      修正済みだが Ubuntu .13 には未収録。ただし **PPA 導入前（.12）でも同じく未修正**で、
+      ベースライン比では 109618/109619 のみ改善している＝Accepted Risk。
+      （17544 は本節の「未バックポート 3 件」リストに元々入っていない＝doc drift）
     - **Canonical がバックポートをリリース済み**（2026-10-22 実測）:
       `php8.3-common 8.3.6-0ubuntu0.24.04.13`（noble-security）に
       "SECURITY UPDATE: Remote RCE via state corruption issue"（= CVE-2026-109618/109619）が含まれる。
@@ -271,7 +280,9 @@
   ```
   - `apt-get upgrade`（全体）は**しない**。`php8.3-*` だけを `--only-upgrade` で上げる。
   - 適用前のバージョンは `/var/lib/mai-push/php-rollback-<時刻>.txt` に記録（ロールバック手順つき）。
-  - **PPA（`--ppa`）は恒久設定が残る。** 戻す場合は `sudo rm -f /etc/apt/sources.list.d/php.list && sudo apt-get update`。
+  - **PPA（`--ppa`）は恒久設定が残る。** 戻す場合は
+    `sudo bash scripts/php/rollback-to-ubuntu-php.sh --apply`（§5.1 の「戻る手順」を参照。
+    `rm -f` だけでは PPA 由来のパッケージは戻らない）。
   - **2026-10-21 の件**: CVE-2026-109618 / CVE-2026-109619（PHP コア RCE / CVSS v4.0 9.2）が
     2026-10-21 14:00 UTC（JST 23:00）にリリース。詳細と影響評価は `docs/SECURITY.md` を参照。
 
