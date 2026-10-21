@@ -20,5 +20,9 @@ LOG="logs/minutes-gen-$(date +%Y%m%d).log"
 {
   echo "=== $(date '+%F %T %Z') minutes-gen start ==="
   "$NODE_BIN" scripts/ops/minutes-gen.js --recent 800 --embed
-  echo "=== $(date '+%F %T %Z') minutes-gen end (rc=$?) ==="
+  RC=$?
+  # 終了コードは $? ではなく退避した RC を使う（コマンド置換 $(date) を先に評価すると
+  # $? が date の終了コード=0 になるため）。脚本全体の終了コードも RC を返す。
+  echo "=== $(date '+%F %T %Z') minutes-gen end (rc=$RC) ==="
+  exit $RC
 } >> "$LOG" 2>&1

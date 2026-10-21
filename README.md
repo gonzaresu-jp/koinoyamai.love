@@ -181,7 +181,7 @@
 
 ### 技術スタック
 
-[![Node.js](https://img.shields.io/badge/Node.js-22.12.0-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-24.22.0-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Express](https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white)](https://expressjs.com/)
 [![SQLite](https://img.shields.io/badge/SQLite-3-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
 [![Web Push](https://img.shields.io/badge/Web%20Push-%E9%80%9A%E7%9F%A5%E5%B0%8E%E5%85%A5-ff69b4)](https://developer.mozilla.org/docs/Web/API/Push_API)

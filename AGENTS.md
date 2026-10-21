@@ -57,6 +57,18 @@
     `pm2 describe` の interpreter 欄だけでは信用できない。
   - `interpreter` を変えたときは `pm2 delete <name>` してから `pm2 start ecosystem.config.js --only <name>`
     （既存定義とのマージで exec_mode が cluster のまま残ることがある）。
+- **`interpreter` を変えたら `pm2 save` まで実行すること（2026-10-21 実測・最重要）**:
+  systemd の `pm2-yuzuki.service` は `pm2 resurrect` で **`~/.pm2/dump.pm2` から復元する**。
+  dump が古いままだと、**再起動後に旧 interpreter（=EOL 版 Node）で Processes が復活する**
+  （エラーも出ないため静かに巻き戻る）。
+  - 実測: v24 へ更新した直後、dump は `mai-push-worker`/`discord-bot` → `interpreter: "node"`
+    （= PATH 解決で `/usr/bin/node` v18.19.1）、`mai-push-api` → v22.12.0 のままだった。
+  - `pm2 jlist`（実行中プロセス）だけを見て「OK」と判断していたが、**dump とは別物**。
+  - `scripts/deploy/restart.sh` は `pm2 save` と `/proc/<pid>/exe` 検証を内包している
+    （`npm run restart:all` / `promote.sh` も同じ経路）。手動で pm2 を触ったときは**必ず `pm2 save`**。
+- **`pm2 start ecosystem.config.js`（--only なし）は全アプリを起動する**:
+  `mai-push-worker-test` は常時停止運用（x.com 等への負荷）なので、対象を `--only` で明示する
+  （`scripts/deploy/restart.sh` の `all` は本番3プロセスだけを対象にしている）。
 - ネイティブモジュール（sqlite3 / bcrypt / sharp / esbuild）は N-API のため v22 でも v24 でもロードできる（実測済み）。
   ただし**ビルドと実行の Node を揃える**こと。ネイティブモジュールをビルドする際は `PATH` を v24 優先にして
   `npm install` すること。
@@ -64,7 +76,9 @@
   Node 24 同梱の npm 11 は install script を「警告のみ」で実行するが、将来の Phase 2 で
   unreviewed な package の script をブロックする。sqlite3 / bcrypt は N-API だが **install script 無しでは
   ビルドされない**ため、approving 済みであることを維持する（`npm install-scripts ls` で未承認 0 を確認）。
-  依存を追加/更新したら `npm install-scripts approve --no-allow-scripts-pin <pkg>` を実行する。
+  依存を追加/更新したら `npm install-scripts approve <pkg>` を実行する（**既定は version pin**。
+  version を pin しているので、依存を更新したら承認も更新する:name-only で許可すると
+  未レビュー版の install script が自動許可されてしまうため）。
 - `package-lock.json` は Git 管理対象。除外するな。`npm audit fix --force` は回帰テスト通過後にのみ。
   ※ npm 11 は lockfile を正規化する（extraneous / optional peer の削除だけ）ことがあるが、
   **依存バージョンの差分は出さない**。差分が出た場合は `git checkout -- package-lock.json` で戻すこと。

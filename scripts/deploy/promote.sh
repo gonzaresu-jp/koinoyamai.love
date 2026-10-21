@@ -118,6 +118,10 @@ if [ "$RESTART" -eq 1 ]; then
     echo "[dry] bash $PROD/scripts/deploy/restart.sh all"
   else
     echo "==> restarting production processes"
+    # restart.sh 側で pm2 save と実行バイナリの検証（/proc/<pid>/exe）を行う。
+    # interpreter 変更時は dump（~/.pm2/dump.pm2）の更新が必須:
+    # systemd の pm2-yuzuki.service は `pm2 resurrect` で dump から復元するため、
+    # dump が古いと再起動後に EOL 版 Node で復活する（AGENTS.md §5）。
     bash "$PROD/scripts/deploy/restart.sh" all
   fi
 else
