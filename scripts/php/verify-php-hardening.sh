@@ -88,7 +88,9 @@ PHP
     echo "$RESP_GET" | sed 's/^/    /'
     echo "    --- POST (application/x-www-form-urlencoded) ---"
     echo "$RESP_POST" | sed 's/^/    /'
-    grep -q "^enable_post_data_reading=Off$" <<<"$RESP_GET" && ok "実行時 enable_post_data_reading = Off" || ng "実行時 enable_post_data_reading が Off でない"
+    # PHP の boolean ini は Off のとき ini_get() が空文字（""）を返す（On なら "1"）。
+    # そのため "Off" だけを探すと Off のときに偽の失敗になる（2026-10-21 実測）。
+    grep -qE "^enable_post_data_reading=(Off)?$" <<<"$RESP_GET" && ok "実行時 enable_post_data_reading = Off（ini_get は空文字）" || ng "実行時 enable_post_data_reading が Off でない"
     grep -q "^exec_defined=no$"       <<<"$RESP_GET" && ok "実行時 exec は undefined"            || ng "実行時 exec が有効"
     grep -q "^ffi_cdef=blocked$"      <<<"$RESP_GET" && ok "実行時 FFI::cdef は blocked"          || ng "実行時 FFI::cdef が許可されている"
     grep -q "^post_count=0$"          <<<"$RESP_POST" && ok "実行時 \$_POST は常に空（POST ボディも読まれない）" || ng "実行時 \$_POST が読み取られる（multipart パーサが有効）"
