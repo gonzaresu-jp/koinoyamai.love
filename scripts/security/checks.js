@@ -559,8 +559,10 @@ function publicSummary(results) {
   });
   const total = results.reduce((sum, r) =>
     sum + r.findings.filter((f) => f.severity === "critical" || f.severity === "warning").length, 0);
+  // 公開ページを見るユーザーには「詳細を誰がどう確認するか」は公開できないため、
+  // 運用ログへの誘導は書かない（詳細は Discord と管理者のみ）。
   return total > 0
-    ? `要対応 ${total} 件（${parts.join(" / ")}）※詳細は運用ログ参照`
+    ? `要対応 ${total} 件（${parts.join(" / ")}）※詳細は管理者が確認しています`
     : `すべて正常（${parts.join(" / ")}）`;
 }
 
