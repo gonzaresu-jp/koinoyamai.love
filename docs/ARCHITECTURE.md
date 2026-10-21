@@ -67,6 +67,17 @@
 - **Webhook（PubSubHubbub）のcallback は公開 URL + トークン**（`https://koinoyamai.love/youtube-webhook?token=...`）。
   hub はインターネットから callback に到達できないと検証に失敗し、購読が 409 になる
   （tailnet 専用 URL だと 18 日間 webhook が死んでいた。`AGENTS.md §6.8`）。
+- **検知経路の状態は `scraper-status` へ報告する**（2026-10-21 追加）
+  - `youtube_detection` … RSS フォールバックスキャンの結果
+    （RSS / Data API プレイリスト代替の両方が失敗したら `error`）
+  - `youtube_webhook` … PubSubHubbub の購読状態
+  - 報告は `POST /api/internal/scraper-status`（`x-notify-token`）で、管理画面と
+    `GET /api/scraper-status` から確認できる
+  - 検知経路が両方失敗したまま続いたら（3スキャン=15分）Discord へアラートを飛ばす
+  - 判定ロジックは `src/core/youtube-feed.js` の `decideDetectionState`（純粋関数・回帰テスト済み）
+  - 検知状態の `status` は `success` / `degraded`（一部チャンネルのみ両方失敗）/ `error`（全滅）
+  - `fetchRssVideoIds` / `fetchPlaylistVideoIds` は **取得成功=配列 / 失敗=null** を返す
+    （空フィードは成功。`null` は「両方とも取得できない」判定に使う）
 - **RSS ポーリング（`runRssFallbackScan`）は PubSubHubbub の冗長化**（5分間隔）。
   YouTube 側の RSS エンドポイントは**一時的に 404 を返す**ことが観測される（同一 URL が直後に 200 になる =
   YouTube 側の不安定。IP ブロックではない。2026-10-20 実測）ため、

@@ -10,7 +10,8 @@ const path = require('path');
 const sqlite3 = require('sqlite3').verbose();
 
 const { parseStringPromise } = require('xml2js');
-const { deriveUploadsPlaylistId, parseRssEntries, parsePlaylistItems } = require('../core/youtube-feed');
+const { deriveUploadsPlaylistId, parseRssEntries, parsePlaylistItems, decideDetectionState } = require('../core/youtube-feed');
+const { sendDiscordAlert } = require('../core/discord-alert');
 const { upsertEvent } = require('../../weekly');
 
 const CHANNEL_IDS = [
@@ -174,6 +175,52 @@ async function sendNotifyApi(payload) {
         console.error('sendNotifyApi failed:', e.message || e);
         return false;
     }
+}
+
+// ========= 検知経路の監視（2026-10-21 追加） =========
+// 2026-10-20 に「PubSubHubbub の webhook が 18 日間死んでいた」ことを知った。
+// 壊れていることに誰も気づけなかったのは、**検知経路が壊れていることを示す仕組みが無い**ため。
+// そこで RSS フォールバックスキャンと購読の状態を内部 API（scraper-status）へ報告し、
+// 検知経路が両方失敗した状態が続いたら Discord へアラートを飛ばす。
+const DETECTION_STATUS_ID = 'youtube_detection';
+const WEBHOOK_STATUS_ID = 'youtube_webhook';
+// 検知経路が両方失敗した状態が続いたらアラート（5分間隔 × 3 = 15分）
+const DETECTION_ALERT_AFTER_SCANS = 3;
+let _detectionFailStreak = 0;
+
+/** 検知経路の状態を内部 API（scraper-status）へ報告する（失敗しても検知処理は止めない） */
+let _statusReportWarnAt = 0;
+async function reportScraperStatus(id, name, status, message) {
+    try {
+        if (!NOTIFY_CONFIG.token) {
+            warnStatusReportOnce('token-missing', 'NOTIFY_API_TOKEN 未設定のため状態を報告できません');
+            return;
+        }
+        // 通知APIのURLから origin を取り出す（パス付きでも壊れないように正規表現ではなく URL で解く）
+        const base = new URL(NOTIFY_CONFIG.apiUrl).origin;
+        await axios.post(`${base}/api/internal/scraper-status`,
+            { id, name, status, message: message || null },
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Notify-Token': NOTIFY_CONFIG.token
+                },
+                timeout: 3000
+            });
+    } catch (e) {
+        // 状態報告の失敗は検知自体には影響させない（ここで例外は投げない）。
+        // ただし「黙って失敗する」と「仕組みが動いていない」ことが分からないので
+        // 10分に1回だけ警告を残す。
+        warnStatusReportOnce('request-failed', `状態報告に失敗しました: ${e.message || e}`);
+    }
+}
+
+/** 状態報告の失敗を10分に1回だけ警告する（黙って失敗するのを防ぐ） */
+function warnStatusReportOnce(key, message) {
+    const now = Date.now();
+    if (now - _statusReportWarnAt < 10 * 60 * 1000) return;
+    _statusReportWarnAt = now;
+    console.warn(`[YouTube Status] ${message}`);
 }
 
 /** 指定の内部エンドポイントに URL を送りつける（新規動画用）。
@@ -344,6 +391,26 @@ async function subscribeAllChannels() {
             ' hub 側の callback 検証が通っていない可能性があります' +
             '（callback URL がインターネットから到達可能か / トークン不一致 / hub 障害）。' +
             ' この間 YouTube の検知は RSS・プレイリスト経路に依存します。'
+        );
+    }
+    // 購読状態も報告する（webhook が死んでいることが管理画面と Discord で分かるように）
+    await reportScraperStatus(
+        WEBHOOK_STATUS_ID,
+        'YouTube Webhook 購読',
+        okCount === CHANNEL_IDS.length ? 'success' : 'error',
+        `購読 ${okCount}/${CHANNEL_IDS.length}`
+    );
+    // 全滅した場合は Discord へアラート（報告だけだと Discord には残らないため）。
+    // 2026-10-20 に 18 日間 unnoticed だったのと同じ状態を再発させない。
+    if (okCount === 0) {
+        await sendDiscordAlert(
+            '🚨 YouTube Webhook の購読ができません',
+            `PubSubHubbub への購読リクエストが全滅しました。\n` +
+            `この間、配信開始・配信予定の検知は RSS・プレイリスト経路に依存します。\n\n` +
+            `**詳細:**\n\`\`\`\ncallback の検証が通っていない可能性があります\n` +
+            `（callback URL がインターネットから到達可能か / トークン不一致 / hub 障害）\n\`\`\``,
+            'ERROR',
+            'youtube_webhook_subscribe_failed'
         );
     }
     return okCount;
@@ -842,11 +909,13 @@ async function fetchRssVideoIds(channelId) {
  * RSS の代替ソース: Data API のアップロードプレイリスト（プレイリストID = "UU" + channelId）。
  * 1 コール = 1 unit。RSS が失敗したスキャンだけが呼ぶので通常はクォータを消費しない。
  * 動画IDと公開日時が取れるので、RSS と同じ「新着検知 → videos API で状態確認」の流れになる。
+ * @returns {Promise<{videoId:string,published:string|null,title:string|null}[]|null>}
+ *   取得成功（0件のときは空配列）／失敗ときは null（RSS 側と同じ表現）
  */
 async function fetchPlaylistVideoIds(channelId) {
     if (!API_KEY) {
         console.warn('[YouTube RSS] YOUTUBE_API_KEY が未設定のためプレイリスト代替は使えません');
-        return [];
+        return null;
     }
     try {
         const resp = await axios.get('https://www.googleapis.com/youtube/v3/playlistItems', {
@@ -861,7 +930,7 @@ async function fetchPlaylistVideoIds(channelId) {
         return parsePlaylistItems(resp.data, RSS_MAX_ITEMS);
     } catch (e) {
         logRssError(`${channelId}(playlist)`, e);
-        return [];
+        return null;   // 取得失敗（空フィードと区別する。RSS 側と同じ表現にする）
     }
 }
 
@@ -973,6 +1042,44 @@ function plannedDueForLiveCheck(rec, now) {
 // 同じ動画を二重通知する可能性がある。
 let _rssScanInFlight = false;
 
+/**
+ * 検知経路の状態を報告する。
+ * - 検知経路（RSS / プレイリスト代替）が両方失敗したチャンネルがある場合: error
+ * - どちらか一方でも取得できた: success（RSS だけが失敗なら代替を使ったことを明記）
+ * 失敗が続いたら Discord へアラート（スパム防止のキーは sendDiscordAlert 側で制限）
+ */
+async function reportDetectionState(failedChannels, usedPlaylistFallback, rssFailedChannels = 0) {
+    const allFailed = failedChannels >= CHANNEL_IDS.length;
+    if (allFailed) _detectionFailStreak++;
+    else _detectionFailStreak = 0;
+
+    // 判定ロジックは純粋関数に寄せている（回帰テストから検証できるように）
+    const decision = decideDetectionState({
+        failedChannels,
+        totalChannels: CHANNEL_IDS.length,
+        rssFailedChannels,
+        usedFallback: usedPlaylistFallback,
+        failStreak: _detectionFailStreak,
+        alertAfter: DETECTION_ALERT_AFTER_SCANS
+    });
+
+    // 状態報告は**待たない**（検知の待ち時間を増やさないため）
+    reportScraperStatus(DETECTION_STATUS_ID, 'YouTube 配信検知', decision.status, decision.message);
+
+    if (decision.alert) {
+        await sendDiscordAlert(
+            '🚨 YouTube の配信検知ができません',
+            `**RSS フィード** と **Data API プレイリスト** の両方が失敗しています。\n` +
+            `この間、配信開始・配信予定の通知が届きません。\n\n` +
+            `**詳細:**\n\`\`\`\n${decision.message}\n\`\`\`\n\n` +
+            `（RSS フィード と Data API プレイリストの**両方**に到達できない状態です。` +
+            `外部 connectivity を確認してください）`,
+            'ERROR',
+            'youtube_detection_broken'
+        );
+    }
+}
+
 async function runRssFallbackScan() {
     if (_rssScanInFlight) {
         console.warn('[YouTube RSS] scan skipped (previous scan still running)');
@@ -986,12 +1093,20 @@ async function runRssFallbackScan() {
         // 1) 直近のvideoIdを収集（RSS が失敗したら Data API のプレイリストで代替）
         const seen = new Map();
         let usedPlaylistFallback = false;
+        let failedChannels = 0;
+        let rssFailedChannels = 0;
         for (const channelId of CHANNEL_IDS) {
             let entries = await fetchRssVideoIds(channelId);
             if (entries === null) {
                 // RSS 取得失敗（YouTube 側の一時的な 404 等）→ アップロードプレイリストへ切替
+                rssFailedChannels++;
                 entries = await fetchPlaylistVideoIds(channelId);
-                if (entries.length > 0) usedPlaylistFallback = true;
+                if (entries && entries.length > 0) usedPlaylistFallback = true;
+            }
+            // 両方失敗したチャンネルだけを「検知経路の破綻」として数える
+            if (entries === null) {
+                failedChannels++;
+                continue;
             }
             for (const e of entries) {
                 if (!seen.has(e.videoId)) seen.set(e.videoId, e);
@@ -1001,6 +1116,10 @@ async function runRssFallbackScan() {
             // 5分ごとに出るとログが埋まるので、RSS 本体と同じ 10分間隔の抑制に載せる
             logRssError('fallback', new Error('RSS unavailable → Data API (uploads playlist) fallback used'));
         }
+
+        // 検知経路の状態を報告する（壊れていることに気づけるようにする）
+        reportDetectionState(failedChannels, usedPlaylistFallback, rssFailedChannels);
+
         if (seen.size === 0) return;
 
         // 2) ステータス確認が必要なものだけ抽出（liveSent済みは対象外）
@@ -1087,6 +1206,7 @@ function startPolling() {
 }
 
 module.exports = {
+    CHANNEL_IDS,
     startPolling,
     pollForEndedLives,
     pollForEndedCollabs,

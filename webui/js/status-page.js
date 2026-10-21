@@ -176,23 +176,26 @@
                     const statusClass = effectiveStatus === 'success' ? 'ok' : effectiveStatus;
                     const statusText  = effectiveStatus === 'success' ? 'Healthy'
                                       : effectiveStatus === 'running' ? 'Active'
+                                      : effectiveStatus === 'degraded' ? 'Degraded'
                                       : effectiveStatus === 'error'   ? 'Critical'
                                       : 'Unknown';
 
+                    // 名前・ID・メッセージは innerHTML に入れているので必ず esc する
+                    // （scraper-status は公開のエンドポイントで、内容も外部由来しうるため）
                     return `
                         <div class="status-card">
                             <div class="status-card-top">
-                                <div class="status-name">${item.name || item.id}</div>
+                                <div class="status-name">${esc(item.name || item.id)}</div>
                                 <div class="status-badge ${statusClass}">${statusText}</div>
                             </div>
                             <div class="status-info">
                                 最終実行: ${timeAgo(item.last_run)}
                             </div>
                             <div class="status-time">
-                                ID: ${item.id} <br>
+                                ID: ${esc(item.id)} <br>
                                 更新: ${new Date(item.updated_at).toLocaleString('ja-JP')}
                             </div>
-                            ${item.message ? `<div class="status-error-msg">${item.message}</div>` : ''}
+                            ${item.message ? `<div class="status-error-msg">${esc(item.message)}</div>` : ''}
                         </div>
                     `;
                 }).join('');
