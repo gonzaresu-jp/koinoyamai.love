@@ -228,7 +228,8 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 
 ### 4.6 `scripts/`（運用）
 - **`deploy/`**: `deploy-staging.sh` / `promote.sh`（staging→prod）/ `verify-deploy.sh`（バイト比較＋権限検査）/ `assert-port.sh` / `check-drift.sh` / `sync-test-db.sh` / `restart.sh` / `migrate-domain-final.sh`（ドメイン最終移行の適用スクリプト・1回限り）
-- **`ops/`**: `regression-test.js`（`npm test`）/ `health-check.js`（`npm run health`）/ `backup.sh` / `healthcheck.sh` / `count-lines.sh` / `check-native.{sh,js}` / `minutes-gen*` / `update-subscribers*`
+- **`ops/`**: `regression-test.js`（`npm test`）/ `health-check.js`（`npm run health`）/ `backup.sh` / `healthcheck.sh` / `count-lines.sh` / `check-native.{sh,js}` / `minutes-gen*` / `update-subscribers*` / `security-watch-cron.sh`（脆弱性監視の cron ラッパ・flock・ログは `logs/security-watch-YYYYMMDD.log`）
+- **`security/`**: 脆弱性・更新の自動監視（`security-watch.js` = 本体 / `checks.js` = 判定ロジック / `notify.js` = 状態管理・通知）。Node.js / PHP 8.3 / npm 依存 / OS パッケージの 4 系統を日次判定し、新規検出分のみ通知する。`AGENTS.md §5.2` / `docs/SECURITY.md` 参照
 - **`tools/`**: `build-android-apk.sh` / 単発メンテ（`dedupe-media`・`mine-personality`・`twitter-stats`・`whisper-subs`・`render-compare-html`・`fix-notification-platform`）
 - **`hooks/`**（pre-push）
 - **`nginx/`**: vhost 設定（`mai-test.conf` 等）と適用スクリプト（`apply-domain-final.sh` / `setup-staging-nginx.sh` / `default.conf`）
