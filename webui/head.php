@@ -122,4 +122,6 @@ $image = isset($pageImage) ? $pageImage : $defaultImage;
 <!-- ヘッダー専用CSS（全ページ共通・header.php の style を分離） -->
 <link rel="stylesheet" href="/css/header.css?v=<?= @filemtime(__DIR__ . '/css/header.css') ?: time(); ?>" />
 
+<?= isset($extraHeadEnd) ? $extraHeadEnd : '' ?>
+
 
