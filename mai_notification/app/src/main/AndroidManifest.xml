@@ -7,6 +7,16 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- アプリ内アップデートのインストール起動に必要（Android 8.0+） -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- 配信開始アラーム（正確な時刻に鳴らす）:
+         API 33+ は USE_EXACT_ALARM（インストール時に自動付与・取り消し不可）、
+         API 31/32 は SCHEDULE_EXACT_ALARM（インストール時に付与）を使う。
+         このアプリは Play ではなく APK 直配布なので exact alarm の用途制限に該当しない。 -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <!-- 再起動後にアラームを予約し直すため -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 画面が消えていてもアラームを全画面表示する（Android 10+） -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <application
         android:allowBackup="true"
@@ -76,6 +86,25 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
+        <!-- 配信開始アラームの発火 -->
+        <receiver
+            android:name=".AlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.yuzuki.mai_notification.STREAM_ALARM" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 再起動・アプリ更新後にアラームを予約し直す -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Remove Firebase's auto-registered default service to prevent intent conflict -->
         <service

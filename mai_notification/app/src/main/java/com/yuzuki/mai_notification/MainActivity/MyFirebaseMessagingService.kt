@@ -54,6 +54,21 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         val imageUrl = remoteMessage.data["image"]
         Log.d("FCM", "title=$title, body=$body, url=$url")
 
+        // 配信開始の予定が入っていれば、端末内アラームを予約する（アラーム機能が有効な場合のみ）
+        val startTime = remoteMessage.data["start_time"]
+        if (!startTime.isNullOrBlank()) {
+            try {
+                val ms = com.yuzuki.mai_notification.AlarmScheduler.parseServerTime(startTime)
+                if (ms != null) {
+                    com.yuzuki.mai_notification.AlarmScheduler.registerEvent(
+                        applicationContext, 0L, title, url, ms
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w("FCM", "アラーム登録に失敗: ${e.message}")
+            }
+        }
+
         sendNotification(title, body, url, iconUrl, imageUrl)
         Log.d("FCM", "=== onMessageReceived END ===")
     }

@@ -979,7 +979,11 @@ async function notifyPlannedFromRss(item, publishedStr, title) {
             url,
             icon: ICON_URL,
             image: thumbnail,
-            published: publishedStr || null
+            published: publishedStr || null,
+            // 配信開始の予定時刻（ISO）。Android アプリが端末内アラームを
+            // 予約するために使う（無ければアラームは予約されない）。
+            // ※ YouTube Data API のライブ情報は `liveStreamingDetails`（`live` ではない）
+            start_time: item.liveStreamingDetails?.scheduledStartTime || null
         }
     };
     const ok = await sendNotifyApi(payload);

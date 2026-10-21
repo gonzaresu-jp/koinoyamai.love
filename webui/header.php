@@ -207,6 +207,40 @@
                             </button>
                         </li>
                     </ul>
+                    <!-- 配信開始アラーム（Android アプリのみ。ブラウザでは非表示） -->
+                    <div id="stream-alarm-settings" hidden>
+                        <ul class="platform-settings-list">
+                            <li>
+                                <button id="toggle-stream-alarm" class="platform-setting-button">
+                                    配信アラーム: OFF
+                                </button>
+                            </li>
+                            <li>
+                                <span class="platform-setting-label">鳴らすタイミング:</span>
+                                <select id="stream-alarm-offset" class="platform-setting-select"
+                                    aria-label="配信アラームを鳴らすタイミング">
+                                    <option value="0">開始時刻ちょうど</option>
+                                    <option value="5">5分前</option>
+                                    <option value="10">10分前</option>
+                                    <option value="15" selected>15分前</option>
+                                    <option value="30">30分前</option>
+                                </select>
+                            </li>
+                            <li>
+                                <span id="stream-alarm-status" class="platform-setting-note"></span>
+                            </li>
+                            <li>
+                                <button id="btn-stream-alarm-permission" class="platform-setting-button" hidden>
+                                    アラーム権限を開く
+                                </button>
+                            </li>
+                            <li>
+                                <button id="btn-stream-alarm-system" class="platform-setting-button" hidden>
+                                    標準アラームに設定
+                                </button>
+                            </li>
+                        </ul>
+                    </div>
                 </div>
             </li>
 

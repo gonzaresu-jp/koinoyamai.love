@@ -97,6 +97,8 @@ function buildEventNotificationPayload(event, phase) {
       body: isPre ? `開始${offsetMin}分前です（${hh}:${mm}予定）` : `予定時刻になりました（${hh}:${mm}）`,
       url: event.url || "/events.html", icon: "/icon.webp",
       image: toHttpsThumb(event.thumbnail_url),
+      // 配信開始時刻（ISO）。Android アプリが端末内アラームを予約する時に使う。
+      start_time: event.start_time || null,
     },
   };
 }
