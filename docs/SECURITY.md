@@ -455,8 +455,8 @@ security-watch が検出した、upstream には修正版があるのに **Canon
   - `location = /status.php` のような**完全一致** location は regex より優先される。
     対象 vhost（1717 / staging）には無いが、増加する場合は確認すること。
     elza vhost（:80）の旧 PHP は別 PR #50 の `scripts/nginx/apply-php-exec-guard.sh` で 404 化する。
-  - メンテナンスページは `/var/www/html/maintenance.html`（`scripts/nginx/maintenance.html` を 644 で配置）。
-    **www-data が読めない権限だと 404 にフォールバックする**（実測）。
+  - メンテナンスページは **サイト既存の `/error/`**（`webui/error/index.html`・静的 HTML）。
+    別途ファイルを配置しないため権限の問題は発生しない（PHP も実行しない）。
 - **復旧**: `sudo bash scripts/php/patch-and-resume.sh`（パッチ適用 → パッチ状態のみ検証 →
   メンテナンス解除 → pm2 再開 → 最終確認）。検証の途中でサイトの応答を期待しないこと
   （メンテナンス中は 503 が正しい。`verify-php-security-patch.sh --patch-only` を使う）。

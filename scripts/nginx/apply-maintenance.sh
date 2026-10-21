@@ -36,10 +36,8 @@ STAGING_CONF="/etc/nginx/mai-test.conf"
 SNIPPET_DIR="/etc/nginx/snippets"
 SNIPPET="${SNIPPET_DIR}/maintenance.conf"
 SEC_SNIPPET_SRC="${SNIPPET_DIR}/mai-security-headers.conf"
-MAINT_PAGE_SRC="/var/www/html/maintenance.html"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 BLOCK_FILE="$REPO_ROOT/scripts/nginx/maintenance.conf"
-PAGE_FILE="$REPO_ROOT/scripts/nginx/maintenance.html"
 SEC_SNIPPET_REPO="$REPO_ROOT/scripts/nginx/mai-security-headers.conf"
 PATCH_JS="$REPO_ROOT/scripts/nginx/apply-maintenance.js"
 # node は明示指定する（sudo 実行では nvm の PATH が読めず /usr/bin/node = v18 EOL を掴むため。AGENTS.md §5）
@@ -48,7 +46,6 @@ NODE_BIN="${NODE_BIN:-/home/yuzuki/.nvm/versions/node/v24.22.1/bin/node}"
 [ "$(id -u)" -eq 0 ] || { echo "[ERR] sudo で実行してください"; exit 1; }
 [ -f "$CONF" ] || { echo "[ERR] $CONF が見つかりません"; exit 1; }
 [ -f "$BLOCK_FILE" ] || { echo "[ERR] $BLOCK_FILE が見つかりません"; exit 1; }
-[ -f "$PAGE_FILE" ] || { echo "[ERR] $PAGE_FILE が見つかりません"; exit 1; }
 [ -f "$PATCH_JS" ] || { echo "[ERR] $PATCH_JS が見つかりません"; exit 1; }
 [ -x "$NODE_BIN" ] || { echo "[ERR] node が見つかりません: $NODE_BIN（NODE_BIN 環境変数で指定可）"; exit 1; }
 
@@ -59,15 +56,8 @@ if [ "$MODE" = "on" ]; then
   mkdir -p "$SNIPPET_DIR"
   install -m 0644 "$BLOCK_FILE" "$SNIPPET"
   echo "[OK] スニペット配置: $SNIPPET"
-  # メンテナンスページ（**www-data が読めないと 404 になる**）
-  install -m 0644 "$PAGE_FILE" "$MAINT_PAGE_SRC"
-  echo "[OK] メンテナンスページ配置: $MAINT_PAGE_SRC ($(stat -c '%A %U:%G' "$MAINT_PAGE_SRC"))"
-  # ページが other 読み取り可か（= nginx worker （www-data）が読めるか）
-  PERM="$(stat -c '%a' "$MAINT_PAGE_SRC")"
-  if [ "${PERM: -1}" != "4" ] && [ "${PERM: -1}" != "6" ]; then
-    echo "[ERR] $MAINT_PAGE_SRC の権限が $PERM です（www-data が読めない → 404 になる）" >&2
-    exit 1
-  fi
+  # メンテナンスページは **サイト既存の /error/** を使う（静的 HTML・PHP を実行しない）。
+  # 別途ファイルを配置しないため www-data の読み取り権限の問題も発生しない。
   # セキュリティヘッダのスニペット（maintenance.conf が include する）
   if [ ! -f "$SEC_SNIPPET_SRC" ]; then
     [ -f "$SEC_SNIPPET_REPO" ] || { echo "[ERR] $SEC_SNIPPET_REPO が見つかりません" >&2; exit 1; }
@@ -109,10 +99,11 @@ if [ "$MODE" = "on" ]; then
     exit 1
   fi
   # メンテナンスページの中身が返るかも確認する（503 でも body が空だと意味がない）
-  BODY="$(curl -s --max-time 10 http://127.0.0.1:1717/index.php | head -c 200 || true)"
+  # ページ内容の確認（先頭数文字で判定すると title に届かない＝偽の失敗になる）
+  BODY="$(curl -s --max-time 10 http://127.0.0.1:1717/index.php || true)"
   case "$BODY" in
-    *"メンテナンス中"*) echo "  [OK] メンテナンスページが表示されます" ;;
-    *) echo "[ERR] 503 ですがメンテナンスページが返っていません（$MAINT_PAGE_SRC の権限を確認）" >&2; exit 1 ;;
+    *"サーバーオフライン"*|*"メンテナンス中"*) echo "  [OK] メンテナンスページ（/error/）が表示されます" ;;
+    *) echo "[ERR] 503 ですがメンテナンスページが返っていません（/error/ を確認）" >&2; exit 1 ;;
   esac
   echo "  解除: sudo bash scripts/nginx/apply-maintenance.sh --off"
 else
