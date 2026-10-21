@@ -35,15 +35,39 @@
 
 ## 5. 依存関係
 - **sqlite3 は 6.0.1 に昇格済み（2026-09-22 本番反映）**。npm audit critical は解消。
-  依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト(35/35) → smoke」を通すこと。
-- Node バージョンは**プロセスごとに違う**（2026-10-20 実測 / `pm2 jlist`）:
-  - API（`mai-push-api` / `mai-push-api-test`）= **v22.12.0**（nvm 固定・`ecosystem.config.js` の `interpreter`）
-  - ワーカー（`mai-push-worker`）と `discord-bot` = **v20.18.1**（既定 node・`interpreter` 未指定）
-  - `mai-push-worker-test` は常駐起動していないため測定対象外（`interpreter` 未指定なので起動時は既定 node）
-  - ネイティブモジュール（sqlite3 等）は N-API のため v20 でも v22 でもロードできる（実測済み）。
-    ただし**ビルドと実行の Node を揃える**こと（v18 でビルドして v22 で実行すると ABI 不一致）。
-  - ネイティブモジュールをビルドする際は `PATH` を v22 優先にして `npm install` すること。
+  依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト(41/41) → smoke」を通すこと。
+- **Node.js は v24.22.0 に統一（2026-10-21 反映）**。全プロセスで同じ版を使う。
+  - API（`mai-push-api` / `mai-push-api-test`）/ ワーカー（`mai-push-worker` / `mai-push-worker-test`）/
+    `discord-bot` = **v24.22.0**（`ecosystem.config.js` の `interpreter` で**全プロセス明示指定**）
+  - systemd `pi-vector.service` = v24.22.0（`~/.config/systemd/user/pi-vector.service` の `ExecStart`）
+  - cron 実行スクリプト（`update-subscribers-and-commit.sh` / `minutes-gen-cron.sh`）= v24.22.0（`NODE_BIN` で固定）
+  - CI（`.github/workflows/ci.yml`）= `node-version: '24'`
+  - **過去の既定値（process ごとのバージョン違い）は 2026-10-21 に廃止した。**
+    当時は API=v22.12.0 / ワーカー・discord-bot=v20.18.1(EOL) / cron=`/usr/bin/node`=v18.19.1(EOL) と
+    3 世代混在していた（`interpreter` 未指定のプロセスは nvm alias に依存していた）。
+- **Node の EOL を、手作業で追わないこと**（Node 20 は 2026-04-30 EOL、22 は 2027-04-30 EOL、24 は 2028-04-30 EOL）。
+  新しい LTS が出たら v24 系から一段上げて追従する。**26 は 2026-10-28 に LTS 化**するため、それまでは本番採用しない。
+- **`interpreter` を省略してはいけない**（既定 node = nvm alias に依存すると、alias を変えた時に
+  プロセスごとに版が混在する）。cron も同じく `PATH` 依存は禁（cron の PATH は `/usr/bin/node`=v18 を掴む）。
+- **`exec_mode: 'fork'` も省略してはいけない（2026-10-21 実測）**:
+  pm2 の **cluster モードでは `interpreter` が無視され**、pm2 デーモン自身の Node で動く。
+  実測: `mai-push-worker-test` が cluster になり、`interpreter` に v24.22.0 を指定しているのに
+  `/proc/<pid>/exe` が `/usr/bin/node`（v18.19.1）になっていた（`pm2 describe` は v24 を指すので**嘘**）。
+  - 判定は必ず実プロセスで確認する: `ls -l /proc/<pid>/exe`（実体）か `pm2 jlist` の `node_version`。
+    `pm2 describe` の interpreter 欄だけでは信用できない。
+  - `interpreter` を変えたときは `pm2 delete <name>` してから `pm2 start ecosystem.config.js --only <name>`
+    （既存定義とのマージで exec_mode が cluster のまま残ることがある）。
+- ネイティブモジュール（sqlite3 / bcrypt / sharp / esbuild）は N-API のため v22 でも v24 でもロードできる（実測済み）。
+  ただし**ビルドと実行の Node を揃える**こと。ネイティブモジュールをビルドする際は `PATH` を v24 優先にして
+  `npm install` すること。
+- **`package.json` の `allowScripts` を触らないこと**（npm 11 の install script 許可リスト）。
+  Node 24 同梱の npm 11 は install script を「警告のみ」で実行するが、将来の Phase 2 で
+  unreviewed な package の script をブロックする。sqlite3 / bcrypt は N-API だが **install script 無しでは
+  ビルドされない**ため、approving 済みであることを維持する（`npm install-scripts ls` で未承認 0 を確認）。
+  依存を追加/更新したら `npm install-scripts approve --no-allow-scripts-pin <pkg>` を実行する。
 - `package-lock.json` は Git 管理対象。除外するな。`npm audit fix --force` は回帰テスト通過後にのみ。
+  ※ npm 11 は lockfile を正規化する（extraneous / optional peer の削除だけ）ことがあるが、
+  **依存バージョンの差分は出さない**。差分が出た場合は `git checkout -- package-lock.json` で戻すこと。
 
 ## 6. 検証の作法
 - 変更後は `node --check <file>` → pm2 再起動（`--update-env`）→ **正しいポート**で `/api/health`。
@@ -267,7 +291,11 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 ```
 - いずれも `crontab -l`（yuzuki ユーザー）で確認済み。ログは `logs/`（gitignore 対象）。
 - 追加・変更するときは `crontab -l` の実体とこの表を**同じコミットで**更新する。
--  リポジトリ外の job（`/home/yuzuki/temp.sh` の温度ログ等）は本表の対象外。
+- リポジトリ外の job（`/home/yuzuki/temp.sh` の温度ログ等）は本表の対象外。
+- **cron は `PATH` が `/usr/bin/node`（Node v18 = EOL）を掴む**ため、node を実行する
+  スクリプト（`update-subscribers-and-commit.sh` / `minutes-gen-cron.sh`）は
+  `NODE_BIN` で v24.22.0 を明示指定している（`§5`）。cron ジョブを追加するときは
+  node 実行の有無を確認して同じ扱いにする。
 
 ### 7.7 改行コード
 `.gitattributes` で `text=auto eol=lf` を設定済み。LF→CRLF 混入で作業ツリーが
@@ -307,7 +335,8 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   ※ 旧「EMBEDDING_ENDPOINT（ollama bge-m3）停止で `/api/ask` が 503」の記述は**失効（解消済み）**。
   ※ `pi-vector-service/` は 32bit Pi 向け依存ゼロ実装を母艦へ移設したもので**削除禁止**。
     unit は `~/.config/systemd/user/pi-vector.service`（`Restart=always`・enabled）。
-    `ExecStart` は Node v20.18.1（本番の API は v22.12.0。ワーカーは §5 のとおり v20.18.1）だが依存ゼロコードのため実害なし。
+    `ExecStart` は Node v24.22.0（§5 のとおり全プロセス統一）。依存ゼロコードのため実害は 없었으나、
+    EOL 版（v20）を掴んでいたので 2026-10-21 に更新した。
   ※ 「ローカルLLM運用は不可（ユーザー指示）」は**回答生成LLMに限る**。埋め込みは上記の通り
     ローカル（llama.cpp）で稼働しており、この指示の対象外。
 - **TTS速度調整**: `/api/admin/chat/speak` の `num_steps`(1〜4、body優先) / env `CHAT_TTS_NUM_STEPS`（本番・stagingとも `2` 設定済み・2026-10-03）。
@@ -450,8 +479,9 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     `services/db-guard.js` が Database.prototype に既定のエラーコールバックを差すので、
     これを require している（`server.js` / `main.js` / `services/context.js`）。
     **新しい DB 実装でも require を忘れないこと**
-- **ネイティブビルドは Node v22 優先**: 本番 API は v22.12.0、ワーカーは v20.18.1（`§5`）。
-  ビルドと実行の Node を揃えること（v18 でビルドして v22 で実行すると ABI 不一致）。
+- **ネイティブビルドは Node v24 優先**: 全プロセスが v24.22.0（`§5`）。
+  ビルドと実行の Node を揃えること（別の版でビルドして別の版で実行すると ABI 不一致）。
+  `PATH` は `~/.nvm/versions/node/v24.22.0/bin` を先頭に置く。
 
 ## 12. ドキュメント更新ルール（ARCHITECTURE.md を腐らせない）
 
@@ -511,6 +541,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
+最終更新: 2026-10-21（§5 Node.js を v24.22.0 に統一：pm2 全プロセス・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に）
 最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10 待ちタイマーの連打による延長禁止（v1.8.5 / Issue #14）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）

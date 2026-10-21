@@ -39,7 +39,8 @@
 | YouTube Webhook | 3001 | 0.0.0.0 | `src/scrapers/youtube.js startWebhook` | PubSubHubbub。外部フックのため唯一 0.0.0.0 |
 | `discord-bot` | – | – | `/var/www/html/koinoyamai.love/discord-bot.js` | |
 
-- 定義は `ecosystem.config.js`。API は **Node v22.12.0（nvm）** 固定、ワーカーは既定 node。
+- 定義は `ecosystem.config.js`。**Node は v24.22.0 に統一**し、全プロセスで `interpreter` を明示指定する
+  （既定 node = nvm alias に依存すると版が混在する／cron の `PATH` は `/usr/bin/node`=v18 を掴む）。`AGENTS.md §5` 参照。
 - **`curl localhost:8081` は staging**。本番検証と誤認しないこと（`AGENTS.md §1`）。検証前に `bash scripts/deploy/assert-port.sh prod|staging`。
 
 ---

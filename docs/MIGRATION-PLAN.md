@@ -131,7 +131,7 @@ crontab -l | grep mai-push   # 3本すべて /srv になっていることを確
 | 方式 | 手順 | リスク |
 |---|---|---|
 | A. mv 引き継ぎ（推奨・最速） | Phase 1 の `git reset` 前に `rsync -a /var/www/html/koinoyamai.love/node_modules/ /srv/mai-push/node_modules/` | なし（同一ホスト・同一 ABI。native リビルド不要） |
-| B. クリーン install | `/srv/mai-push` で `PATH=v22` を優先に `npm ci` | ステージング未通過の依存差異が出た場合はここで初めて発覚。**AGENTS.md §5 の通り staging で先に回帰必須** |
+| B. クリーン install | `/srv/mai-push` で `PATH=v24` を優先に `npm ci` | ステージング未通過の依存差異が出た場合はここで初めて発覚。**AGENTS.md §5 の通り staging で先に回帰必須** |
 
 初回は **A**、以降の更新は `/srv/mai-push` 内で `npm ci`（B 相当）を普段運用にする。
 
@@ -170,7 +170,7 @@ crontab -l | grep mai-push   # 3本すべて /srv になっていることを確
 | nginx reload 後に 502/404 | `nginx -t` を reload **前**必須。失敗時は `git checkout` 相当で nginx.conf を `nginx.conf.bak-<日付>` から戻して reload |
 | pm2 が旧パスを記憶して再起動失敗 | `pm2 delete mai-push-api mai-push-worker discord-bot` → 新パスで start → `pm2 save`。dump は start 後に必ず上書き |
 | DB が移設元と二重に更新される | **Phase 1 は必ず「pm2 stop → copy → start」の順**。stop 前に書き込みを許さない |
-| node_modules の native ABI 不一致 | 同一ホストなので発生しない（rsync 引き継ぎ時）。クリーン install 時のみ v22 PATH |
+| node_modules の native ABI 不一致 | 同一ホストなので発生しない（rsync 引き継ぎ時）。クリーン install 時のみ v24 PATH |
 | SMB 切替で Windows 作業が止まる | `[html]` share は残すため旧パスも読める。新旧並行期間を取る |
 | ロールバック | `mv /var/www/html/koinoyamai.love.retired /var/www/html/koinoyamai.love` → ecosystem の cwd を旧パスに（または旧 dump 恢復）→ pm2 start → nginx.conf を `.bak` から戻し reload → crontab を旧パスへ。**所要 5 分以内で完全復帰可能** |
 
