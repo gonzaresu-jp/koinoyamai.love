@@ -66,6 +66,15 @@ trap 'rm -f "$TMP"' EXIT
 install -m 0644 "$TMP" "$CONF"
 
 # nginx -t が失敗したらバックアップへ戻す（壊れた config を残さない）
+
+# 復元前に「バックアップ取得後に他プロセスが config を変更していないか」を確認する。
+# 変更されている場合（並行した適用など）は **復元しない**（他方の変更を潰さない）。
+if ! cmp -s "$CONF" "$CONF"; then
+  echo "[ERR] $CONF はバックアップ取得後に変更されています（並行した変更が疑われます）。" >&2
+  echo "     復元せず中断します（他方の変更を潰さないため）。" >&2
+  exit 1
+fi
+
 if ! nginx -t; then
   echo "[ERR] nginx -t が失敗したためバックアップへ戻します" >&2
   cp -a "$BAK" "$CONF"
