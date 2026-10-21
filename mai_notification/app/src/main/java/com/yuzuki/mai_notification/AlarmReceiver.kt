@@ -1,15 +1,9 @@
 package com.yuzuki.mai_notification
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.media.AudioAttributes
-import android.media.RingtoneManager
-import android.os.Build
-import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -19,12 +13,13 @@ import androidx.core.app.NotificationManagerCompat
  *
  * ポイント:
  *   - 高優先度（IMPORTANCE_HIGH）の専用チャネルで通知する。
- *     -chanel の優先度はインストール後にユーザーしか変えられないので、
- *     初回は!=でも鳴るよう、アラームの「音・バイブ」は channel の設定に従う。
+ *     チャネルの優先度はインストール後にユーザーしか変えられないので、
+ *     初回から鳴らせるよう、アラームの「音・バイブ」はチャネルの設定に従う
+ *     （チャネルの設定はインストール後にユーザーしか変えられない）。
  *   - full-screen intent を付けると、画面が消えていても全画面表示されうる
  *     （Android 14+ では「全画面intent」の権限が必要）。
  *     権限が無い場合は通常の通知として表示される。
- *   - 画面を確実に起こすため、AlterManager が起こsoilなくてよい。
+ *   - 画面を確実に起こすため、AlarmManager 側の exact alarm でデバイスを起こす。
  */
 class AlarmReceiver : BroadcastReceiver() {
 
@@ -39,12 +34,15 @@ class AlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != ACTION_STREAM_ALARM) return
+        // 通知の表示とスケジュールの取り直しでネットワークを叩くため、
+        // broadcast の猶予（10秒）を goAsync で確保する
+        val pending = goAsync()
         val title = intent.getStringExtra(EXTRA_TITLE) ?: "配信が始まります"
         val url = intent.getStringExtra(EXTRA_URL)
         val eventId = intent.getLongExtra(EXTRA_EVENT_ID, 0L)
         Log.i(TAG, "配信アラーム発火: $title (id=$eventId)")
 
-        ensureChannel(context)
+        AlarmScheduler.ensureChannel(context)
 
         // 通知をタップしたら配信ページを開く
         val openIntent = Intent(context, MainActivity::class.java).apply {
@@ -67,44 +65,31 @@ class AlarmReceiver : BroadcastReceiver() {
             .setContentText("配信が始まる時間です")
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setOngoing(true)
-            .setAutoCancel(false)
+            .setOngoing(false)
+            .setAutoCancel(true)
             .setContentIntent(contentPi)
             .setFullScreenIntent(fullPi, true)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build()
 
+        // 通知 ID: eventId が無い場合（FCM 経由）は title から安定に作る
+        val notifyId = if (eventId != 0L) eventId.toInt() else (title.hashCode() and 0x00FFFFFF)
         try {
-            NotificationManagerCompat.from(context).notify(eventId.toInt() or 0x40000000, notification)
+            NotificationManagerCompat.from(context).notify(notifyId, notification)
         } catch (e: SecurityException) {
             Log.w(TAG, "通知の表示に失敗しました（通知権限なし？）: ${e.message}")
         }
 
         // 発火後は同じアラームを再登録しない（次回にスケジュールを取り直して登録する）
-        AlarmScheduler.rescheduleFromServer(context)
+        Thread {
+            try {
+                AlarmScheduler.rescheduleFromServer(context)
+            } catch (e: Exception) {
+                Log.w(TAG, "再登録に失敗: ${e.message}")
+            } finally {
+                pending.finish()
+            }
+        }.start()
     }
 
-    /** アラーム用の通知チャネル（IMPORTANCE_HIGH + アラーム音） */
-    private fun ensureChannel(context: Context) {
-        val mgr = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        val attrs = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_ALARM)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .build()
-        val channel = NotificationChannel(
-            AlarmScheduler.CHANNEL_ID,
-            "配信アラーム",
-            NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "配信開始の15分前などに通知します"
-            enableVibration(true)
-            vibrationPattern = longArrayOf(0, 500, 250, 500)
-            if (sound != null) setSound(sound, attrs)
-            lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
-        }
-        mgr.createNotificationChannel(channel)
-    }
 }

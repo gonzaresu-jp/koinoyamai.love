@@ -28,7 +28,7 @@ function saParseState(json) {
     if (!raw || typeof raw !== 'object') return null;
     return {
       enabled: !!raw.enabled,
-      offsetMin: Number(raw.offsetMin) || 0,
+      offsetMin: raw.offsetMin === undefined || raw.offsetMin === null ? 0 : Number(raw.offsetMin),
       canExact: raw.canExact !== false,
       choices: Array.isArray(raw.choices) && raw.choices.length ? raw.choices : [0, 5, 10, 15, 30],
     };
@@ -49,7 +49,8 @@ function saLoadState() {
       const o = JSON.parse(raw);
       return {
         enabled: !!o.enabled,
-        offsetMin: Number(o.offsetMin) || 15,
+        // offsetMin は 0（開始時刻ちょうど）が正当な値なので ?? を使う（|| だと 0 が 15 になる）
+        offsetMin: o.offsetMin === undefined || o.offsetMin === null ? 15 : Number(o.offsetMin),
         canExact: o.canExact !== false,
         choices: [0, 5, 10, 15, 30],
       };
