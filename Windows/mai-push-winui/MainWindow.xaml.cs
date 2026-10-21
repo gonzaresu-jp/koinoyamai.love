@@ -42,6 +42,10 @@ public sealed partial class MainWindow : Window
     private bool _tabStripPointerPressed = false;
     // AppWindow.Changed の例外ログは 5 秒に 1 回へ制限する（連発でログが溢れる・UI が詰まる）
     private readonly Diagnostics.ThrottledFault _appWindowFaultLog = new(5000);
+    // タブストリップの各タイマー（アニメーション 16ms 周期・折りたたみ）の例外ログも連発制限する
+    private readonly Diagnostics.ThrottledFault _tabStripAnimFaultLog = new(5000);
+    private readonly Diagnostics.ThrottledFault _tabStripCollapseFaultLog = new(5000);
+    private readonly Diagnostics.ThrottledFault _tabStripCollapseStartFaultLog = new(5000);
     // AddButton 右端の物理ピクセル X（Chrome 方式: これより右がウィンドウドラッグ領域）
     private int _tabAreaRight = 0;
     // フローティングドラッグゴースト用
@@ -531,7 +535,7 @@ public sealed partial class MainWindow : Window
                 {
                     _animTimer?.Stop();
                     try { _tabStripTransform.Y = _animToY; } catch { }
-                    Diagnostics.Log("TabStripAnim", ex);
+                    _tabStripAnimFaultLog.Report("TabStripAnim", ex);
                 }
             };
         }
@@ -580,7 +584,7 @@ public sealed partial class MainWindow : Window
                 // ドラッグ中は畳まない（.EndTabDrag が終了後に再予約する）
                 if (_tabStripPointerPressed) return;
                 try { CollapseTabStrip(); }
-                catch (Exception ex) { Diagnostics.Log("TabStripCollapse", ex); }
+                catch (Exception ex) { _tabStripCollapseFaultLog.Report("TabStripCollapse", ex); }
             };
             _collapseTimer.Start();
         }
@@ -588,7 +592,7 @@ public sealed partial class MainWindow : Window
         {
             // 予約に失敗した場合、フラグを戻さないと以後折りたたまれない
             _collapsePending = false;
-            Diagnostics.Log("TabStripCollapse.Start", ex);
+            _tabStripCollapseStartFaultLog.Report("TabStripCollapse.Start", ex);
         }
     }
 

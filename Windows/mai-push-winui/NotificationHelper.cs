@@ -5,6 +5,10 @@ namespace MaiPushWinUI;
 
 internal static class NotificationHelper
 {
+    // トースト失敗のログは連発を制限する（通知が連投されると UI スレッドの
+    // 同期ファイル書き込みが連発し、操作がもたくなり log.txt が溢れる / Issue #17）
+    private static readonly Diagnostics.ThrottledFault _toastFaultLog = new(5000);
+
     /// <summary>
     /// 画像付き Windows トースト通知を表示する。
     /// imageUrl が null でも本文のみで表示できる。
@@ -33,7 +37,7 @@ internal static class NotificationHelper
         catch (Exception ex)
         {
             // トースト失敗は致命的ではない。ログだけ残す。
-            Diagnostics.Log("ShowToast", $"title={title} image={imageUrl} {ex.Message}");
+            _toastFaultLog.Report("ShowToast", $"title={title} image={imageUrl} {ex.Message}");
         }
     }
 }

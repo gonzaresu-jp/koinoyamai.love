@@ -377,7 +377,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 
 - **バージョンは3箇所を揃える（Windows）**
   - `MaiPushWinUI.csproj` の `<Version>` / `installer.iss` の `#define MyAppVersion` /
-    `UpdateChecker.cs` の `CurrentVersion`（`new(1, 8, 5)` のようにリリース版と揃える）。
+    `UpdateChecker.cs` の `CurrentVersion`（`new(1, 8, 6)` のようにリリース版と揃える）。
   - `UpdateChecker.cs` を忘れると**最新版なのに「アップデートがあります」通知が出る**。
   - **機械検査が_parse可能になった**（2026-10-21 追加）:
     ```bash

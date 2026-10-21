@@ -132,6 +132,7 @@ internal static class Diagnostics
     internal sealed class ThrottledFault
     {
         private readonly long _minIntervalMs;
+        private readonly object _lock = new();
         private long _lastLogMs;
         private int _suppressed;
 
@@ -139,20 +140,34 @@ internal static class Diagnostics
 
         public void Report(string source, Exception? ex)
         {
-            long now = Environment.TickCount64;
-            if (_lastLogMs != 0 && now - _lastLogMs < _minIntervalMs)
+            Report(source, ex?.ToString() ?? "(no exception object)");
+        }
+
+        /// <summary>例外ではないメッセージ版の.Report（同じ連発抑制を適用する）</summary>
+        public void Report(string source, string message)
+        {
+            int suppressed;
+            lock (_lock)
             {
-                _suppressed++;
-                return;
+                long now = Environment.TickCount64;
+                if (_lastLogMs != 0 && now - _lastLogMs < _minIntervalMs)
+                {
+                    _suppressed++;
+                    return;
+                }
+                suppressed = _suppressed;
+                _lastLogMs = now;
+                _suppressed = 0;
             }
-            int suppressed = _suppressed;
-            _lastLogMs = now;
-            _suppressed = 0;
             // 抑制した件数も残す（同じ例外の連発か、別の不具合が増えたかを後から判別できるように）
+            // 秒が割り切れない間隔では ms で表記する（"0s" のような表記を避ける）
+            string window = _minIntervalMs % 1000 == 0
+                ? $"{_minIntervalMs / 1000}s"
+                : $"{_minIntervalMs}ms";
             var prefix = suppressed > 0
-                ? $"({suppressed} faults suppressed in the last {_minIntervalMs / 1000}s){Environment.NewLine}"
+                ? $"({suppressed} faults suppressed in the last {window}){Environment.NewLine}"
                 : "";
-            Log(source, prefix + (ex?.ToString() ?? "(no exception object)"));
+            Log(source, prefix + message);
         }
     }
 

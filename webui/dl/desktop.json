@@ -1,5 +1,5 @@
 {
   "version": "1.8.6",
-  "url": "https://koinoyamai.love/dl/MaiPush-1.8.6-Setup.exe?v=1792557965",
+  "url": "https://koinoyamai.love/dl/MaiPush-1.8.6-Setup.exe?v=1792559131",
   "notes": "アプリ内部の安定性改善を行いました（1.8.6）。例外が繰り返し発生した場合のログ出力を抑制し、不要な内部処理の整理で動作が安定するようになりました。タブバーの表示・折りたたみの挙動は v1.8.5 と同じです。"
 }
