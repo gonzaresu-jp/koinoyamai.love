@@ -169,8 +169,17 @@
   - security-watch が検出した未適用 3 件:
     **CVE-2026-12184**（upstream 8.3.32）/ **CVE-2026-9672**（8.3.33）/ **CVE-2026-17545**（8.3.35・Windows 専用）
   - upstream には修正版があるが **Canonical（Ubuntu）側のバックポートは未リリース**。
-  - **ondrej/sury PPA は導入しない**（第3者 APT リポジトリの恒久追加・他パッケージへの影響があるため）。
-    戻る手順: `sudo rm -f /etc/apt/sources.list.d/php.list && sudo apt-get update`
+  - **ondrej/sury PPA の扱い（2026-10-21 決定）**:
+    通常は**導入しない**（第3者 APT リポジトリの恒久追加・他パッケージへの影響があるため）。
+    ただし **upstream の修正版が既に出ていて Canonical のバックポートが追いつかない場合**
+    （CVE-2026-109618 / 109619 がこのケース）は、**緊急時に限り** upstream 版を入れる。
+    - 適用: `sudo bash scripts/php/apply-php-security-patch.sh --apply --ppa`
+      （`scripts/php/patch-and-resume.sh --ppa` なら復旧まで一連）
+    - 入れる版: upstream の最新 security 修正版（2026-10-21 時点では **8.3.36**）
+    - **戻る手順**: `sudo rm -f /etc/apt/sources.list.d/php.list && sudo apt-get update`
+      → その後 `sudo apt-get install --only-upgrade php8.3-fpm php8.3-cli php8.3-common
+      php8.3-gd php8.3-opcache php8.3-readline` で Ubuntu 版へ戻す
+    - 記録: `updatelogs.php` には「サーバーの実行環境（PHP）を更新した」として記載する
   - 待つ間は **実行時緩和策**を適用する（下記 `~/apply-php-hardening.sh`）。
     Canonical がバックポートしたら `os:security:php8.3-fpm` が security-watch に
     現れ、適用後に PHP の指摘が解消される（監視が自動で検知する）。
