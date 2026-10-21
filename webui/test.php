@@ -56,10 +56,6 @@
     <script type="module" src="/dist/main.bundle.min.js" defer></script>
     <script src="/js/log-settings-toggle.js?v=<?= @filemtime(__DIR__ . '/js/log-settings-toggle.js') ?: time(); ?>"></script>
     <script src="/js/page-fade-sw.js?v=<?= @filemtime(__DIR__ . '/js/page-fade-sw.js') ?: time(); ?>"></script>
-    <!-- iOS Helper を main.js より先に読み込む -->
-    <script src="/ios-helper.js" defer></script>
-    <script type="module" src="/dist/main.bundle.min.js" defer></script>
-    <script src="/js/log-settings-toggle.js?v=<?= @filemtime(__DIR__ . '/js/log-settings-toggle.js') ?: time(); ?>"></script>
 
     <script src="/js/test-oshidays.js?v=<?= @filemtime(__DIR__ . '/js/test-oshidays.js') ?: time(); ?>"></script>
     <script src="/js/page-fade-sw.js?v=<?= @filemtime(__DIR__ . '/js/page-fade-sw.js') ?: time(); ?>"></script>
