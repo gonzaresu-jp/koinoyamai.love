@@ -437,7 +437,7 @@ async function checkNpmAudit(opts) {
     raw = runCmd(npmBin, ["audit", "--json"], { cwd, timeout: 180000 });
   } catch (e) {
     // npm audit は脆弱性が見つかると exit code != 0 で終了する（出力は stdout にある）。
-    // ただし「lockfile 不在」「レジストリ到達不可」のときも stdout に {"error":...} が出���るため、
+    // ただし「lockfile 不在」「レジストリ到達不可」のときも stdout に {"error":...} が出るため、
     // ここでは「stdout が取れなければ実行失敗」とし、JSON の解釈は parseNpmAudit 側に任せる
     // （parseNpmAudit が error JSON を検出して throw する）。
     if (e.stdout && String(e.stdout).trim()) {
@@ -465,7 +465,7 @@ async function checkNpmAudit(opts) {
     };
   }
   const findings = parsed.advisories.map((a) => {
-    // key に advisory 識別子を��える: 同じパッケージでも別の advisory が出たら別で通知する
+    // key に advisory 識別子を含める: 同じパッケージでも別の advisory が出たら別で通知する
     const ghsa = (a.via || []).map((u) => String(u).split("/").pop().replace(/[^A-Za-z0-9-]/g, "")).find((x) => /^GHSA-/.test(x));
     const id = ghsa || a.via?.[0] || a.severity;
     return finding(

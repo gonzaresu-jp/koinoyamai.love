@@ -157,6 +157,12 @@
     elza vhost（:80）の旧 PHP（`location = /henkan/henkan.php` 等）は完全一致のため本スニペットでは
     止まらない。**別 PR #50 の `scripts/nginx/apply-php-exec-guard.sh`** で 404 化する
     （elza vhost は Cloudflare トンネル対象外・tailnet 限定のため攻撃面は限定的）。
+  - **upstream 版（sury）で運用している間の監視**:
+    `scripts/php/check-ubuntu-backport.js`（cron 35 4 * * *）が
+    **Ubuntu の CVE トラッカーが示す修正版**と **noble-security の実在版**を突き合わせ、
+    Ubuntu 版へ戻せるようになったら通知する。
+    ※ security-watch の PHP チェックは「インストール済み changelog に CVE があるか」で判定するため、
+    sury 版を入れている間は **Canonical のバックポートを検知できない**（この監視が補完）。
   - **パッチ適用後の復旧は `sudo bash scripts/php/patch-and-resume.sh` 1 本**
     （パッチ適用 → パッチ状態のみ検証 → メンテナンス解除 → pm2 再開 → 最終確認）。
     ※ 検証は `verify-php-security-patch.sh --patch-only` で行う（メンテナンス中は
@@ -558,6 +564,7 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 */15 * * * * /var/www/html/koinoyamai.love/scripts/ops/healthcheck.sh
 30 9 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/minutes-gen-cron.sh
 30 4 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/security-watch-cron.sh
+35 4 * * *  bash /var/www/html/koinoyamai.love/scripts/php/check-ubuntu-backport.js
 ```
 - いずれも `crontab -l`（yuzuki ユーザー）で確認済み。ログは `logs/`（gitignore 対象）。
 - 追加・変更するときは `crontab -l` の実体とこの表を**同じコミットで**更新する。
