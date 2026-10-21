@@ -40,6 +40,14 @@
   - API（`mai-push-api` / `mai-push-api-test`）/ ワーカー（`mai-push-worker` / `mai-push-worker-test`）/
     `discord-bot` = **v24.22.0**（`ecosystem.config.js` の `interpreter` で**全プロセス明示指定**）
   - systemd `pi-vector.service` = v24.22.0（`~/.config/systemd/user/pi-vector.service` の `ExecStart`）
+  - **pm2 デーモン（God Daemon）も v24.22.0**（2026-10-21 移行済み）。
+    systemd `pm2-yuzuki.service` の `Environment=PATH` の先頭に nvm の bin を追加してあるので、
+    `pm2 resurrect` で起動する daemon も v24.22.0 で動く。
+    移行は `~/migrate-pm2-daemon-node24.sh`（dry-run → `sudo ... --apply`。unit と dump のバックアップ付き）。
+    ※ daemon の Node はアプリの実行 Node には影響しない（全アプリが `exec_interpreter` の絶対パスを保持）が、
+    **interpreter 未指定で追加したプロセスが PATH 解決で EOL 版を掴むのを防ぐ**ため揃えている。
+  - **他プロジェクト（fcpass / air-monitor / hitori-twitter / squiish / upload-file）は v22.12.0 のまま。**
+    別リポジトリの別判断なので触らない（Maintenance LTS・EOL ではない）。
   - cron 実行スクリプト（`update-subscribers-and-commit.sh` / `minutes-gen-cron.sh`）= v24.22.0（`NODE_BIN` で固定）
   - CI（`.github/workflows/ci.yml`）= `node-version: '24'`
   - **過去の既定値（process ごとのバージョン違い）は 2026-10-21 に廃止した。**
@@ -555,7 +563,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-21（§5 Node.js を v24.22.0 に統一：pm2 全プロセス・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に）
+最終更新: 2026-10-21（§5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に）
 最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10 待ちタイマーの連打による延長禁止（v1.8.5 / Issue #14）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）
