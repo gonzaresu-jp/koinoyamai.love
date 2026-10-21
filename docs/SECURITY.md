@@ -423,3 +423,20 @@ security-watch が検出した、upstream には修正版があるのに **Canon
 **apt-get upgrade 全体はしない**（google-chrome / tailscale / cloudflared / xserver-* まで
 巻き込まれ、PHP や nginx の版まで変動する恐れがあるため）。対象は security pocket のみに限定する。
 再起動が必要なサービス（openssl / systemd / nginx / libc6）は今回の更新に含まれない。
+
+## 旅先ディスプレイ（`/display/`・2026-10-21 追加）
+
+- **公開パス**: `https://koinoyamai.love/display/`（読み取り専用の静的ページ）
+- サンフランシスコ旅行中にまいちゃんの予定・通知と**現地/日本の時刻**を確認するためのもの。
+  実体とビルド元は private リポジトリ `gonzaresu-jp/smart-display`。
+- **セキュリティ上の要点**:
+  - 同一オリジン配信にしてあり、画面は `/api/...` を絶対パスで叩く
+    （API の CORS 許可オリジンが `koinoyamai.love` 等に限定されているため）。
+    **別オリジン（GitHub Pages 等）に置くとブラウザがブロックする。**
+  - nginx の Location に `add_header` を**書かない**ことで server レベルの
+    CSP / X-Frame-Options / HSTS 等を継承させている（`AGENTS.md §11`）。
+  - 認証・secret は一切使わない。表示する情報は公開 API（`/api/history` / `/api/history/stream`（SSE）/
+    `/api/events/weekly`）のみで、書き込み系 API には触れない。
+  - 配置先は `/var/www/html/smart-display/`（git 管理ツリー外・644/755）。
+    git 管理ツリーに入れると `check-drift.sh` の「未コミット変更」で引っかかる。
+- 適用: `sudo bash scripts/nginx/apply-display-location.sh --apply`（冪等・fail-closed）

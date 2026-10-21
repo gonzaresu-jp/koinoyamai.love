@@ -226,6 +226,21 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 - **CSP は `script-src 'self'`**（nginx `scripts/nginx/mai-test.conf` 等）。インライン JS 不可 → 新規 JS は `/js/*.js` に置く。
 - 公開 HTML の反映は `bash scripts/deploy/verify-deploy.sh webui/<file>` でバイト比較（`open_file_cache` 切詰め検出、`AGENTS.md §7.1`）。同スクリプトは配信ファイルが other 読み取り可か（php-fpm から読めるか）も検査する。
 
+### 4.5b 旅先ディスプレイ（`/display/`）
+
+- **https://koinoyamai.love/display/** = サンフランシスコ旅行中にまいちゃんの予定・通知と
+  **現地/日本の時刻**を確認するための静的ページ（Vue ビルド成果物）。
+- 実体とビルド元は**別リポジトリ**（private `gonzaresu-jp/smart-display`）。
+  成果物は `/var/www/html/smart-display/`（`display.html` + `assets/`）に置き、
+  nginx の `location ^~ /display/ { alias ...; index display.html; expires -1; }` で配信する
+  （`scripts/nginx/apply-display-location.sh` / `display-location.conf`）。
+- **同一オリジンで配信する**のが要点: 画面は `/api/...` を絶対パスで叩くため、
+  API の CORS 許可オリジン（`server.js` の `allowedCorsOrigins`）を変更する必要がない
+  （許可オリジンが限定されているため、別オリジン配信だとブラウザがブロックする）。
+- `add_header` を Location に書かず server レベルの CSP 等を継承させている（`AGENTS.md §11`）。
+  キャッシュ無効化は `expires -1`（`add_header` を足すと継承が壊れるため）。
+- 配置手順は smart-display リポジトリの `scripts/deploy-display.sh`（`--apply` で rsync）。
+
 ### 4.6 `scripts/`（運用）
 - **`deploy/`**: `deploy-staging.sh` / `promote.sh`（staging→prod）/ `verify-deploy.sh`（バイト比較＋権限検査）/ `assert-port.sh` / `check-drift.sh` / `sync-test-db.sh` / `restart.sh` / `migrate-domain-final.sh`（ドメイン最終移行の適用スクリプト・1回限り）
 - **`ops/`**: `regression-test.js`（`npm test`）/ `health-check.js`（`npm run health`）/ `backup.sh` / `healthcheck.sh` / `count-lines.sh` / `check-native.{sh,js}` / `minutes-gen*` / `update-subscribers*` / `security-watch-cron.sh`（脆弱性監視の cron ラッパ・flock・ログは `logs/security-watch-YYYYMMDD.log`）
