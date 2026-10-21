@@ -48,7 +48,9 @@ bash "$REPO_ROOT/scripts/php/apply-php-security-patch.sh" --apply ${APPLY_ARGS[@
 # --- 2) パッチ状態の検証（サイト応答はメンテナンス解除後に判定する） ------
 say "2) パッチ状態の検証（Debian changelog の CVE 記載）"
 if ! bash "$REPO_ROOT/scripts/php/verify-php-security-patch.sh" --patch-only; then
-  echo "error: パッチが未適用です（チャンジログに CVE 記載なし）。公開ページはメンテナンスのまま維持します" >&2
+  echo "error: パッチ状態の検証に失敗しました（上の ✗ を確認してください）。" >&2
+  echo "       公開ページはメンテナンスのまま維持します（fail-safe）。" >&2
+  echo "       よくある原因: php-fpm が再起動されていない → sudo systemctl restart php8.3-fpm" >&2
   exit 1
 fi
 echo "→ パッチ適用 OK"

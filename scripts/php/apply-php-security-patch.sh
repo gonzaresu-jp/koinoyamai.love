@@ -343,6 +343,19 @@ for _ in $(seq 1 20); do
   sleep 0.5
 done
 systemctl is-active --quiet "$FPM_SERVICE" || die "${FPM_SERVICE} が active になりません"
+
+# 孤児 php-fpm の掃除（テスト残骸など。親が init=1 で、systemd の MainPID でない master のみ）
+MAIN_PID="$(systemctl show "$FPM_SERVICE" -p MainPID --value 2>/dev/null || true)"
+ORPHANS=0
+if [ -n "$MAIN_PID" ] && [ "$MAIN_PID" != "0" ]; then
+  for pid in $(pgrep -x php-fpm8.3 2>/dev/null || true); do
+    [ "$pid" = "$MAIN_PID" ] && continue
+    ppid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')"
+    [ "$ppid" = "1" ] || continue
+    kill "$pid" 2>/dev/null && ORPHANS=$((ORPHANS+1))
+  done
+  [ "$ORPHANS" -gt 0 ] && echo "  [OK] 孤児の php-fpm を ${ORPHANS} 件停止しました"
+fi
 echo
 
 # --- 6. 適用後の確認（fail-closed） -------------------------------------

@@ -118,15 +118,22 @@ echo
 
 # --- 2) 稼働バイナリが更新済みか ---------------------------------------
 echo "--- 2) 稼働バイナリとパッケージの整合 ---"
-FPM_PID="$(pgrep -x php-fpm8.3 2>/dev/null | head -1 || true)"
-if [ -n "$FPM_PID" ]; then
-  info "稼働 master: PID=${FPM_PID}"
+# ⚠️ master の PID は **systemd から**取る。
+# `pgrep -x php-fpm8.3 | head -1` は最古の PID を返すため、
+# テスト残骸などの**孤児プロセス**を掴んで「古いバイナリが動作中」と誤判定する
+# （2026-10-21 実測: 孤児 20 個以上・実際の master は MainPID）。
+FPM_PID="$(systemctl show "$FPM_SERVICE" -p MainPID --value 2>/dev/null || true)"
+[ -n "$FPM_PID" ] || FPM_PID="$(pgrep -x php-fpm8.3 2>/dev/null | head -1 || true)"
+if [ -n "$FPM_PID" ] && [ "$FPM_PID" != "0" ]; then
+  info "稼働 master: PID=${FPM_PID}（systemd MainPID）"
   # (a) root 不要の判定: パッケージのインストール時刻と fpm の起動時刻を比較
   ETIMES="$(ps -o etimes= -p "${FPM_PID}" 2>/dev/null | tr -d ' ' || true)"
   FPM_START=""
   [ -n "${ETIMES:-}" ] && FPM_START="$(( $(date +%s) - ETIMES ))"
   PKG_INST="$(grep -hE "(status installed| install) ${FPM_SERVICE}:" /var/log/dpkg.log 2>/dev/null \
               | tail -1 | awk '{print $1" "$2}' | xargs -I{} date -d "{}" +%s 2>/dev/null || true)"
+  # パッケージのファイル更新時刻（dpkg.log の行が無い環境用のフォールバック）
+  [ -n "$PKG_INST" ] || PKG_INST="$(stat -c %Y /usr/sbin/php-fpm8.3 2>/dev/null || echo '')"
   if [ -n "$FPM_START" ] && [ -n "$PKG_INST" ]; then
     info "fpm 起動時刻 epoch=${FPM_START} / ${FPM_SERVICE} 導入時刻 epoch=${PKG_INST}"
     if [ "$PKG_INST" -gt "$FPM_START" ]; then
