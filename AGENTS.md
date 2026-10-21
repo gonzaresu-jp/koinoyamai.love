@@ -91,6 +91,27 @@
   ※ npm 11 は lockfile を正規化する（extraneous / optional peer の削除だけ）ことがあるが、
   **依存バージョンの差分は出さない**。差分が出た場合は `git checkout -- package-lock.json` で戻すこと。
 
+### 5.1 PHP ランタイム（php-fpm）
+- **PHP は 8.3 系（Ubuntu 24.04 の `php8.3-fpm`）**。`webui/*.php` の配信 SAPI は **php-fpm のみ**
+  （`php-cgi` バイナリ無し・apache2 も未導入）。nginx は `/run/php/php8.3-fpm.sock` を向く
+  （`scripts/nginx/mai-test.conf` / 本番 `/etc/nginx/nginx.conf`）。
+- **Ubuntu は upstream の security パッチをバックポートする運用**なので、patch を当てても
+  `php -v` のバージョン文字列は `8.3.6` のまま（`-0ubuntu0.24.04.NN` のリビジョンだけ上がる）。
+  → **適用判定は `php -v` ではなく Debian changelog の CVE 記載で行う**（`verify-php-security-patch.sh` が自動化）。
+- **php8.1 系は導入済みだが `masked` かつ停止中**（upstream 8.1 は 2025-12-31 EOL → 緊急修正は来ない）。
+  **起動させない**（nginx も 8.3 しか向かない）。使っていないので削除してよい。
+- **緊急パッチの適用は本家スクリプトで**（`sudo` 必要・dry-run → `--apply` の2段。`~/apply-php-security-patch.sh` はラッパ）:
+  ```bash
+  bash scripts/php/apply-php-security-patch.sh                   # dry-run（root 不要）
+  sudo bash scripts/php/apply-php-security-patch.sh --apply       # 適用（Ubuntu archive に修正がある場合）
+  sudo bash scripts/php/apply-php-security-patch.sh --apply --ppa # ondrej PPA を使う場合（副作用あり）
+  bash scripts/php/verify-php-security-patch.sh                   # 適用結果の検証
+  ```
+  - `apt-get upgrade`（全体）は**しない**。`php8.3-*` だけを `--only-upgrade` で上げる。
+  - 適用前のバージョンは `/var/lib/mai-push/php-rollback-<時刻>.txt` に記録（ロールバック手順つき）。
+  - **2026-10-21 の件**: CVE-2026-109618 / CVE-2026-109619（PHP コア RCE / CVSS v4.0 9.2）が
+    2026-10-21 14:00 UTC（JST 23:00）にリリース。詳細と影響評価は `docs/SECURITY.md` を参照。
+
 ## 6. 検証の作法
 - 変更後は `node --check <file>` → pm2 再起動（`--update-env`）→ **正しいポート**で `/api/health`。
 - 本番 pm2 再起動は作業者の明示承認後にのみ実施。
@@ -563,7 +584,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-21（§5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に）
+最終更新: 2026-10-21（§5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に）
 最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10 待ちタイマーの連打による延長禁止（v1.8.5 / Issue #14）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）

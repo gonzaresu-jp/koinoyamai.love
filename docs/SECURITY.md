@@ -176,3 +176,70 @@ node scripts/ops/regression-test.js --port 18099
     `error_log` を debug 以上にしないことが必須**（2026-10-21 実測・適用済み）。
     漏れた場合は `bash ~/rotate-youtube-webhook-token.sh` でローテーションする
 - **運用**: `AGENTS.md §6.8`（callback は公開 URL 必須・トークン必須・nginx 手順・検証手順）
+
+## PHP ランタイム（php-fpm 8.3）— 2026-10-21 の緊急 RCE
+
+### 何が起きているか
+
+| 項目 | 内容 |
+|---|---|
+| CVE | **CVE-2026-109618 / CVE-2026-109619**（PHP コアの RCE） |
+| 深刻度 | **CVSS v4.0 = 9.2（Critical）** |
+| リリース | **2026-10-21 14:00 UTC = JST 23:00**（PHP チーム事前告知。embargo 泄露で 1 日前倒し） |
+| 影響範囲 | 報告では **PHP 5 以降すべて**（公式 advisory の確定はリリース時） |
+| 詳細 | **未公開**（リリース時に公開）。in-the-wild 悪用報告は 2026-10-21 時点でなし |
+| 想定修正版 | 8.2.34 / **8.3.34** / 8.4.26 / 8.5.11（リリース前の推定） |
+| 出典 | php.net 事前告知 / CERT-EU 2026-018 / watchTowr FAQ / Ars Technica |
+
+### 本サーバへの影響評価（2026-10-21 実測）
+
+| 観点 | 実測 | 判定 |
+|---|---|---|
+| バージョン | `php8.3-fpm 8.3.6-0ubuntu0.24.04.12`（noble-security） | **未修正 → 影響あり** |
+| 稼働 SAPI | **php-fpm のみ**（`php-cgi` バイナリ無し・apache2 未導入） | 攻撃面は nginx→FPM の HTTP のみ |
+| 公開経路 | nginx :1717 / :80 ← cloudflared トンネル（`koinoyamai.love` → :1717、`test.koinoyamai.love` → :80）+ Cloudflare プロキシ | インターネットから到達可能 |
+| アプリコード | `webui/*.php` 18 ファイル。`eval` / `unserialize` / 動的 include / `system` 系は**ゼロ** | アプリ層のトリガーは無い。リスクは PHP コア層 |
+| hardening | `disable_functions` **空** / `open_basedir` **未設定** / `allow_url_fopen=On` / `expose_php=Off` / `display_errors=Off` | **RCE 成立後の被害は大きい**（任意コマンド実行・任意ファイル読み書きが可能） |
+| 旧版 PHP | `php8.1-*` は導入済みだが **`masked` かつ inactive**（upstream 8.1 は 2025-12-31 EOL → 修正は来ない） | 起動しなければ問題なし。削除してよい |
+| 自動更新 | `unattended-upgrades` enabled、`noble-security` 許可 | Canonical の USN 公開後に自動で入る（ただし数日かかる） |
+
+### 適用手順
+
+```bash
+# 1) dry-run（root 不要）— upstream リリース状況・Ubuntu の candidate を確認
+bash scripts/php/apply-php-security-patch.sh
+
+# 2) 適用（sudo 必要）
+sudo bash scripts/php/apply-php-security-patch.sh --apply          # Ubuntu archive に修正がある場合
+sudo bash scripts/php/apply-php-security-patch.sh --apply --ppa    # Ubuntu 未投入の場合（ondrej/php PPA）
+
+# 3) 検証
+bash scripts/php/verify-php-security-patch.sh
+```
+
+- **判定は `php -v` で見ない。** Ubuntu は upstream の security パッチをバックポートするため、
+  バージョン文字列は `8.3.6` のまま（`-0ubuntu0.24.04.NN` だけ上がる）。
+  正しくは **Debian changelog に CVE ID が載っているか** で判定する（`verify-php-security-patch.sh` が自動化）。
+- `apt-get upgrade`（全体）はしない。`php8.3-*` だけを `--only-upgrade` で上げる。
+- 適用前のバージョンは `/var/lib/mai-push/php-rollback-<時刻>.txt` に記録（ロールバック手順つき）。
+- PPA（`--ppa`）は他パッケージ（`php8.1-*` 等）に影響しうるため、実行前に dry-run の
+  シミュレーション出力を確認すること。
+- ラッパ: `~/apply-php-security-patch.sh` / `~/verify-php-security-patch.sh`（本番ツリーを優先して実体を解決）。
+
+### パッチ前の緩和策（2026-10-21 夜〜リリースまで）
+
+詳細が未公開のため「トリガーの防止」はできないが、**成立後の被害拡大**は抑えられる。
+
+1. `disable_functions` に `exec,system,shell_exec,passthru,popen,proc_open,pcntl_exec,dl` を追加
+   → 任意コマンド実行の抑止（`/etc/php/8.3/fpm/php.ini`）
+2. `open_basedir` を webui の docroot + `/tmp` + `/var/lib/mai-push` に限定 → 任意ファイル読み書きの抑止
+3. nginx の PHP location に `limit_req` / `limit_conn` を追加
+4. Cloudflare 側で一時的なレート制限 / WAF ルール追加（ダッシュボード操作）
+5. `nginx access.log` と `/var/log/php8.3-fpm.log` の注視
+
+### 監視・検知
+
+- `verify-php-security-patch.sh` は git 管理外の `.php` 混入（webshell 简易チェック）と
+  EOL 版 PHP の稼働も併せて確認する。
+- 適用後は `journalctl -u php8.3-fpm -n 50` と `nginx access.log` を 10 分程度目視する。
+
