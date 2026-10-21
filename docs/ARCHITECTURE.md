@@ -38,6 +38,7 @@
 | `mai-push-worker-test` | 3003 | 127.0.0.1 | `/home/yuzuki/koinoyamai.love-test/main.js` | 手動起動運用 |
 | YouTube Webhook | 3001 | 0.0.0.0 | `src/scrapers/youtube.js startWebhook` | PubSubHubbub。外部フックのため唯一 0.0.0.0 |
 | `discord-bot` | – | – | `/var/www/html/koinoyamai.love/discord-bot.js` | |
+| `php8.3-fpm` | – | unix socket | `/etc/php/8.3/fpm/php-fpm.conf` | `webui/*.php` の配信 SAPI。`/run/php/php8.3-fpm.sock`。nginx が `fastcgi_pass` で向く（`AGENTS.md §5.1`） |
 
 - 定義は `ecosystem.config.js`。**Node は v24.22.0 に統一**し、全プロセスで `interpreter` を明示指定する
   （既定 node = nvm alias に依存すると版が混在する／cron の `PATH` は `/usr/bin/node`=v18 を掴む）。`AGENTS.md §5` 参照。
@@ -231,6 +232,7 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 - **`tools/`**: `build-android-apk.sh` / 単発メンテ（`dedupe-media`・`mine-personality`・`twitter-stats`・`whisper-subs`・`render-compare-html`・`fix-notification-platform`）
 - **`hooks/`**（pre-push）
 - **`nginx/`**: vhost 設定（`mai-test.conf` 等）と適用スクリプト（`apply-domain-final.sh` / `setup-staging-nginx.sh` / `default.conf`）
+- **`php/`**: PHP ランタイムの緊急パッチ適用（`apply-php-security-patch.sh` = dry-run/`--apply`/`--ppa` / `verify-php-security-patch.sh` = 適用結果の検証）。`sudo` 必要・`AGENTS.md §5.1` / `docs/SECURITY.md` 参照
 - **`archive/`**（旧スクリプト・参照用。`anomaly-check{,2,3}.js` = 字幕検査の版違い、`minutes-test.js` = 要約生成の単体試験）
 > すべて**リポジトリ直下から実行**する前提（root は `dirname/../..` で解決）。cron はフルパスで `scripts/{deploy,ops}/...` を指す。
 
