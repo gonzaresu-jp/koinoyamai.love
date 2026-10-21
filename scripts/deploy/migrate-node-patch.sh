@@ -284,15 +284,15 @@ cat <<TXT
 ## まだ足りないもの（リポジトリ外・root 必要）
 
 1. **pm2 デーモン（God Daemon）**: systemd \`/etc/systemd/system/pm2-yuzuki.service\` の
-   \`Environment=PATH\` 先頭の nvm bin を v${TO} へ → \`sudo systemctl restart pm2-yuzuki\`
+   \`Environment=PATH\` 先頭の nvm bin を ${TO} へ → \`sudo systemctl restart pm2-yuzuki\`
    （デーモンが旧版のまま \`pm2 resurrect\` すると旧 interpreter で復活する）
-2. **systemd \`pi-vector.service\`**（\`~/.config/systemd/user/\`）の ExecStart → v${TO}
+2. **systemd \`pi-vector.service\`**（\`~/.config/systemd/user/\`）の ExecStart → ${TO}
    → \`systemctl --user restart pi-vector\`
-3. **\`/opt/hitori-twitter/hitori-twitter.service\`** の ExecStart → v${TO}
-4. **\`/var/www/html/upload/ecosystem.config.js\`** の interpreter → v${TO}
+3. **\`/opt/hitori-twitter/hitori-twitter.service\`** の ExecStart → ${TO}
+4. **\`/var/www/html/upload/ecosystem.config.js\`** の interpreter → ${TO}
    （upload-file の恒久定義。pm2 resurrect 用）
 5. **\`pm2-logrotate\`** は \`interpreter=node\`（PATH 依存）なので、デーモン再起動で自動的に
-   v${TO} になる。再起動後に \`pm2 ls\` で online を確認すること。
+   ${TO} になる。再起動後に \`pm2 ls\` で online を確認すること。
 
 ## 確認
 
