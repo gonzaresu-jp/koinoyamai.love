@@ -42,6 +42,16 @@ const JWT_SECRET = process.env.JWT_SECRET || (() => {
   return generated;
 })();
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d';
+// JWT の有効期限を日換算する（'30d' / '12h' / '3600' 形式）
+function jwtExpiryMs(expiresIn) {
+  const s = String(expiresIn || '').trim();
+  const m = s.match(/^(\d+)\s*([smhd])?$/i);
+  if (!m) return 30 * 24 * 60 * 60 * 1000;
+  const n = Number(m[1]);
+  const unit = (m[2] || 's').toLowerCase();
+  const mult = { s: 1000, m: 60000, h: 3600000, d: 86400000 }[unit] || 1000;
+  return n * mult;
+}
 
 const COOKIE_NAME = process.env.AUTH_COOKIE_NAME || 'session';
 const LEGACY_COOKIE_NAME = 'auth_token';
@@ -50,9 +60,9 @@ const COOKIE_OPTIONS = {
   secure: process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production',
   sameSite: 'strict',
   path: '/',
-  // Cookie の寿命は JWT の有効期限（JWT_EXPIRES_IN / 30日）に揃える。
-  // 365日 Cookie だと「トークンは切れても Cookie は残る」状態になる（2026-10-21 実測）。
-  maxAge: 30 * 24 * 60 * 60 * 1000, // 30日
+  // Cookie の寿命は JWT の有効期限に揃える（TOKEN が切れても Cookie が残る状態にならない）。
+  // env を変えても乖離しないよう JWT_EXPIRES_IN から算出する（2026-10-21 レビュー指摘）。
+  maxAge: jwtExpiryMs(JWT_EXPIRES_IN),
 };
 
 // ---- Google OAuth クライアント ----

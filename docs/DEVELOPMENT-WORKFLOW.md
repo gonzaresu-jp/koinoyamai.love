@@ -72,7 +72,22 @@ bash scripts/deploy/promote.sh <branch> [--sync-staging] [--no-restart] [--dry-r
 3. **テスト通知（実機への push）は禁止**。staging は DISABLE_NOTIFICATIONS=1 だが、DB に直接書いたテスト行は本番に同期しないこと
 4. 環境差を `.env` に増やさない（`NODE_ENV` とプロセス引数で吸収）
 5. sudo が必要な作業（nginx / cloudflared の設定反映）はエージェント不可 → 手動で行う
-   - nginx: `sudo cp /home/yuzuki/koinoyamai.love-test/scripts/nginx/mai-test.conf /etc/nginx/mai-test.conf && sudo nginx -t && sudo systemctl reload nginx`
+   - nginx（staging vhost）: `sudo bash /home/yuzuki/koinoyamai.love-test/scripts/nginx/setup-staging-nginx.sh`
+     - ⚠️ **先に `/etc/nginx/snippets/mai-security-headers.conf` を配置すること**。
+       `mai-test.conf` は `include /etc/nginx/snippets/mai-security-headers.conf;` を含むため、
+       スニペットが無い状態で差替えると `nginx -t` が失敗して**サイト全体が止まる**。
+       setup-staging-nginx.sh は配置 → 差替 → `nginx -t` → reload の順で行う。
+     - 手動で差替える場合:
+       ```bash
+       sudo mkdir -p /etc/nginx/snippets
+       sudo install -m 644 scripts/nginx/mai-security-headers.conf /etc/nginx/snippets/
+       sudo cp scripts/nginx/mai-test.conf /etc/nginx/mai-test.conf && sudo nginx -t && sudo systemctl reload nginx
+       ```
+   - nginx（本番の公開ページにもセキュリティヘッダを付ける）:
+     `bash ~/apply-nginx-security-headers.sh`（dry-run）→ `sudo bash ~/apply-nginx-security-headers.sh --apply`
+     - パッチは `scripts/nginx/apply-security-headers.py`（冪等・除外理由を報告）
+     - `nginx` の `add_header` は **Location 内に 1 つでもあれば server レベルを継承しない**ため、
+       include を各 Location から入れる必要がある（`AGENTS.md §11`）
    - cloudflared: config.yml はリモート管理のためダッシュボードの Public Hostname で変更
 6. **PHP ランタイムの更新も sudo 必須 → 手動で行う**（`AGENTS.md §5.1`）
    - `bash scripts/php/apply-php-security-patch.sh`（dry-run）→ `sudo bash ... --apply` → `bash scripts/php/verify-php-security-patch.sh`

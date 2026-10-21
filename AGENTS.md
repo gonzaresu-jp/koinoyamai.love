@@ -662,6 +662,22 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     `/etc/nginx/snippets/` に置き、**自前の add_header を持つ Location から include する**。
     適用は `~/apply-nginx-security-headers.sh`（dry-run → `--apply`）。
     パッチは `scripts/nginx/apply-security-headers.py`（冪等・除外理由を報告）。
+  - ⚠️ **スニペットを配置せずに設定を差替えると `nginx -t` が失敗してサイト全体が止まる**。
+    差替は「スニペット配置 → 設定差替 → `nginx -t` → reload」の順で行う
+    （`scripts/nginx/setup-staging-nginx.sh` がこの順で実装済み）。
+  - **CSP は現時点で `script-src 'unsafe-inline'` を含める**（2026-10-21 headless Chrome で
+    11 ページ実測）:
+    - webui にはインライン `<script>`（`index.php` の Google Fonts 読み込みなど）と
+      **インラインハンドラ（`onclick=` 等 15 箇所）**があり、
+      `script-src 'self'` / `script-src-attr 'none'` だと
+      **全ページのログイン/ログアウトボタンと週次ナビゲーションが動かなくなる**（実測）。
+    - 外部 JS は `cdnjs.cloudflare.com`（wave.php の pixi.js）と `unpkg.com`
+      （test.php の lottie-player）を使うため許可している。
+    - **future work**: インライン script / ハンドラを `webui/js/*.js` へ外部化し、
+      `script-src 'unsafe-inline'` を外す。`§11` の「webui は CSP `script-src 'self'`」の
+      最終形。対象一覧は `scripts/nginx/mai-security-headers.conf` のコメントを参照。
+    - CSP を変更するときは **headless Chrome で 11 ページの実測**を必ず行う
+      （`grep -c "<script>" webui/*.php` だけでは判定できない）。
   - **Node API へ proxy する Location は include しない**（API 側は helmet が同等のヘッダを返す。
     二重になると CSP が intersection になる）。
   - **新しい Location を追加したら include 漏れを確認すること**（`curl -I` で実ヘッダを見る）。

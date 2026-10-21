@@ -1,7 +1,6 @@
 const ctx = require("../services/context");
 const notif = require("../services/notification");
-const rateLimit = require("express-rate-limit");
-const { ipKeyGenerator } = require("express-rate-limit");
+const { rateLimit, ipKeyGenerator } = require("express-rate-limit");
 
 // /api/send-test は認証なしで clientId だけで呼べるため、通知スパム防止に
 // **クライアント単位**の制限を入れる（IP 単位の apiLimiter 300/分では多すぎる）。
@@ -12,7 +11,9 @@ const sendTestLimiter = rateLimit({
   max: 5,
   keyGenerator: (req) => {
     const cid = req.body && req.body.clientId;
-    return cid ? String(cid) : ipKeyGenerator(req);
+    // fallback は **req.ip**（ipKeyGenerator は IP 文字列を渡す。req オブジェクトを
+    // 渡すと false を返して制限が無効化される。2026-10-21 レビューで実測）
+    return cid ? String(cid) : ipKeyGenerator(req.ip);
   },
   standardHeaders: true,
   legacyHeaders: false,
