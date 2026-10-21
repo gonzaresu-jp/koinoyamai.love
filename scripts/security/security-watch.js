@@ -117,16 +117,34 @@ function detectNodeVersion() {
 }
 
 /**
+ * ecosystem.config.js の apps から「このツリーの API アプリのポート」を解決する（純関数）。
+ *
+ * 重要: cwd だけだと **worker（PORT 3002）が先にマッチして**、その Express には
+ * /api/internal/scraper-status が無く 404 になる（2026-10-21 レビューで実測）。
+ * 必ず server.js のアプリを名指しで選び、順序に依存させない。
+ *
+ * @param {Array} apps ecosystem.config.js の apps
+ * @param {string} repoRoot 判定対象のツリーの絶対パス
+ * @returns {string|null} API ベース URL。解決できない場合は null（fail-closed）
+ */
+function resolveApiBase(apps, repoRoot) {
+  const list = Array.isArray(apps) ? apps : [];
+  const api = list.find((a) => a
+    && a.cwd === repoRoot
+    && typeof a.script === "string"
+    && /(^|\/)server\.js$/.test(a.script)
+    && a.env && a.env.PORT);
+  return api ? `http://127.0.0.1:${api.env.PORT}` : null;
+}
+
+/**
  * 状態報告先の API ベース URL を解決する。
  *
  * 重要: staging ツリーから実行したときに**本番 API に報告してはいけない**
  * （本番と staging で別の DB / ポート。AGENTS.md §1 のポート位相の事故）。
  *
- * 判定は ecosystem.config.js の「cwd がこのツリーと一致する **API アプリ**（server.js）」の PORT で行う。
- *   - cwd だけだと **worker（PORT 3002）が先にマッチして**、その Express には
- *     /api/internal/scraper-status が無く 404 になる（2026-10-21 レビューで実測）。
- *   - 順序依存にしないため、必ず server.js のアプリを名指しで探す。
- *   - 見つからない場合は fail-closed（既定の 8080 に倒さない）。
+ * 判定は ecosystem.config.js の「cwd がこのツリーと一致する API アプリ（server.js）」の PORT で行う。
+ * 見つからない場合は fail-closed（既定の 8080 に倒さない）。
  */
 function detectApiBase() {
   if (process.env.SECURITY_WATCH_API_BASE) {
@@ -134,17 +152,10 @@ function detectApiBase() {
   }
   try {
     const eco = require(path.join(REPO_ROOT, "ecosystem.config.js"));
-    const apps = (eco && eco.apps) || [];
-    const api = apps.find((a) => a
-      && a.cwd === REPO_ROOT
-      && typeof a.script === "string"
-      && /(^|\/)server\.js$/.test(a.script)
-      && a.env && a.env.PORT);
-    if (api) return `http://127.0.0.1:${api.env.PORT}`;
+    return resolveApiBase((eco && eco.apps) || [], REPO_ROOT);
   } catch (e) {
-    // fallthrough（fail-closed）
+    return null; // fail-closed
   }
-  return null; // 解決できない場合は報告しない（本番をguessしない）
 }
 
 /** 導入済み PHP パッケージの Debian 版 */
@@ -349,4 +360,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { detectApiBase, detectNodeVersion, main };
+module.exports = { detectApiBase, resolveApiBase, detectNodeVersion, main };

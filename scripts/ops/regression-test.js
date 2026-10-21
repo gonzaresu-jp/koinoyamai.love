@@ -513,14 +513,24 @@ async function main() {
 
     // 9-9. 報告先のポート解決（AGENTS.md §1 の事故対策）
     //   本番ツリーでは cwd 一致の最初の apps が worker(3002) になる。
-    //   server.js の API アプリを名指しで選ばないと 3002 にPOSTして 404 になる。
+    //   server.js の API アプリを名指しで選ばないと 3002 に POST して 404 になる。
+    //   環境（作業ツリーのパス）に依存しないよう、純粋関数にフィクスチャで検証する。
     const watchMod = require(path.join(projectDir, "scripts", "security", "security-watch.js"));
-    ok("detectApiBase が export されている", typeof watchMod.detectApiBase === "function");
-    // 実ツリー（staging）で 8081・prod で 8080 になることを確認する
-    const apiBaseHere = watchMod.detectApiBase();
-    const expectedHere = projectDir.endsWith("koinoyamai.love-test") ? 8081 : 8080;
-    ok(`detectApiBase: このツリーの API ポート（期待 ${expectedHere}）`, apiBaseHere === `http://127.0.0.1:${expectedHere}`);
-    ok("detectApiBase: worker のポート(3002/3003)を返さない", !/300[23]$/.test(String(apiBaseHere)));
+    ok("resolveApiBase が export されている", typeof watchMod.resolveApiBase === "function");
+    const fixtureApps = [
+      { name: "mai-push-worker", script: "./main.js", cwd: "/repo", env: { PORT: "3002" } },
+      { name: "discord-bot", script: "./discord-bot.js", cwd: "/repo", env: {} },
+      { name: "mai-push-api", script: "./server.js", cwd: "/repo", env: { PORT: "8080" } },
+      { name: "mai-push-api-test", script: "./server.js", cwd: "/repo-test", env: { PORT: "8081" } },
+    ];
+    ok("resolveApiBase: worker を先に並べても API ポートを返す",
+      watchMod.resolveApiBase(fixtureApps, "/repo") === "http://127.0.0.1:8080");
+    ok("resolveApiBase: cwd が違えば選ばない",
+      watchMod.resolveApiBase(fixtureApps, "/repo-test") === "http://127.0.0.1:8081");
+    ok("resolveApiBase: 一致する API アプリが無い場合は null（fail-closed）",
+      watchMod.resolveApiBase(fixtureApps, "/other") === null);
+    ok("resolveApiBase: worker のポート(3002/3003)を返さない",
+      !/300[23]$/.test(String(watchMod.resolveApiBase(fixtureApps, "/repo"))));
 
     // 9-10. npm audit のエラー出力を「問題なし」にしない（fail-closed）
     let auditErr = null;
