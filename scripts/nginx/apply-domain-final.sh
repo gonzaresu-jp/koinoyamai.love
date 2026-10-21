@@ -28,7 +28,7 @@ TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 
 # node は明示指定する（sudo 実行では nvm の PATH が読めず /usr/bin/node = v18 EOL を掴むため。AGENTS.md §5）
-NODE_BIN="/home/yuzuki/.nvm/versions/node/v24.22.0/bin/node"
+NODE_BIN="/home/yuzuki/.nvm/versions/node/v24.22.1/bin/node"
 
 "$NODE_BIN" - "$CONF" "$TMP" <<'NODE'
 const fs = require("fs");

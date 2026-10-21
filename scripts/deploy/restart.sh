@@ -15,7 +15,7 @@ set -euo pipefail
 CDIR="$(cd "$(dirname "$0")/../.." && pwd)"
 
 # node は明示指定する（PATH 依存だと /usr/bin/node = v18 EOL を掴む。AGENTS.md §5）
-NODE_BIN="/home/yuzuki/.nvm/versions/node/v24.22.0/bin/node"
+NODE_BIN="/home/yuzuki/.nvm/versions/node/v24.22.1/bin/node"
 
 # 実際に起動したバイナリを検証する（pm2 describe ではなく /proc を見る）
 verify_interpreter() {

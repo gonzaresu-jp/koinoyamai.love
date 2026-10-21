@@ -18,7 +18,7 @@
 set -uo pipefail
 
 ROOT="${SECURITY_WATCH_ROOT:-/var/www/html/koinoyamai.love}"
-NODE_BIN="${SECURITY_WATCH_NODE:-/home/yuzuki/.nvm/versions/node/v24.22.0/bin/node}"
+NODE_BIN="${SECURITY_WATCH_NODE:-/home/yuzuki/.nvm/versions/node/v24.22.1/bin/node}"
 LOCK=/tmp/security-watch.lock
 cd "$ROOT" || exit 1
 

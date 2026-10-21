@@ -1,4 +1,4 @@
-// Node.js ランタイムの固定（2026-10-21 / v24.22.0 に統一）
+// Node.js ランタイムの固定（2026-10-21 / v24.22.1 に統一）
 //
 // なぜ全プロセスで明示指定するか:
 //   - 既定 node（nvm の alias）に依存すると、alias を変えた時に
@@ -13,7 +13,7 @@
 //   - pm2 jlist / /proc/<pid>/exe で実体を必ず確認すること。
 //
 // 変更時は AGENTS.md §5 / docs/ARCHITECTURE.md §2 も同時に更新すること。
-const NODE_BIN = '/home/yuzuki/.nvm/versions/node/v24.22.0/bin/node';
+const NODE_BIN = '/home/yuzuki/.nvm/versions/node/v24.22.1/bin/node';
 
 module.exports = {
   apps: [{

@@ -64,28 +64,30 @@
     `@simplewebauthn/server` → 13.3.3）。**破壊的変更を伴うため次回以降に検討**。
 - **`npm audit fix --force` は禁止**。npm の `fixAvailable` は信用せず、
   ダウングレード提案（例: `firebase` → 9.14.0）はセキュリティ後退なので却下する。
-- **Node.js は v24.22.0 に統一（2026-10-21 反映）**。全プロセスで同じ版を使う。
+- **Node.js は v24.22.1 に統一（2026-10-21 反映）**。全プロセスで同じ版を使う。
+  - v24.22.1 は **2026-10-21 リリースの security release**（CVE-2026-105481/105482/105483/106069/106073/106074/111497
+    + OpenSSL 3.5.9 / NSS 3.131.1 / c-ares 1.34.9 / timezone 2026e / undici 7.30.1）。
   - API（`mai-push-api` / `mai-push-api-test`）/ ワーカー（`mai-push-worker` / `mai-push-worker-test`）/
-    `discord-bot` = **v24.22.0**（`ecosystem.config.js` の `interpreter` で**全プロセス明示指定**）
-  - systemd `pi-vector.service` = v24.22.0（`~/.config/systemd/user/pi-vector.service` の `ExecStart`）
-  - **pm2 デーモン（God Daemon）も v24.22.0**（2026-10-21 移行済み）。
+    `discord-bot` = **v24.22.1**（`ecosystem.config.js` の `interpreter` で**全プロセス明示指定**）
+  - systemd `pi-vector.service` = v24.22.1（`~/.config/systemd/user/pi-vector.service` の `ExecStart`）
+  - **pm2 デーモン（God Daemon）も v24.22.1**（2026-10-21 移行済み）。
     systemd `pm2-yuzuki.service` の `Environment=PATH` の先頭に nvm の bin を追加してあるので、
-    `pm2 resurrect` で起動する daemon も v24.22.0 で動く。
+    `pm2 resurrect` で起動する daemon も v24.22.1 で動く。
     移行は `~/migrate-pm2-daemon-node24.sh`（dry-run → `sudo ... --apply`。unit と dump のバックアップ付き）。
     ※ daemon の Node はアプリの実行 Node には影響しない（全アプリが `exec_interpreter` の絶対パスを保持）が、
     **interpreter 未指定で追加したプロセスが PATH 解決で EOL 版を掴むのを防ぐ**ため揃えている。
-  - **他プロジェクト（fcpass / air-monitor / hitori-twitter / squiish / upload-file）も v24.22.0 に統一（2026-10-21）。**
+  - **他プロジェクト（fcpass / air-monitor / hitori-twitter / squiish / upload-file）も v24.22.1 に統一（2026-10-21）。**
     同じ pm2 デーモンが管理している別プロジェクト。git 管理外・ネイティブモジュールなし
     （express / multer / qrcode / cors / serve のみ）なので、応答バイト数が一致することを
     確認済み。移行は `~/migrate-other-apps-node24.sh`（dry-run → `--apply`。
     1本ずつ移行し失敗時は旧 interpreter へロールバック・pm2 jlist のバックアップ付き）。
     - `fcpass` :7080 / `air-monitor` :3131 / `hitori-twitter` :3333 / `squiish` :5000 / `upload-file` :3100
     - `upload-file` は `/var/www/html/upload/ecosystem.config.js` を持つ（interpreter も更新済み・バックアップあり）
-    - `squiish` は `npm run serve` を起動するため **pm2 の exec は npm 本体**（`.../v24.22.0/bin/npm`）。
+    - `squiish` は `npm run serve` を起動するため **pm2 の exec は npm 本体**（`.../v24.22.1/bin/npm`）。
       `DEV_PORT=5000` を引き継ぐこと
     - `/opt/hitori-twitter/hitori-twitter.service` は systemd 未導入のテンプレート unit だが、
-      `ExecStart` が `/usr/bin/node`（v18 EOL）参照のままだったので v24.22.0 に更新済み
-  - cron 実行スクリプト（`update-subscribers-and-commit.sh` / `minutes-gen-cron.sh`）= v24.22.0（`NODE_BIN` で固定）
+      `ExecStart` が `/usr/bin/node`（v18 EOL）参照のままだったので v24.22.1 に更新済み
+  - cron 実行スクリプト（`update-subscribers-and-commit.sh` / `minutes-gen-cron.sh`）= v24.22.1（`NODE_BIN` で固定）
   - CI（`.github/workflows/ci.yml`）= `node-version: '24'`
   - **過去の既定値（process ごとのバージョン違い）は 2026-10-21 に廃止した。**
     当時は API=v22.12.0 / ワーカー・discord-bot=v20.18.1(EOL) / cron=`/usr/bin/node`=v18.19.1(EOL) と
@@ -495,7 +497,7 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 - リポジトリ外の job（`/home/yuzuki/temp.sh` の温度ログ等）は本表の対象外。
 - **cron は `PATH` が `/usr/bin/node`（Node v18 = EOL）を掴む**ため、node を実行する
   スクリプト（`update-subscribers-and-commit.sh` / `minutes-gen-cron.sh` /
-  `security-watch-cron.sh`）は `NODE_BIN` で v24.22.0 を明示指定している（`§5`）。
+  `security-watch-cron.sh`）は `NODE_BIN` で v24.22.1 を明示指定している（`§5`）。
   cron ジョブを追加するときは node 実行の有無を確認して同じ扱いにする。
 
 ### 7.7 改行コード
@@ -536,7 +538,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   ※ 旧「EMBEDDING_ENDPOINT（ollama bge-m3）停止で `/api/ask` が 503」の記述は**失効（解消済み）**。
   ※ `pi-vector-service/` は 32bit Pi 向け依存ゼロ実装を母艦へ移設したもので**削除禁止**。
     unit は `~/.config/systemd/user/pi-vector.service`（`Restart=always`・enabled）。
-    `ExecStart` は Node v24.22.0（§5 のとおり全プロセス統一）。依存ゼロコードのため実害は 없었으나、
+    `ExecStart` は Node v24.22.1（§5 のとおり全プロセス統一）。依存ゼロコードのため実害は 없었으나、
     EOL 版（v20）を掴んでいたので 2026-10-21 に更新した。
   ※ 「ローカルLLM運用は不可（ユーザー指示）」は**回答生成LLMに限る**。埋め込みは上記の通り
     ローカル（llama.cpp）で稼働しており、この指示の対象外。
@@ -680,9 +682,9 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     `services/db-guard.js` が Database.prototype に既定のエラーコールバックを差すので、
     これを require している（`server.js` / `main.js` / `services/context.js`）。
     **新しい DB 実装でも require を忘れないこと**
-- **ネイティブビルドは Node v24 優先**: 全プロセスが v24.22.0（`§5`）。
+- **ネイティブビルドは Node v24 優先**: 全プロセスが v24.22.1（`§5`）。
   ビルドと実行の Node を揃えること（別の版でビルドして別の版で実行すると ABI 不一致）。
-  `PATH` は `~/.nvm/versions/node/v24.22.0/bin` を先頭に置く。
+  `PATH` は `~/.nvm/versions/node/v24.22.1/bin` を先頭に置く。
 - **nginx の `add_header` は Location に 1 つでもあれば server レベルを継承しない（2026-10-21 実測）**:
   - 公開 vhost は Cache-Control / Pragma / Expires を Location ごとに書いていたため、
     server レベルに置いていた **CSP / X-Frame-Options などが PHP 配信ページ（サイトの本体）

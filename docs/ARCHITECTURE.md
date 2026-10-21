@@ -40,7 +40,7 @@
 | `discord-bot` | – | – | `/var/www/html/koinoyamai.love/discord-bot.js` | |
 | `php8.3-fpm` | – | unix socket | `/etc/php/8.3/fpm/php-fpm.conf` | `webui/*.php` の配信 SAPI。`/run/php/php8.3-fpm.sock`。nginx が `fastcgi_pass` で向く（`AGENTS.md §5.1`） |
 
-- 定義は `ecosystem.config.js`。**Node は v24.22.0 に統一**し、全プロセスで `interpreter` を明示指定する
+- 定義は `ecosystem.config.js`。**Node は v24.22.1 に統一**し、全プロセスで `interpreter` を明示指定する
   （既定 node = nvm alias に依存すると版が混在する／cron の `PATH` は `/usr/bin/node`=v18 を掴む）。`AGENTS.md §5` 参照。
 - **`curl localhost:8081` は staging**。本番検証と誤認しないこと（`AGENTS.md §1`）。検証前に `bash scripts/deploy/assert-port.sh prod|staging`。
 

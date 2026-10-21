@@ -6,8 +6,8 @@
 # - ログは logs/minutes-gen-YYYYMMDD.log に日別追記
 #
 # node は明示指定する: cron の PATH は /usr/bin/node（Node v18 = EOL）を掴むため
-#   （AGENTS.md §5 / ecosystem.config.js と同じ v24.22.0 に揃える）
-NODE_BIN="/home/yuzuki/.nvm/versions/node/v24.22.0/bin/node"
+#   （AGENTS.md §5 / ecosystem.config.js と同じ v24.22.1 に揃える）
+NODE_BIN="/home/yuzuki/.nvm/versions/node/v24.22.1/bin/node"
 LOCK=/tmp/minutes-gen.lock
 cd /var/www/html/koinoyamai.love || exit 1
 if [ ! -x "$NODE_BIN" ]; then
