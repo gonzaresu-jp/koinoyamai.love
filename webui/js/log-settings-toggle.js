@@ -2,6 +2,13 @@
         const btn = document.getElementById('btn-log-settings');
         const menu = document.getElementById('log-settings-container');
 
+        // このスクリプトは複数のページから読み込まれるが、
+        // ログ設定のUI（btn-log-settings / log-settings-container）が
+        // 存在しないページ（例: test.php）では何もしない。
+        // 要素が null のまま addEventListener を呼ぶと TypeError になり、
+        // そのページで読み込む他のスクリプトも止まるため（2026-10-21 実測）。
+        if (!btn || !menu) return;
+
         btn.addEventListener('click', () => {
             const open = menu.classList.toggle('is-open');
             btn.setAttribute('aria-expanded', open);
