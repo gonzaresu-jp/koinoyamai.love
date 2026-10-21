@@ -61,8 +61,56 @@ function parsePlaylistItems(data, maxItems = 15) {
     return list;
 }
 
+/**
+ * 検知経路の状態判定（純粋関数・副作用なし）
+ *
+ * status:
+ *   - success  … すべてのチャンネルで取得できた
+ *   - degraded … 一部のチャンネルで **RSS もプレイリスト代替も** 取得できなかった
+ *   - error    … 全チャンネルで 両方とも 取得できなかった（検知が完全に止まる）
+ *
+ * @param {Object} p
+ * @param {number} p.failedChannels      RSS もプレイリスト代替も取得できなかったチャンネル数
+ * @param {number} p.totalChannels       監視対象のチャンネル数
+ * @param {number} p.rssFailedChannels   RSS 取得に失敗したチャンネル数（代替で補えたもの含む）
+ * @param {boolean} p.usedFallback       プレイリスト代替で取得できたか
+ * @param {number} p.failStreak          連続失敗回数（アラート判定用）
+ * @param {number} p.alertAfter          アラートを鳴らす連続失敗回数
+ * @returns {{status: 'success'|'degraded'|'error', message: string, alert: boolean}}
+ */
+function decideDetectionState({
+    failedChannels,
+    totalChannels,
+    rssFailedChannels = 0,
+    usedFallback = false,
+    failStreak = 0,
+    alertAfter = 3
+}) {
+    const allFailed = totalChannels > 0 && failedChannels >= totalChannels;
+    const someFailed = !allFailed && failedChannels > 0;
+    let message;
+    if (allFailed) {
+        message = `RSS と Data API プレイリストの両方が失敗（${failedChannels}/${totalChannels} チャンネル）。` +
+            `この間 YouTube の配信開始・配信予定を検知できない`;
+    } else if (someFailed) {
+        message = `${failedChannels}/${totalChannels} チャンネルで RSS・プレイリスト代替の両方が失敗` +
+            (usedFallback ? `（RSS 失敗 ${rssFailedChannels} チャンネルは代替で取得）` : '') +
+            `。当該チャンネルの配信開始・配信予定を検知できない`;
+    } else if (usedFallback || rssFailedChannels > 0) {
+        message = `RSS 取得失敗 → Data API プレイリスト代替で取得（RSS 失敗 ${rssFailedChannels}/${totalChannels} チャンネル）`;
+    } else {
+        message = `RSS 取得成功（${totalChannels} チャンネル）`;
+    }
+    return {
+        status: allFailed ? 'error' : (someFailed ? 'degraded' : 'success'),
+        message,
+        alert: allFailed && failStreak >= alertAfter
+    };
+}
+
 module.exports = {
     deriveUploadsPlaylistId,
     parseRssEntries,
-    parsePlaylistItems
+    parsePlaylistItems,
+    decideDetectionState
 };

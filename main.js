@@ -959,9 +959,11 @@ startPromises.push((async () => {
       console.log("[Cron] YouTube購読の自動更新を開始します...");
       await sendStatusUpdate("youtube_webhook", "YouTube Webhook", "running");
       try {
-        await youtube.subscribeAllChannels();
-        console.log("✅ [Cron] YouTube購読の自動更新が完了しました。");
-        await sendStatusUpdate("youtube_webhook", "YouTube Webhook", "success");
+        // 購読状態は subscribeAllChannels 自身が内部で報告する（成功/失敗の実態）。
+        // ここで成功をハードコードすると、購読が全滅していても "success" が
+        // 後から上書きされてしまい、壊れたことに気づけなくなる（2026-10-21 実測）。
+        const ok = await youtube.subscribeAllChannels();
+        console.log(`✅ [Cron] YouTube購読の自動更新が完了しました（${ok}/${youtube.CHANNEL_IDS?.length ?? '?'}）。`);
       } catch (e) {
         console.error(
           "❌ [Cron] YouTube購読の自動更新中にエラー:",

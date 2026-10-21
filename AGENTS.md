@@ -432,6 +432,11 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - **通知送信は `src/core/notify-sign.js` 経由**: `signNotifyPayload(secret, bodyString)` で**送信する生 JSON 文字列**に署名し
   `x-notify-hmac` + `x-notify-timestamp` を付与（`§3`, `§6.5`）。API 側は生ボディで検証・`timingSafeEqual`。`==` 比較に戻すな。
 - **fail-closed**: トークン/秘密が未設定なら認証系は 503/401 で閉じる（通すな）。
+- **検知経路は状態を報告する（壊れても気づけるように）**: 通知・検知の主要な経路は
+  `POST /api/internal/scraper-status`（`x-notify-token`）へ状態を報告し、
+  管理画面（`GET /api/scraper-status`）と Discord で確認できるようにする。
+  2026-10-20 に「PubSubHubbub の webhook が 18 日間死んでいた」ことを後から見つかったのは、
+  壊れていることを示す仕組みが無かったため（`AGENTS.md §6.8`）。
 - **秘密情報をコミットしない**: `.env`・鍵・cookie 等。`.gitignore` 済みでも `git add -A` に注意。
 - **DB 書込ロック耐性**: SQLite は `busy_timeout`/`timeout` を設定し、長時間書込はリトライ（nassy `§8` の load 由来）。
   - 接続は `db.configure("busyTimeout", 5000)` を設定する（`services/database.js` 以外も全部）
