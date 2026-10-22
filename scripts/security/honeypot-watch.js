@@ -26,6 +26,11 @@
  *     （UA は honeyfmt の**最後**に置き、先頭の固定フィールドから読む）。
  *   - **検知経路は状態を報告する**（AGENTS.md §11）。
  *     監視が静かに死んでも察觉できるよう `/api/internal/scraper-status` へ報告する。
+ *   - **自機からのリクエストは通知しない**（ノイズ防止）。
+ *     `ip=127.0.0.1` かつ `cf=-` かつ `xff=-` ＝ **Cloudflare を通っていない自機/LAN 直叩き**
+ *     （= 運用者の確認・テスト）。インターネット経由は必ず `cf=` に入るので、
+ *     公開トラフィックは絶対に落とさない。
+ *     通知ingale('--include-local') で含めることは可能。
  *
  * 通知: Discord（security/notify.js の sendDiscord を再利用。Bot API）
  * ログ : logs/honeypot.log（イベント記録）/ cron の stdout は logs/honeypot-cron.log
@@ -54,6 +59,7 @@ const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
 const TEST = args.includes("--test");
 const SELFTEST = args.includes("--selftest");
+const INCLUDE_LOCAL = args.includes("--include-local");
 
 // dotenv は環境ディレクトリ固定（AGENTS.md §11）。
 // テスト時など別の .env を使いたい場合のみ HONEYPOT_ENV_FILE で上書きできる。
@@ -101,6 +107,9 @@ function parseLine(line) {
   const uri = /\buri=(\S*)/.exec(line);
   const bytes = /\bbytes=(\d+)/.exec(line);
   const req = /\breq="([^"]*)"/.exec(line);
+  out.cf = (cf && cf[1]) ? cf[1] : "-";
+  out.xff = (xff && xff[1]) ? xff[1] : "-";
+  out.remote = ip ? ip[1] : "?";
   out.ip = (cf && cf[1] && cf[1] !== "-") ? cf[1]
     : (xff && xff[1] && xff[1] !== "-") ? xff[1].split(",")[0].trim()
     : (ip ? ip[1] : "?");
@@ -115,6 +124,21 @@ function parseLine(line) {
   // path が無ければ uri を使う（判定は uri 基準）
   if (!out.path && out.uri) out.path = decodeURIComponent(out.uri);
   return out;
+}
+
+/**
+ * 自機（運用者）からのリクエストか。
+ * 条件: 接続元が loopback かつ Cloudflare ヘッダが無い（＝Cloudflare を通っていない）
+ *  - インターネット経由: cf= に実クライアント IP が入る → false
+ *  - LAN 直叩き（192.168.1.x 等）: cf=- だが loopback ではない → false（報告する）
+ *  - 自機からのテスト（127.0.0.1）: cf=- かつ loopback → true（通知しない）
+ */
+function isLocalSelfTest(ev) {
+  if (!ev) return false;
+  if (ev.cf && ev.cf !== "-") return false;
+  if (ev.xff && ev.xff !== "-") return false;
+  const remote = ev.remote || ev.ip || "";
+  return remote === "127.0.0.1" || remote === "::1" || remote === "localhost";
 }
 
 /** 機密ファイル名っぽいパスか */
@@ -236,6 +260,14 @@ function selftest() {
   check("UA 注入で status 判定が変わらない", ev.status === 404);
   check("UA 注入で uri 判定が変わらない", ev.uri === "/nothing");
 
+  // 4b) 自機リクエストの判定
+  const localEv = parseLine('2026-10-22T00:00:00Z ip=127.0.0.1 cf=- xff="-" st=200 uri=/.env bytes=10 | ua="curl/8"');
+  const cfEv = parseLine('2026-10-22T00:00:00Z ip=127.0.0.1 cf=203.0.113.9 xff="203.0.113.9" st=200 uri=/.env bytes=10 | ua="x"');
+  const lanEv = parseLine('2026-10-22T00:00:00Z ip=192.168.1.50 cf=- xff="-" st=200 uri=/.env bytes=10 | ua="x"');
+  check("自機(127.0.0.1 + cf 無し)はローカル扱い", isLocalSelfTest(localEv));
+  check("Cloudflare 経由はローカル扱いでない", !isLocalSelfTest(cfEv));
+  check("LAN 直叩きはローカル扱いでない（報告する）", !isLocalSelfTest(lanEv));
+
   // 5) 分類は uri 基準
   const c1 = classify({ path: "/.env", status: 200 }, []);
   const c2 = classify({ path: "/.env", status: 404 }, []);
@@ -286,10 +318,25 @@ async function main() {
 
   // --- 新しいイベントを取り込んで pending へ ---
   const fresh = [];
+  const localEvents = [];
   for (const line of r.lines) {
     const ev = parseLine(line);
     const c = classify(ev, canaryPaths);
-    if (c) fresh.push(Object.assign({}, ev, c));
+    if (!c) continue;
+    const e = Object.assign({}, ev, c);
+    // 自機（運用者）からのテストは**通知しない**（ログには残す）
+    if (!INCLUDE_LOCAL && isLocalSelfTest(e)) {
+      e.kind = e.kind + "_local";
+      localEvents.push(e);
+      continue;
+    }
+    fresh.push(e);
+  }
+  if (localEvents.length) {
+    log(`${localEvents.length} 件のイベントは自機からのリクエストのため通知しません（--include-local で含められます）`);
+    for (const e of localEvents) {
+      log(`[${e.kind}] ${e.time} ip=${e.ip} status=${e.status} path=${e.path} ua=${e.ua}`);
+    }
   }
   if (fresh.length) {
     log(`${fresh.length} 件のイベントを検出しました`);

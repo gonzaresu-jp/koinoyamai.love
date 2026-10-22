@@ -684,7 +684,10 @@ async function main() {
     const hpWatchState = /honeypot-watch-state\.json/.test(hpWatch) ? "honeypot-watch-state.json" : "";
     ok("honeypot: 状態ファイルが setup と watcher で分離されている",
       hpSetupState !== "" && hpWatchState !== "" && hpSetupState !== hpWatchState);
-    // 11-8. 404（偵察）も honey.log に残る仕組みが入っていること
+    // 11-8. 自機リクエストを通知しない仕組み（ノイズ防止）があること
+    ok("honeypot-watch: 自機リクエストを判定して通知対象から外す",
+      /isLocalSelfTest/.test(hpWatch) && /include-local/.test(hpWatch));
+    // 11-9. 404（偵察）も honey.log に残る仕組みが入っていること
     ok("apply-honeypot.js: 404 を named location へ逃がす（error_page）",
       /error_page 404 = @honey_not_found/.test(hpPatch) && /location @honey_not_found/.test(hpPatch));
     // 11-9. 冪等性（同じ入力に 2 回適用して差分ゼロ）
