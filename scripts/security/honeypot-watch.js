@@ -72,6 +72,11 @@ require("dotenv").config({
 
 const notify = require(path.join(REPO_ROOT, "scripts", "security", "notify.js"));
 
+// パターン本体は nginx 側と**共有**する（scripts/nginx/honey-path-pattern.txt）。
+// 二重管理すると「配信はされるのに監視が拾えない」不整合が起きる。
+const PATTERN_FILE = path.join(REPO_ROOT, "scripts", "nginx", "honey-path-pattern.txt");
+const HONEY_BODY = fs.existsSync(PATTERN_FILE) ? fs.readFileSync(PATTERN_FILE, "utf8").trim() : "";
+
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}`;
   console.log(line);
@@ -146,7 +151,11 @@ function isLocalSelfTest(ev) {
 }
 
 /** 機密ファイル名っぽいパスか */
-const HONEY_PATH_RE = /\/(?:\.env(?:[._-][\w-]+)?|\.git\/(?:config|HEAD)|\.aws\/credentials|\.ssh\/id_\w+|id_rsa(?:\.pub)?|backup\.(?:zip|tar|gz|7z)|(?:database|db|app|prod|main|site|dump)\.(?:sqlite3?|sql)|config\.(?:php|json|ya?ml)|wp-config\.php|(?:credentials|secret|secrets|passwords?)\.(?:txt|json|ya?ml|db)|dump\.sql)\b/i;
+// 共有パターンから組み立てる（nginx の location と**同じ判定**にする）。
+// 末尾の (?![.\w\-]) は nginx の `$` 相当（`.envx` などが誤検知されないように）。
+const HONEY_PATH_RE = HONEY_BODY
+  ? new RegExp("/(?:[\\w.\\-]+/)*(?:" + HONEY_BODY + ")(?![.\\w\\-])", "i")
+  : /\/(?:\.env|\.git\/config)\b/i;
 
 function classify(ev, canaryPaths) {
   if (!ev.path) return null;
@@ -307,6 +316,27 @@ async function main() {
 
   const canaryState = readJson(CANARY_STATE, {});
   const canaryPaths = canaryPathsFrom(canaryState);
+
+  // --- 配信されている偽物の token と state が一致しているか（自己検査）---
+  // 不一致だと「盗った情報を使った」＝窃取確定の通知が**無言で失われる**。
+  const HONEY_ENV = process.env.HONEY_ENV_FILE_DIR
+    ? path.join(process.env.HONEY_ENV_FILE_DIR, ".env")
+    : "/var/lib/mai-push/honeypot/.env";
+  let tokenMismatch = null;
+  try {
+    if (fs.existsSync(HONEY_ENV) && canaryState.token) {
+      const m = /honey-canary-([0-9a-f]+)/.exec(fs.readFileSync(HONEY_ENV, "utf8"));
+      if (m && m[1] !== canaryState.token) {
+        tokenMismatch = `配信中の偽物の token=${m[1]} / state の token=${canaryState.token}`;
+      }
+    }
+  } catch (e) { /* 検査は best-effort */ }
+  if (tokenMismatch) {
+    log(`[WARN] ${tokenMismatch}`);
+    log("  → 偽物の再生成が必要です: 本番ツリーで bash scripts/security/honeypot-setup.sh");
+    await reportStatus("degraded", `ハニーポットの canary token がデシンクしています（${tokenMismatch}）。窃取確定の通知が出ません。`);
+    return 2;
+  }
   const state = readJson(WATCH_STATE, { offset: 0, inode: 0, pending: [] });
   if (!state.pending) state.pending = [];
 

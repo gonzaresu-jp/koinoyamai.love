@@ -24,6 +24,7 @@
  *   node apply-honeypot.js <nginx.conf> [outfile]
  */
 const fs = require("fs");
+const path = require("path");
 
 const [confPath, outPath] = process.argv.slice(2);
 if (!confPath) {
@@ -34,6 +35,19 @@ if (!confPath) {
 let conf = fs.readFileSync(confPath, "utf8");
 const MARK = "honeypot-guard";
 const HONEY_DIR = "/var/lib/mai-push/honeypot";
+
+// パターン本体は**共有ファイル**から読む（3 か所に二重管理しない）。
+// scripts/nginx/honey-path-pattern.txt
+const PATTERN_FILE = path.join(__dirname, "honey-path-pattern.txt");
+if (!fs.existsSync(PATTERN_FILE)) {
+  console.error(`ABORT: パターン定義が見つかりません: ${PATTERN_FILE}`);
+  process.exit(1);
+}
+const HONEY_BODY = fs.readFileSync(PATTERN_FILE, "utf8").trim();
+if (!HONEY_BODY) {
+  console.error(`ABORT: パターン定義が空です: ${PATTERN_FILE}`);
+  process.exit(1);
+}
 
 /** コメント・引用符を空白にマスクする（長さ不変） */
 function maskNoise(text) {
@@ -132,7 +146,7 @@ const HONEY_LOCATION = `        # ---- ハニーポット（${MARK}）: 機密�
         #      偽物ディレクトリからのみ配信する（実ファイルは絶対に公開しない）----
         #  * 取得されたら honey.log に記録され honeypot-watch.js が通知する
         #  * 中身は偽物。canary URL を含み「使われた」= 窃取確定
-        location ~* ^/(?:[\\w.\\-]+/)*(?:\\.env(?:[._\\-][\\w\\-]+)?|\\.git/(?:config|HEAD)|\\.aws/credentials|\\.ssh/id_\\w+|id_rsa(?:\\.pub)?|backup\\.(?:zip|tar|gz|7z)|(?:database|db|app|prod|main|site|dump)\\.(?:sqlite3?|sql)|config\\.(?:php|json|ya?ml)|wp-config\\.php|(?:credentials|secret|secrets|passwords?)\\.(?:txt|json|ya?ml|db)|dump\\.sql)$ {
+        location ~* ^/(?:[\\w.\\-]+/)*(${HONEY_BODY})$ {
             root ${HONEY_DIR};
             try_files $uri =404;
             access_log /var/log/nginx/honey.log honeyfmt;

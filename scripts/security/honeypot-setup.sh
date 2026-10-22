@@ -2,7 +2,7 @@
 # honeypot-setup.sh — 「盗まれたら教えてくれる」偽物（ハニーポット）を作る
 #
 # 目的（2026-10-22 実測に基づく）:
-#   - 公開ptusには**既に秘密ファイル探索が来ている**（アクセスログ 217 件）。
+#   - 公開サイトには**既に秘密ファイル探索が来ている**（アクセスログ 217 件）。
 #     `/.env` `/.git/config` `/id_rsa` `/database.sqlite` `/backup.zip` など。
 #   - 現状は「見つからない」だけなので**証拠が残らない**。
 #     そこで **本物そっくりの偽物**を置いて、**取得されたら即座に検知**する。
@@ -60,27 +60,39 @@ ENV_PREFIX_DIRS=(
   workspace var utils web app api server www home root opt srv
   deploy build config secrets tmp data admin public static assets
   html htdocs current release releases prod production staging dev test
-  local node_modules vendor src lib dist public_html wwwroot htdocs
+  local node_modules vendor src lib public_html wwwroot
+  webui webroot
 )
 
 echo "=== ハニーポットの偽物を作る ==="
 
-# --- token の決定（既存があれば維持。--rotate で再生成）---
+# --- token の決定（優先順位: 配信済みの偽物 > 状態ファイル > 新規生成）---
+# 重要（2026-10-22 実測）: 状態ファイルは**ツリー毎**（data/honeypot-canary.json）のため、
+# 別 worktree から setup を実行すると**配信中の偽物と state の token がデシンク**し、
+# 「盗った情報を使った」＝窃取確定の通知が**無言で失われる**。
+# → 常に**配信済みの偽物に埋め込まれた token を優先**し、state をそれに合わせる。
 TOKEN=""
-if [ "$ROTATE" -eq 0 ] && [ -f "$STATE_FILE" ]; then
-  TOKEN="$(python3 -c "
+if [ "$ROTATE" -eq 0 ]; then
+  # ① 配信済みの偽物（.env）に埋め込まれた token
+  if [ -f "$HONEY_DIR/.env" ]; then
+    TOKEN="$(grep -oE 'honey-canary-[0-9a-f]+' "$HONEY_DIR/.env" 2>/dev/null | head -1 | sed 's/honey-canary-//' || true)"
+    [ -n "$TOKEN" ] && echo "  配信済みの偽物から token を継承: $TOKEN"
+  fi
+  # ② 状態ファイル
+  if [ -z "$TOKEN" ] && [ -f "$STATE_FILE" ]; then
+    TOKEN="$(python3 -c "
 import json,sys
 try:
     print(json.load(open(sys.argv[1])).get('token',''))
 except Exception:
     print('')
 " "$STATE_FILE" 2>/dev/null || true)"
+    [ -n "$TOKEN" ] && echo "  状態ファイルから token を引き継ぎ: $TOKEN"
+  fi
 fi
 if [ -z "$TOKEN" ]; then
   TOKEN="$(openssl rand -hex 8)"
   echo "  新しい canary token を生成: $TOKEN"
-else
-  echo "  既存の canary token を維持: $TOKEN"
 fi
 
 CANARY_PATH="/_canary/$TOKEN"
@@ -309,6 +321,15 @@ if prev:
 PY
 chmod 600 "$STATE_FILE"
 
+# --- 配信物と state の一致を自己確認（デシンク防止）---
+DEPLOYED_TOKEN="$(grep -oE 'honey-canary-[0-9a-f]+' "$HONEY_DIR/.env" 2>/dev/null | head -1 | sed 's/honey-canary-//' || true)"
+if [ "$DEPLOYED_TOKEN" != "$TOKEN" ]; then
+  echo "[ERR] 配信された偽物の token ($DEPLOYED_TOKEN) と state の token ($TOKEN) が不一致です" >&2
+  echo "      監視側（honeypot-watch.js）は state を読むため、窃取確定の通知が出ません。" >&2
+  exit 1
+fi
+echo "  [OK] 配信物と state の token が一致: $TOKEN"
+
 echo
 echo "--- 生成物（抜粋）---"
 find "$HONEY_DIR" -type f | sort | head -20 | sed 's/^/  /'
@@ -321,4 +342,4 @@ echo
 echo "=== 完了 ==="
 echo "次: sudo bash scripts/nginx/apply-honeypot.sh --apply   # nginx にハニー location を入れる（初回のみ）"
 echo "     bash scripts/security/honeypot-watch.js             # 監視を手動実行（通知テスト）"
-echo "     ※ 変種の追加は nginx の再適用は不要（配信元ディレクトリ_content が変わるだけ）"
+echo "     ※ 変種の追加は nginx の再適用は不要（配信元ディレクトリの中身が変わるだけ）"
