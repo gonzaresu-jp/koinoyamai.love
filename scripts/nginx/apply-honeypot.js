@@ -16,7 +16,7 @@
  *   - elza vhost（tailnet 専用・既に deny ルールあり）
  *
  * 方針（apply-php-exec-guard.js と共通）:
- *   - 冪等（マーカーがあれば exit 0）
+ *   - 冪等（同じ入力なら差分ゼロ。適用済みの場合は**グループを差し替える**）
  *   - fail-closed（アンカーが 0 件 or 複数なら **何も書かず** exit 1）
  *   - コメント・引用符をマスクした文字列で brace 深さを数える
  *
@@ -187,11 +187,27 @@ if (alreadyApplied) {
     if (!body3.includes("honey.log")) break;
     blockEnd = conf.indexOf("\n", close3) + 1;
   }
+  // HONEY_LOCATION は末尾に空行を持つ。既存の空行を取り込まないと
+  // 差し替えのたびに空行が 1 つ増えて**冪等性が壊れる**（差分がゼロにならない）。
+  while (conf[blockEnd] === "\n") blockEnd++;
   if (blockEnd === -1) {
     console.error("ABORT: 既存のハニーブロックが見つかりません");
     process.exit(1);
   }
   const outUpdate = conf.slice(0, blockStart) + HONEY_LOCATION + conf.slice(blockEnd);
+  // 検証: honey.log を参照する location が想定個数であること
+  // （honey / @honey_not_found / _canary / deny の 4 個）。
+  // 欠けている・重複しているなら**適用しない**（duplicate location で nginx -t が壊れる）。
+  const honeyRefs = (outUpdate.match(/access_log\s+\/var\/log\/nginx\/honey\.log/g) || []).length;
+  if (honeyRefs !== 4) {
+    console.error(`ABORT: honey.log を参照する location が ${honeyRefs} 個あります（想定 4）。書き換えません`);
+    process.exit(1);
+  }
+  const canaryRefs = (outUpdate.match(/location \^~ \/_canary\//g) || []).length;
+  if (canaryRefs !== 1) {
+    console.error(`ABORT: location ^~ /_canary/ が ${canaryRefs} 個あります（想定 1）。書き換えません`);
+    process.exit(1);
+  }
   const dest2 = outPath || confPath;
   fs.writeFileSync(dest2, outUpdate, "utf8");
   console.log(`OK: 既存のハニーブロックを更新しました（${MARK}）`);
