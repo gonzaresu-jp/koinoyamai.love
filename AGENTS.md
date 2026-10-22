@@ -861,6 +861,13 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - JS ブリッジ（`MaiWebBridge.kt`）: `getStreamAlarmState` / `setStreamAlarmEnabled` /
     `setStreamAlarmOffsetMin` / `openExactAlarmSettings` / `getNextStreamStartAt` /
     `openSystemAlarmSetScreen`
+- **配信開始の通知はアラーム用チャネルで配信する**（`channel: "mai_stream_alarm"`）:
+  - 突然に始まる配信（事前告知が無い）でも、**アラームと同じ音で起きれる**ようにする。
+  - 通常のチャネル（`mai_default`）では「音は鳴るが画面は起こらない」だけだった。
+  - 公式仕様: チャネルが未作成なら FCM はマニフェストの既定チャネルへフォールバックする
+    （通知が drop されることはない）→ v1.7.2 のままの端末にも通知は届く。
+  - 対象は **配信開始だけ**（`【ライブ】` と スケジュールの開始通知 `event_start`）。
+    事前告知（`event_pre_*`＝30分前/3分前）は情報通知のまま。
 - **「標準のアラーム時計に設定」は補助手段**（`ACTION_SET_ALARM`）:
   ⚠️ 公式ドキュメント: `EXTRA_SKIP_UI` は **API 19 以降無視され、アラームアプリが必ず
   確認 UI を出す**（＝ユーザーの 1 タップが必須）。確認画面を開くだけなので、
