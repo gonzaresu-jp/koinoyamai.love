@@ -341,6 +341,47 @@
 - **新しい Node.js LTS が出たら `scripts/security/checks.js` の `NODE_EOL` 表に追記すること**
   （表に無いメジャーは EOL 判定をしない）。
 
+### 5.3 ハニーポット（偽物の秘密ファイル・2026-10-22 追加）
+- **目的**: 公開サイトには**既に秘密ファイル探索が来ている**（実測: アクセスログに 217 件。
+  `/.env` `/.env.bak` `/.webui/.env` `/.git/config` `/id_rsa` `/database.sqlite`
+  `/backup.zip` `/.aws/credentials` `/wp-config.php` など。インターネット経由の
+  `/wp-admin/install.php?step=1` も 13 件）。現状は「見つからない」だけなので**証拠が残らない**。
+  → **本物そっくりの偽物**を配信し、**取得されたら通知**する。
+- **偽物の置き場**: `/var/lib/mai-push/honeypot/`（**Web 公開ツリー外**・git 管理外）。
+  `bash scripts/security/honeypot-setup.sh` で生成（`--rotate` で token 再生成）。
+  中身は**すべて偽物**。実物の秘密値は含まれない。
+  | ファイル | 中身 |
+  |---|---|
+  | `.env` | 本物.env を模した偽値（`NOTIFY_API_TOKEN=honey-canary-<token>` 等） |
+  | `database.sqlite` | 実在する SQLite。`users` / `api_keys` / `settings` に偽 creds |
+  | `backup.zip` | 実在する zip（中に `.env` と `config.php`） |
+  | `.git/config` | 偽 git config。remote URL に**追跡 URL（canary）** |
+  | `id_rsa` / `.ssh/id_rsa` | 偽の秘密鍵（形式は正しい） |
+  | `config.php` / `credentials.json` / `.aws/credentials` / `secret.txt` / `dump.sql` | 各種の偽物 |
+- **canary（追跡 URL）**: `https://koinoyamai.love/_canary/<token>`。
+  偽物の中に埋め込まれている。**この URL にアクセスされたら
+  「盗った情報（中身を実際に使った）」= 窃取確定**として通知される。
+- **配信（要 sudo）**: `sudo bash scripts/nginx/apply-honeypot.sh --apply`
+  - `listen 1717` の vhost に、**機密ファイル名っぽいパスだけ**を偽物ディレクトリから返す
+    `location` を追加（**他の場所の実ファイルは絶対に公開しない**。先にマッチするため）
+  - 併せて**機密拡張子の deny ルール**も入れる（`.env` `.sql` `.pem` `.log` 等。
+    `.zip` はアプリの配布物があるので**対象外**）
+  - `honey.log`（`/var/log/nginx/honey.log`）に記録。**時刻・UA・クライアント IP 入り**
+    （メインの `access.log` には時刻も UA も無い＝取证できない）
+  - nginx は正規表現 `location` を**出現順**に評価するため、
+    挿入位置は **vhost 内の最初の `location` の直前**（`location ~ \.php$` より前）である必要がある
+- **監視**: `scripts/security/honeypot-watch.js`（5 分ごとの cron）
+  - `stolen`（偽物が 200 で取得された）/ `canary_used`（canary アクセス）= 重大で個別通知
+  - `probe`（404 の偵察）= 情報を 1 通に集約
+  - 通知は既存の `scripts/security/notify.js`（Discord Bot API）を再利用
+- **安全の鉄則**:
+  - 偽物の中身は**必ず偽**。実物の `.env`・鍵・DB を絶対に置かない
+  - 偽物は**Web 公開ツリーの外**（`/var/lib/mai-push/honeypot`）に置き、
+    nginx の `location` で**指定されたパスだけ**返す
+  - 実物の `.env` は mode 600・webroot 外・deny 対象のままで**触らない**
+  - 窃取を検知しても**自動でブロックしない**（誤検知で Cloudflare 共有 IP を
+    巻き込みサイト全体を止める恐れがある。ブロックは別途明示的に判断する）
+
 ## 6. 検証の作法
 - 変更後は `node --check <file>` → pm2 再起動（`--update-env`）→ **正しいポート**で `/api/health`。
 - 本番 pm2 再起動は作業者の明示承認後にのみ実施。
@@ -591,6 +632,7 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 30 9 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/minutes-gen-cron.sh
 30 4 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/security-watch-cron.sh
 35 4 * * *  mkdir -p /var/www/html/koinoyamai.love/logs && /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/php/check-ubuntu-backport.js >> /var/www/html/koinoyamai.love/logs/php-backport-watch.log 2>&1
+*/5 * * * *  /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/security/honeypot-watch.js >> /var/www/html/koinoyamai.love/logs/honeypot.log 2>&1
 ```
 - いずれも `crontab -l`（yuzuki ユーザー）で確認済み。ログは `logs/`（gitignore 対象）。
 - ⚠️ **Node スクリプトを cron で `bash` で実行しない**（2026-10-22 実測）。
@@ -961,7 +1003,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-22（§10.2 配信開始アラーム（Android v1.7.3）を新設：AlarmManager.setAlarmClock による端末内アラーム・exact alarm 権限・TZ 混在の扱い・標準アラームへの補助経路 / §5.1 PHP 実行時ハードニングを拡張：scripts/php/apply-php-hardening.sh（enable_post_data_reading=Off で multipart パーサ無効・ffi.enable=preload で FFI 迂回を塞ぐ・post_max_size 縮小）と scripts/php/verify-php-hardening.sh（実測検証）を追加／scripts/nginx/apply-php-exec-guard.sh で elza vhost の PHP 実行を 404 化／mbstring は意図的に未導入（webui/_mb.php で代替）／§11 に PHP の「読まない・実行しない」規約を追加／§5 のリリース時刻の誤記（23:00 UTC→14:00 UTC）を修正 / §5.1 PHP コアの緊急 RCE 期間の対応（メンテナンスモードで公開 PHP ページを 503 化・patch-and-resume.sh で復旧）を追加 / §5 Node.js を v24.22.1 に更新（2026-10-21 の security release）・パッチ版移行スクリプト scripts/deploy/migrate-node-patch.sh を追加（pm2 save 必須・旧 ~/migrate-*.sh は v24.22.0 固定で参照先ではない） / §6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
+最終更新: 2026-10-22（§5.3 ハニーポット（偽物の秘密ファイル）を新設：scripts/security/honeypot-setup.sh で偽物を生成・scripts/nginx/apply-honeypot.sh で nginx に配信・scripts/security/honeypot-watch.js が取得/canary使用を通知 / §10.2 配信開始アラーム（Android v1.7.3）を新設：AlarmManager.setAlarmClock による端末内アラーム・exact alarm 権限・TZ 混在の扱い・標準アラームへの補助経路 / §5.1 PHP 実行時ハードニングを拡張：scripts/php/apply-php-hardening.sh（enable_post_data_reading=Off で multipart パーサ無効・ffi.enable=preload で FFI 迂回を塞ぐ・post_max_size 縮小）と scripts/php/verify-php-hardening.sh（実測検証）を追加／scripts/nginx/apply-php-exec-guard.sh で elza vhost の PHP 実行を 404 化／mbstring は意図的に未導入（webui/_mb.php で代替）／§11 に PHP の「読まない・実行しない」規約を追加／§5 のリリース時刻の誤記（23:00 UTC→14:00 UTC）を修正 / §5.1 PHP コアの緊急 RCE 期間の対応（メンテナンスモードで公開 PHP ページを 503 化・patch-and-resume.sh で復旧）を追加 / §5 Node.js を v24.22.1 に更新（2026-10-21 の security release）・パッチ版移行スクリプト scripts/deploy/migrate-node-patch.sh を追加（pm2 save 必須・旧 ~/migrate-*.sh は v24.22.0 固定で参照先ではない） / §6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
 最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10 待ちタイマーの連打による延長禁止（v1.8.5 / Issue #14）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）
 最終更新: 2026-10-17（§10 v1.8.2 不安定問題修正メモ：トレイ透明アイコン=相対パス、クラッシュ=stowed exception 対策）

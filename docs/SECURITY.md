@@ -273,6 +273,35 @@ bash scripts/php/verify-php-security-patch.sh
   CVE 集合」ベース判定のため、ロールバック後は上記 3 件が「Ubuntu 未収録」として再通知される。
 - ラッパ: `~/apply-php-security-patch.sh` / `~/verify-php-security-patch.sh`（本番ツリーを優先して実体を解決）。
 
+### ハニーポット（偽物の秘密ファイルで「盗られた」を検知する）
+
+- **背景（2026-10-22 実測）**: 公開サイトには**既に秘密ファイル探索が来ている**。
+  アクセスログに 217 件（`/.env` `/.env.bak` `/webui/.env` `/api/.env` `/.git/config`
+  `/id_rsa` `/database.sqlite` `/backup.zip` `/.aws/credentials` `/wp-config.php` `/config.php`）。
+  インターネット経由の WordPress インストーラ探査（`/wp-admin/install.php?step=1`）も 13 件。
+  現状はすべて 404 で**証拠が残らない**（誰が・いつ・何を探したかがログに時刻も UA も無い）。
+- **仕組み**:
+  1. `scripts/security/honeypot-setup.sh` で**本物そっくりの偽物**を
+     `/var/lib/mai-push/honeypot/`（Web 公開ツリー外）に生成する。
+     `.env` / `database.sqlite`（実在する SQLite）/ `backup.zip`（実在する zip）/
+     `.git/config` / `id_rsa` / `config.php` / `credentials.json` / `.aws/credentials` ほか。
+  2. 偽物には**追跡 URL（canary）** `https://koinoyamai.love/_canary/<token>` を埋め込む。
+  3. `sudo bash scripts/nginx/apply-honeypot.sh --apply` で、
+     `listen 1717` の vhost に「機密ファイル名っぽいパスは**偽物ディレクトリからだけ**返す」
+     `location` を入れる（他所の実ファイルは公開されない）。同時に機密拡張子の deny ルールも追加。
+  4. `scripts/security/honeypot-watch.js`（5 分ごとの cron）が `honey.log` を見て通知する。
+     - `stolen` = 偽物が 200 で取得された（＝窃取の証拠）
+     - `canary_used` = canary にアクセスされた（＝**盗んだ情報を使った**＝窃取確定）
+     - `probe` = 404 の偵察（集約して 1 通）
+- **遺留リスク / 注意点**:
+  - 偽物は**すべて偽**。実物の `.env`・鍵・DB は置かない（実物の `.env` は mode 600・webroot 外のまま）
+  - `honey.log` は**時刻・UA・クライアント IP** を含む（メインの `access.log` は
+    `log_format withff` で**時刻も UA も無い**＝取证できない。必要なら `honeyfmt` を.ut.php に流用する）
+  - 取得を検知しても**自動ブロックはしない**（誤検知で Cloudflare 共有 IP を巻き込み
+    サイト全体を止める恐れがあるため。ブロックは別途明示的に判断する）
+  - ハニーパスは**正規表現 location** として `location ~ \.php$` より**前**に置く必要がある
+    （nginx は正規表現 location を出現順に評価し、最初にマッチしたものが実行される）
+
 ### パッチ前の緩和策（2026-10-21 夜〜リリースまで）
 
 詳細が未公開のため「トリガーの防止」はできないが、**成立後の被害拡大**は抑えられる。
