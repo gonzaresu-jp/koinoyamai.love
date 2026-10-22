@@ -2,10 +2,16 @@
 # honeypot-setup.sh — 「盗まれたら教えてくれる」偽物（ハニーポット）を作る
 #
 # 目的（2026-10-22 実測に基づく）:
-#   - 公開rello既に秘密ファイル探索が来ている（アクセスログ 217 件）。
+#   - 公開ptusには**既に秘密ファイル探索が来ている**（アクセスログ 217 件）。
 #     `/.env` `/.git/config` `/id_rsa` `/database.sqlite` `/backup.zip` など。
 #   - 現状は「見つからない」だけなので**証拠が残らない**。
 #     そこで **本物そっくりの偽物**を置いて、**取得されたら即座に検知**する。
+#
+# 特に `.env` の**変種**（`.env.bak` `.env.docker` `/workspace/.env` …）も偽物として
+# 用意する。実測でスキャナが `.env.sendgrid` `.env_secret` `.env.ses` `.env.docker`
+# `.env.key` `.env.live` `.env.www` `.env.stage` `/workspace/.env` `/var/.env`
+# `/utils/.env` `/web/.env` を叩いていた（すべて 404）。偽物を置いておくと、
+# 「探している」ではなく **「実際に偽物を取得した」** として記録に残せる。
 #
 # 安全性（最重要）:
 #   - 中身は**すべて偽物**。実物の秘密値は一切含まない。
@@ -34,6 +40,28 @@ STATE_FILE="${STATE_FILE:-$REPO_ROOT/data/honeypot-canary.json}"
 PUBLIC_URL="${PUBLIC_URL:-https://koinoyamai.love}"
 ROTATE=0
 [[ "${1:-}" == "--rotate" ]] && ROTATE=1
+
+# --- `.env` の変種（スキャナが実際に叩いてきたもの + 一般的な wordlist）---
+ENV_VARIANTS=(
+  bak backup old orig save copy tmp swp
+  local prod production develop development dev stage staging test testing
+  live www web api app server mail smtp ses sendgrid mailgun slack discord
+  telegram github gitlab bitbucket jenkins travis circleci
+  aws gcp azure k8s kubernetes docker compose supervisor systemd pm2
+  node python django flask laravel symfony wordpress wp joomla drupal
+  magento shopify stripe twilio database db s3 storage secrets credential
+  credentials vault nomad terraform ansible vagrant dotenv envrc
+  key secret default template sample dist example ci nginx apache php
+  config conf ini yml yaml json lock
+)
+
+# --- ディレクトリ前缀つきの変種（実測で叩かれたもの + 常见の置き場所）---
+ENV_PREFIX_DIRS=(
+  workspace var utils web app api server www home root opt srv
+  deploy build config secrets tmp data admin public static assets
+  html htdocs current release releases prod production staging dev test
+  local node_modules vendor src lib dist public_html wwwroot htdocs
+)
 
 echo "=== ハニーポットの偽物を作る ==="
 
@@ -92,6 +120,34 @@ STATUS_WEBHOOK=$CANARY_URL/webhook
 EOF
 chmod 644 "$HONEY_DIR/.env"
 
+# --- 1b. `.env` の変種（=.env のバックアップ複製）---
+# 同じ中身のコピーを「.env のバックアップ」として並べる。
+# スキャナが `/.env.docker` 等を叩いたときに **偽物を返す**＝「取得」の証拠になる。
+VARIANT_COUNT=0
+for v in "${ENV_VARIANTS[@]}"; do
+  cp -f "$HONEY_DIR/.env" "$HONEY_DIR/.env.$v"
+  chmod 644 "$HONEY_DIR/.env.$v"
+  VARIANT_COUNT=$((VARIANT_COUNT + 1))
+done
+# --- 1b-2. `.env_xxx`（アンダースコア区切り）---
+# スキャナが実際に叩いた `.env_secret` 形式。ドット版と同じ数だけ作る。
+ENV_VARIANTS_UNDERSCORE=(secret sendgrid ses docker key live www stage prod production local dev test ci)
+for v in "${ENV_VARIANTS_UNDERSCORE[@]}"; do
+  cp -f "$HONEY_DIR/.env" "$HONEY_DIR/.env_$v"
+  chmod 644 "$HONEY_DIR/.env_$v"
+  VARIANT_COUNT=$((VARIANT_COUNT + 1))
+done
+
+# --- 1c. ディレクトリ前缀つきの `.env` ---
+for d in "${ENV_PREFIX_DIRS[@]}"; do
+  mkdir -p "$HONEY_DIR/$d"
+  chmod 755 "$HONEY_DIR/$d"
+  cp -f "$HONEY_DIR/.env" "$HONEY_DIR/$d/.env"
+  chmod 644 "$HONEY_DIR/$d/.env"
+  VARIANT_COUNT=$((VARIANT_COUNT + 1))
+done
+echo "  .env の変種を ${VARIANT_COUNT} 個生成しました"
+
 # --- 2. .git/config（追跡 URL を remote に埋め込む）---
 cat > "$HONEY_DIR/.git/config" <<EOF
 [core]
@@ -116,7 +172,7 @@ openssl genrsa -out "$HONEY_DIR/id_rsa" 2048 2>/dev/null
 # 生成直後の鍵に追跡目印をコメントとして追記（鍵自体は有効な形式のまま）
 printf '# honey-canary-%s\n' "$TOKEN" >> "$HONEY_DIR/id_rsa"
 chmod 644 "$HONEY_DIR/id_rsa"
-# 公開鍵は秘密鍵のコピーではなく、从公开发行鍵を作る（ realist さのため）
+# 公開鍵は秘密鍵のコピーではなく、正经な公開鍵にする
 openssl rsa -in "$HONEY_DIR/id_rsa" -pubout > "$HONEY_DIR/id_rsa.pub" 2>/dev/null
 cp "$HONEY_DIR/id_rsa" "$HONEY_DIR/.ssh/id_rsa"
 chmod 644 "$HONEY_DIR/.ssh/id_rsa" "$HONEY_DIR/id_rsa.pub"
@@ -146,7 +202,7 @@ aws_secret_access_key = honey-canary-$TOKEN-2f8c1a7d4e9b
 EOF
 chmod 644 "$HONEY_DIR/.aws/credentials"
 
-# --- 5. config.php（PHP 入門cylinderの典型例）---
+# --- 5. config.php（PHP の典型的な設定ファイル）---
 cat > "$HONEY_DIR/config.php" <<EOF
 <?php
 //  application's configuration
@@ -254,13 +310,15 @@ PY
 chmod 600 "$STATE_FILE"
 
 echo
-echo "--- 生成物 ---"
-find "$HONEY_DIR" -type f | sort | sed 's/^/  /'
+echo "--- 生成物（抜粋）---"
+find "$HONEY_DIR" -type f | sort | head -20 | sed 's/^/  /'
+echo "  ...（合計 $(find "$HONEY_DIR" -type f | wc -l) ファイル）"
 echo
 echo "--- canary ---"
 echo "  URL: $CANARY_URL"
 echo "  ※ この URL にアクセスされたら「窃取後の使用」として通知されます"
 echo
 echo "=== 完了 ==="
-echo "次: sudo bash scripts/nginx/apply-honeypot.sh --apply   # nginx にハニー location を入れる"
+echo "次: sudo bash scripts/nginx/apply-honeypot.sh --apply   # nginx にハニー location を入れる（初回のみ）"
 echo "     bash scripts/security/honeypot-watch.js             # 監視を手動実行（通知テスト）"
+echo "     ※ 変種の追加は nginx の再適用は不要（配信元ディレクトリ_content が変わるだけ）"

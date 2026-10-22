@@ -132,7 +132,7 @@ const HONEY_LOCATION = `        # ---- ハニーポット（${MARK}）: 機密�
         #      偽物ディレクトリからのみ配信する（実ファイルは絶対に公開しない）----
         #  * 取得されたら honey.log に記録され honeypot-watch.js が通知する
         #  * 中身は偽物。canary URL を含み「使われた」= 窃取確定
-        location ~* ^/(?:[\\w.\\-]+/)*(?:\\.env(?:\\.[\\w.\\-]+)?|\\.git/(?:config|HEAD)|\\.aws/credentials|\\.ssh/id_\\w+|id_rsa(?:\\.pub)?|backup\\.(?:zip|tar|gz|7z)|(?:database|db|app|prod|main|site|dump)\\.(?:sqlite3?|sql)|config\\.(?:php|json|ya?ml)|wp-config\\.php|(?:credentials|secret|secrets|passwords?)\\.(?:txt|json|ya?ml|db)|dump\\.sql)$ {
+        location ~* ^/(?:[\\w.\\-]+/)*(?:\\.env(?:[._\\-][\\w\\-]+)?|\\.git/(?:config|HEAD)|\\.aws/credentials|\\.ssh/id_\\w+|id_rsa(?:\\.pub)?|backup\\.(?:zip|tar|gz|7z)|(?:database|db|app|prod|main|site|dump)\\.(?:sqlite3?|sql)|config\\.(?:php|json|ya?ml)|wp-config\\.php|(?:credentials|secret|secrets|passwords?)\\.(?:txt|json|ya?ml|db)|dump\\.sql)$ {
             root ${HONEY_DIR};
             try_files $uri =404;
             access_log /var/log/nginx/honey.log honeyfmt;

@@ -350,6 +350,9 @@
 - **偽物の置き場**: `/var/lib/mai-push/honeypot/`（**Web 公開ツリー外**・git 管理外）。
   `bash scripts/security/honeypot-setup.sh` で生成（`--rotate` で token 再生成）。
   中身は**すべて偽物**。実物の秘密値は含まれない。
+  **変種の追加は nginx の再適用不要**（配信元ディレクトリの中身が変わるだけ）。
+  ただし `.env_xxx`（アンダースコア区切り）を**パターン一致させる**には
+  honey location の正規表現に `[._-]` が必要 → その場合のみ nginx の再適用が要る。
   | ファイル | 中身 |
   |---|---|
   | `.env` | 本物.env を模した偽値（`NOTIFY_API_TOKEN=honey-canary-<token>` 等） |

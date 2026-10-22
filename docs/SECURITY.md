@@ -285,6 +285,12 @@ bash scripts/php/verify-php-security-patch.sh
      `/var/lib/mai-push/honeypot/`（Web 公開ツリー外）に生成する。
      `.env` / `database.sqlite`（実在する SQLite）/ `backup.zip`（実在する zip）/
      `.git/config` / `id_rsa` / `config.php` / `credentials.json` / `.aws/credentials` ほか。
+     さらに **`.env` の変種**（`.env.bak` `.env.docker` `.env.sendgrid` `.env_secret` … 100 種超と
+     `/workspace/.env` のようなディレクトリ前缀版）を同じ中身の複製として並べる。
+     実測でスキャナが `/.env.sendgrid` `/.env_secret` `/.env.docker` `/.env.key` `/.env.live`
+     `/.env.www` `/.env.stage` `/workspace/.env` `/var/.env` `/utils/.env` `/web/.env` を
+     叩いていた（すべて 404）。偽物を返すと **「探している」ではなく「取得した」** として
+     証拠が残る。`.env_xxx` をパターン一致させるには honey location の正規表現に `[._-]` が必要。
   2. 偽物には**追跡 URL（canary）** `https://koinoyamai.love/_canary/<token>` を埋め込む。
   3. `sudo bash scripts/nginx/apply-honeypot.sh --apply` で、
      `listen 1717` の vhost に「機密ファイル名っぽいパスは**偽物ディレクトリからだけ**返す」

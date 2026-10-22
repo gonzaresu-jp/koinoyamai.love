@@ -146,7 +146,7 @@ function isLocalSelfTest(ev) {
 }
 
 /** 機密ファイル名っぽいパスか */
-const HONEY_PATH_RE = /\/(?:\.env(?:\.[\w.-]+)?|\.git\/(?:config|HEAD)|\.aws\/credentials|\.ssh\/id_\w+|id_rsa(?:\.pub)?|backup\.(?:zip|tar|gz|7z)|(?:database|db|app|prod|main|site|dump)\.(?:sqlite3?|sql)|config\.(?:php|json|ya?ml)|wp-config\.php|(?:credentials|secret|secrets|passwords?)\.(?:txt|json|ya?ml|db)|dump\.sql)\b/i;
+const HONEY_PATH_RE = /\/(?:\.env(?:[._-][\w-]+)?|\.git\/(?:config|HEAD)|\.aws\/credentials|\.ssh\/id_\w+|id_rsa(?:\.pub)?|backup\.(?:zip|tar|gz|7z)|(?:database|db|app|prod|main|site|dump)\.(?:sqlite3?|sql)|config\.(?:php|json|ya?ml)|wp-config\.php|(?:credentials|secret|secrets|passwords?)\.(?:txt|json|ya?ml|db)|dump\.sql)\b/i;
 
 function classify(ev, canaryPaths) {
   if (!ev.path) return null;

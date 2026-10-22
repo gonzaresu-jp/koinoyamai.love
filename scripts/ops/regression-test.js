@@ -684,7 +684,16 @@ async function main() {
     const hpWatchState = /honeypot-watch-state\.json/.test(hpWatch) ? "honeypot-watch-state.json" : "";
     ok("honeypot: 状態ファイルが setup と watcher で分離されている",
       hpSetupState !== "" && hpWatchState !== "" && hpSetupState !== hpWatchState);
-    // 11-8. 自機リクエストを通知しない仕組み（ノイズ防止）があること
+    // 11-8. `.env` の変種（アンダースコア区切りを含む）も偽物として生成・分類できること
+    ok("honeypot-setup: .env の変種（.env.bak 等）を生成する",
+      /ENV_VARIANTS=/.test(hpSetup) && /\.env\.\$v/.test(hpSetup) || /\.env\.\{v\}/.test(hpSetup) || /\.env\.\$/.test(hpSetup));
+    ok("honeypot-setup: .env_xxx（アンダースコア区切り）の変種も生成する",
+      /ENV_VARIANTS_UNDERSCORE=/.test(hpSetup) && /\.env_\$v/.test(hpSetup));
+    ok("apply-honeypot.js: .env 変種（. / _ 区切り）にマッチする",
+      hpPatch.includes("env(?:[._\\\\-][\\\\w\\\\-]+)?"));
+    ok("honeypot-watch: .env 変種（. / _ 区切り）を probe / stolen に分類する",
+      hpWatch.includes("env(?:[._-][\\w-]+)?"));
+    // 11-9. 自機リクエストを通知しない仕組み（ノイズ防止）があること
     ok("honeypot-watch: 自機リクエストを判定して通知対象から外す",
       /isLocalSelfTest/.test(hpWatch) && /include-local/.test(hpWatch));
     // 11-9. 404（偵察）も honey.log に残る仕組みが入っていること
