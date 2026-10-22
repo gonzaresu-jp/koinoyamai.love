@@ -897,6 +897,10 @@ public sealed partial class MainWindow : Window
             e2.Handled = true;
             var n = e2.Notification;
             var img = string.IsNullOrEmpty(n.BodyImageUri) ? n.IconUri : n.BodyImageUri;
+            // ここに URL は無い（CoreWebView2Notification には data/AdditionalInfo が無い。
+            //  moreover WinUI アプリには実 web push が届かない＝pushManager を webview2:// で
+            // 偽装しており、サーバーは非 http エンドポイントを弾く（services/notification.js）。
+            // 実際にURLを運ぶのは下の SSE 経路（HandleWebMessage）。
             DispatcherQueue.TryEnqueue(() => NotificationHelper.ShowToast(n.Title, n.Body, img));
         };
 
@@ -1294,10 +1298,12 @@ public sealed partial class MainWindow : Window
             var title = root.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
             var body  = root.TryGetProperty("body",  out var b) ? b.GetString() ?? "" : "";
             var image = root.TryGetProperty("image", out var im) ? im.GetString() ?? "" : "";
+            // 通知のURL（トーストの launch に載せる。クリックで既定ブラウザで開く）
+            var url   = root.TryGetProperty("url",   out var u) ? u.GetString() ?? "" : "";
 
             // サムネイル（image）をトーストのヒーロー画像に使う。image は絶対URL。
             // icon は相対URL（/icon.webp）で SetHeroImage の要件（絶対URI）を満たさないためフォールバックしない。
-            DispatcherQueue.TryEnqueue(() => NotificationHelper.ShowToast(title, body, image));
+            DispatcherQueue.TryEnqueue(() => NotificationHelper.ShowToast(title, body, image, url));
         }
         catch { }
     }
