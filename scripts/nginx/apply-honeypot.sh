@@ -55,6 +55,32 @@ if [ ! -d "$HONEY_DIR" ]; then
   exit 1
 fi
 
+# --- 事前チェック（fail-closed）---
+# ハニー/deny のパターンに webroot の実ファイルがマッチすると、
+# そのページが偽物（または 403）に差し替わる＝**既存サイト品位壊れる**。
+# 該当があれば適用しない。
+WEBROOT="${WEBROOT:-/var/www/html/koinoyamai.love/webui}"
+HONEY_RE='^/(?:[\w.\-]+/)*(?:\.env(?:\.[\w.\-]+)?|\.git/(?:config|HEAD)|\.aws/credentials|\.ssh/id_\w+|id_rsa(?:\.pub)?|backup\.(?:zip|tar|gz|7z)|(?:database|db|app|prod|main|site|dump)\.(?:sqlite3?|sql)|config\.(?:php|json|ya?ml)|wp-config\.php|(?:credentials|secret|secrets|passwords?)\.(?:txt|json|ya?ml|db)|dump\.sql)$'
+DENY_RE='\.(?:env|bak|old|orig|save|swp|swo|sql|sqlite3?|db|db3|log|key|pem|p12|pfx|jks|keystore|asc|gpg|pgp|ovpn|tar|tgz|gz|bz2|7z|rar)$'
+echo "--- 事前チェック（webroot と honey/deny パターンの衝突）---"
+if [ -d "$WEBROOT" ]; then
+  CONFLICT="$(cd "$WEBROOT" && find . -type f | sed 's|^\.||' | grep -P "$HONEY_RE" || true)"
+  DENYED="$(cd "$WEBROOT" && find . -type f | grep -P "$DENY_RE" || true)"
+  if [ -n "$CONFLICT" ]; then
+    echo "[ERR] webroot にハニーパターンと衝突するファイルがあります。適用しません:" >&2
+    echo "$CONFLICT" | sed 's/^/       /' >&2
+    echo "       （そのファイルは偽物に差し替わります。先に退避してください）" >&2
+    exit 1
+  fi
+  echo "  [OK] ハニーパターンと衝突するファイルはない"
+  if [ -n "$DENYED" ]; then
+    echo "  [INFO] deny ルールで 403 になるファイル（残骸の想定）:"
+    echo "$DENYED" | sed 's/^/         /'
+  fi
+else
+  echo "  [INFO] $WEBROOT が存在しません（事前チェックをスキップ）"
+fi
+
 if [ "$APPLY" = "0" ]; then
   echo
   echo "--- dry-run: 適用後の確認手順 ---"
@@ -62,7 +88,7 @@ if [ "$APPLY" = "0" ]; then
   bash scripts/security/honeypot-setup.sh            # 偽物の生成（未実施なら）
   sudo bash scripts/nginx/apply-honeypot.sh --apply
   # 偽物が配信されるか
-  curl -sI http://127.0.0.1:1717/.env            | head -5   # 200 + X-Honey-Pot: 1
+  curl -sI http://127.0.0.1:1717/.env            | head -5   # 200 になる（偽物）
   curl -s  http://127.0.0.1:1717/.env | head -3            # 偽物の中身
   curl -sI http://127.0.0.1:1717/database.sqlite  | head -5
   # 既存サイトに影響がないこと
@@ -104,9 +130,10 @@ echo "=== 完了 ==="
 echo "--- 反映確認 ---"
 for p in /.env /database.sqlite /.git/config /backup.zip /config.php; do
   code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://127.0.0.1:1717$p" || echo 000)"
-  hdr="$(curl -sI --max-time 10 "http://127.0.0.1:1717$p" 2>/dev/null | grep -i 'x-honey-pot' | tr -d '\r' || true)"
-  echo "  $p → HTTP $code  ${hdr}"
+  size="$(curl -s --max-time 10 "http://127.0.0.1:1717$p" 2>/dev/null | wc -c)"
+  echo "  $p → HTTP $code（${size} bytes）"
 done
+echo "  honey.log の最終行:"; tail -1 /var/log/nginx/honey.log 2>/dev/null | sed 's/^/    /' || echo "    (まだ記録なし)"
 echo "--- 既存サイトの生存確認 ---"
 for p in /index.php /archive.php /dl/android.json /manifest.json /css/header.css; do
   code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "http://127.0.0.1:1717$p" || echo 000)"
@@ -115,7 +142,8 @@ done
 
 cat <<'TXT'
 監視の有効化（cron）:
-  */5 * * * *  /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/security/honeypot-watch.js >> /var/www/html/koinoyamai.love/logs/honeypot.log 2>&1
+  */5 * * * *  mkdir -p /var/www/html/koinoyamai.love/logs && /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/security/honeypot-watch.js >> /var/www/html/koinoyamai.love/logs/honeypot-cron.log 2>&1
+  ※ watcher 自身のイベントログは logs/honeypot.log（cron の stdout とは別のファイル）
 通知の疎通テスト:
   node scripts/security/honeypot-watch.js --test
 ロールバック:

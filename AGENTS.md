@@ -374,6 +374,21 @@
   - `stolen`（偽物が 200 で取得された）/ `canary_used`（canary アクセス）= 重大で個別通知
   - `probe`（404 の偵察）= 情報を 1 通に集約
   - 通知は既存の `scripts/security/notify.js`（Discord Bot API）を再利用
+  - **fail-closed**: 通知に失敗したイベントは `pending` に保持して**次回に再送**する。
+    読み取り位置は進めてよいが、通知できたイベントだけ `pending` から外す
+  - `--dry-run` は**状態を一切書き換えない**（読むだけ。イベントを消費すると
+    以後二度と通知されなくなる）
+  - **状態ファイルは setup と watcher で分離**する:
+    `data/honeypot-canary.json`（token・canary パス。setup が書く）
+    / `data/honeypot-watch-state.json`（読み取り位置・pending。watcher が書く）。
+    同じファイルにすると setup の再実行で読み取り位置が消え、
+    過去の重大イベントが**全件再通知**される
+  - ログの世代（inode）を管理し、ローテート・切り詰めでイベントを飛ばさない
+  - 判定は honeyfmt の**固定フィールド**（`st=` / `uri=`）だけを使う。
+    UA は攻撃者が自由に入れられるので、honeyfmt では**UA を最後に**置き、
+    解析を騙されないようにする
+  - **検知経路は状態を報告する**（`§11`）。`/api/internal/scraper-status` へ
+    報告し、監視が静かに死んでも察觉できるようにする（異常は exit 2）
 - **安全の鉄則**:
   - 偽物の中身は**必ず偽**。実物の `.env`・鍵・DB を絶対に置かない
   - 偽物は**Web 公開ツリーの外**（`/var/lib/mai-push/honeypot`）に置き、
@@ -632,9 +647,10 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 30 9 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/minutes-gen-cron.sh
 30 4 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/security-watch-cron.sh
 35 4 * * *  mkdir -p /var/www/html/koinoyamai.love/logs && /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/php/check-ubuntu-backport.js >> /var/www/html/koinoyamai.love/logs/php-backport-watch.log 2>&1
-*/5 * * * *  /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/security/honeypot-watch.js >> /var/www/html/koinoyamai.love/logs/honeypot.log 2>&1
+*/5 * * * *  mkdir -p /var/www/html/koinoyamai.love/logs && /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/security/honeypot-watch.js >> /var/www/html/koinoyamai.love/logs/honeypot-cron.log 2>&1
 ```
 - いずれも `crontab -l`（yuzuki ユーザー）で確認済み。ログは `logs/`（gitignore 対象）。
+  ※ **honeypot-watch の行は §5.3 の適用手順で登録する**（それまでは動かない）。
 - ⚠️ **Node スクリプトを cron で `bash` で実行しない**（2026-10-22 実測）。
   `bash script.js` では shebang が使われず JS が**シェルとして解析**されて
   構文エラー（**exit 2**）になる。かつ本机的 cron は `MAILTO` 未設定・`mail` も未導入で

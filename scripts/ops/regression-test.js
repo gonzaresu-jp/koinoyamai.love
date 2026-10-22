@@ -675,10 +675,26 @@ async function main() {
       /listen\\s\+1717/.test(hpPatch) && /koinoyamai/.test(hpPatch));
     // 11-5. 正規表現 location は出現順で評価される → PHP location より前に挿入해야機能する
     ok("apply-honeypot.js: 最初の location の直前に挿入する",
-      /最初の location の直前/.test(hpPatch) && /locationRe|const locRe/.test(hpPatch));
+      /最初の location の直前/.test(hpPatch) && /const locRe/.test(hpPatch));
     // 11-6. 機密拡張子の deny ルールがある（.zip はアプリの配布物なので除外されている）
     ok("apply-honeypot.js: 機密拡張子を deny する（.zip は対象外）",
       /deny all/.test(hpPatch) && !/\|zip\|/.test(hpPatch.replace(/backup\\\.\(\?:zip[^)]*\)/g, "")));
+    // 11-7. 状態ファイルが setup と watcher で分離されている（同じだと offset 消滅→全件再通知）
+    const hpSetupState = /honeypot-canary\.json/.test(hpSetup) ? "honeypot-canary.json" : "";
+    const hpWatchState = /honeypot-watch-state\.json/.test(hpWatch) ? "honeypot-watch-state.json" : "";
+    ok("honeypot: 状態ファイルが setup と watcher で分離されている",
+      hpSetupState !== "" && hpWatchState !== "" && hpSetupState !== hpWatchState);
+    // 11-8. 挙動テスト（状態管理の不変条件。文字列検査では検出できない）
+    const hpSelftest = require("child_process").spawnSync(
+      process.execPath,
+      [path.join(projectDir, "scripts", "security", "honeypot-watch.js"), "--selftest"],
+      { encoding: "utf8", timeout: 30000 }
+    );
+    const hpSelftestOut = `${hpSelftest.stdout || ""}${hpSelftest.stderr || ""}`;
+    const hpFail = (hpSelftestOut.match(/FAIL/g) || []).length;
+    ok("honeypot-watch --selftest: 状態管理の不変条件がすべて通る",
+      hpSelftest.status === 0 && hpFail === 0,
+      `status=${hpSelftest.status} fail=${hpFail} ${hpSelftestOut.slice(-200)}`);
 
     console.log(`\n結果: ${passed} passed, ${failed} failed`);
   } catch (e) {

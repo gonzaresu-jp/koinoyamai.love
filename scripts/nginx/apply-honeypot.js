@@ -76,7 +76,9 @@ function matchBrace(m, openIdx) {
 // 1) log_format honeyfmt を http ブロックへ追加（未適用なら）
 // ---------------------------------------------------------------------------
 const HONEY_FORMAT = `    # ${MARK}: ハニーポット用のログ（時刻・UA・クライアントIP 入り）
-    log_format honeyfmt '$time_iso8601 ip=$remote_addr cf=$http_cf_connecting_ip xff="$http_x_forwarded_for" ua="$http_user_agent" req="$request" status=$status bytes=$body_bytes_sent ref="$http_referer"';
+    # ※ 判定に使う固定フィールド（ip/cf/xff/st/uri/bytes）は **UA より前**に並べる。
+    #   UA は攻撃者が自由に入れられるので、後ろに置いて解析を騙されないようにする。
+    log_format honeyfmt '$time_iso8601 ip=$remote_addr cf=$http_cf_connecting_ip xff="$http_x_forwarded_for" st=$status uri=$uri bytes=$body_bytes_sent req="$request" ref="$http_referer" ua="$http_user_agent"';
 `;
 
 if (conf.includes("log_format honeyfmt")) {
@@ -135,18 +137,17 @@ const HONEY_LOCATION = `        # ---- ハニーポット（${MARK}）: 機密�
             root ${HONEY_DIR};
             try_files $uri =404;
             access_log /var/log/nginx/honey.log honeyfmt;
-            add_header X-Honey-Pot "1" always;
         }
 
         # ---- 偽物の中身(canary)へのアクセス = 「盗んだ情報を使った」証拠 ----
         location ^~ /_canary/ {
             access_log /var/log/nginx/honey.log honeyfmt;
-            add_header X-Honey-Pot "1" always;
             return 204;
         }
 
         # ---- その他の機密拡張子はDENY（ハニーパターンに該当するものは上で処理）----
         location ~* \\.(?:env|bak|old|orig|save|swp|swo|sql|sqlite3?|db|db3|log|key|pem|p12|pfx|jks|keystore|asc|gpg|pgp|ovpn|tar|tgz|gz|bz2|7z|rar)$ {
+            access_log /var/log/nginx/honey.log honeyfmt;
             deny all;
         }
 

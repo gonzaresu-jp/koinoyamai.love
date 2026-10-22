@@ -21,12 +21,16 @@
 #
 # 生成物:
 #   /var/lib/mai-push/honeypot/     偽物（nginx がここから配信する）
-#   data/honeypot-state.json       token / canary パス等の状態（gitignore 済み）
+#   data/honeypot-canary.json      token / canary パス等の状態（gitignore 済み）
+#                                   ※ watcher の読み取り位置は別のファイル
+#                                     （data/honeypot-watch-state.json）に持つ。
+#                                     同じファイルにすると setup の再実行で
+#                                     読み取り位置が消え、過去イベントが全件再通知される。
 set -euo pipefail
 
 HONEY_DIR="${HONEY_DIR:-/var/lib/mai-push/honeypot}"
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-STATE_FILE="${STATE_FILE:-$REPO_ROOT/data/honeypot-state.json}"
+STATE_FILE="${STATE_FILE:-$REPO_ROOT/data/honeypot-canary.json}"
 PUBLIC_URL="${PUBLIC_URL:-https://koinoyamai.love}"
 ROTATE=0
 [[ "${1:-}" == "--rotate" ]] && ROTATE=1
@@ -64,7 +68,7 @@ cat > "$HONEY_DIR/.env" <<EOF
 NODE_ENV=production
 PORT=8080
 TZ=Asia/Tokyo
-DATABASE_PATH=/var/lib/mai-push/data/mai-push.db
+DATABASE_PATH=/srv/app/prod.sqlite3
 
 # --- notification / auth ---
 NOTIFY_API_TOKEN=honey-canary-$TOKEN
@@ -112,8 +116,9 @@ openssl genrsa -out "$HONEY_DIR/id_rsa" 2048 2>/dev/null
 # 生成直後の鍵に追跡目印をコメントとして追記（鍵自体は有効な形式のまま）
 printf '# honey-canary-%s\n' "$TOKEN" >> "$HONEY_DIR/id_rsa"
 chmod 644 "$HONEY_DIR/id_rsa"
+# 公開鍵は秘密鍵のコピーではなく、从公开发行鍵を作る（ realist さのため）
+openssl rsa -in "$HONEY_DIR/id_rsa" -pubout > "$HONEY_DIR/id_rsa.pub" 2>/dev/null
 cp "$HONEY_DIR/id_rsa" "$HONEY_DIR/.ssh/id_rsa"
-cp "$HONEY_DIR/id_rsa" "$HONEY_DIR/id_rsa.pub"
 chmod 644 "$HONEY_DIR/.ssh/id_rsa" "$HONEY_DIR/id_rsa.pub"
 
 # --- 4. credentials.json / .aws/credentials ---
@@ -127,7 +132,7 @@ cat > "$HONEY_DIR/credentials.json" <<EOF
     "webhook": "$CANARY_URL/webhook"
   },
   "database": {
-    "url": "sqlite:///var/lib/mai-push/data/mai-push.db"
+    "url": "sqlite:///srv/app/prod.sqlite3"
   },
   "maintenance_url": "$CANARY_URL/maintenance"
 }
@@ -145,7 +150,7 @@ chmod 644 "$HONEY_DIR/.aws/credentials"
 cat > "$HONEY_DIR/config.php" <<EOF
 <?php
 //  application's configuration
-define('DB_HOST', '127.0.0.1');
+define('DB_HOST', 'db.internal');
 define('DB_NAME', 'mai_push');
 define('DB_USER', 'mai');
 define('DB_PASS', 'honey-canary-$TOKEN-8d1c5a2f6b3e');
@@ -221,10 +226,21 @@ for root, dirs, names in os.walk(honey_dir):
     for n in sorted(names):
         p = os.path.join(root, n)
         files.append(os.path.relpath(p, honey_dir))
+# 既存の canary は「旧 canary」として残す（--rotate 後でも旧 canary の使用を検知する）
+prev = []
+if os.path.exists(state_path):
+    try:
+        old = json.load(open(state_path, encoding="utf-8"))
+        for p in [old.get("canaryPath")] + (old.get("previousCanaryPaths") or []):
+            if p and p != canary_path and p not in prev:
+                prev.append(p)
+    except Exception:
+        pass
 state = {
     "token": token,
     "canaryPath": canary_path,
     "canaryUrl": canary_url,
+    "previousCanaryPaths": prev[-10:],   # 直近 10 個まで
     "dir": honey_dir,
     "files": sorted(files),
     "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
@@ -232,6 +248,8 @@ state = {
 with open(state_path, "w", encoding="utf-8") as f:
     json.dump(state, f, ensure_ascii=False, indent=2)
 print("  状態ファイル:", state_path)
+if prev:
+    print("  旧 canary（監視継続）:", ", ".join(prev[-10:]))
 PY
 chmod 600 "$STATE_FILE"
 
