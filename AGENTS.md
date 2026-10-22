@@ -1049,6 +1049,9 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
      `allow 127.0.0.1; allow ::1; deny all;` を入れる。cloudflared は 127.0.0.1 から接続するため
      経路は確保される。適用は `sudo bash scripts/nginx/apply-dmedia-tunnel-only.sh --apply`
      （dry-run → --apply。冪等・fail-closed・バックアップ付き）。
+     **2026-10-22 適用済み**（PR #70 / 反映確認: 公開URL+Discordbot=200 / 通常UA=403 /
+     localhost=200 / LAN IP=403 / LAN `/upload/dmedia`=403）。
+     バックアップは `/etc/nginx/discord.conf.bak-dmedia-tunnel-only-*`。
   3. **UA 判定は「防御」ではない**:
      `if ($http_user_agent !~* "Discordbot") { return 403; }` は UA をクライアントが自由に
      設定できるため、`curl -A "Discordbot"` で取得できてしまう（実測: 200 / 実ファイル）。
