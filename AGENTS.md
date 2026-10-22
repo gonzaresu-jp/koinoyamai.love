@@ -773,6 +773,32 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - `_appWindow.Changed`（.AppWindow イベント）も UI スレッドのコールバック。例外境界を置き、
     `UpdateCaptionPadding` のように **最小化/復帰で不正値になり得る値**（`TitleBar.RightInset` は
     NaN/Infinity になり得る）を UI に代入する前に弾くこと（v1.8.5 教訓）。
+  - **通知をタップしたら「既定ブラウザ」で中身を開く**（v1.8.7 教訓・2026-10-22 実測）:
+    - Windows アプリは web push / SSE を **ネイティブトースト**へ変換して表示する
+      （`core.NotificationReceived` → `NotificationHelper.ShowToast`）。
+      このとき **トーストの launch に URL を載せてください**
+      （`builder.AddArgument("url", url)`）。
+      載せないと通知をタップしても「アプリが前面に出る」だけで
+      YouTube 等の中身が開かず、ユーザーが「開かない」と抱怨になります（実測）。
+    - **URL を運ぶのは SSE 経路**（`MainWindow.HandleWebMessage`）です。
+      `CoreWebView2Notification` に `data` / `AdditionalInfo` は**無い**ので、
+      WebView2 由来の通知から URL を取り出そうとしてはいけません
+      （`CS1061` でビルドが壊れます。独立レビューで検出）。
+      そもそも WinUI アプリには**実 web push が届きません**
+      （`pushManager` を `webview2://` で偽装しており、サーバーは非 http エンドポイントを
+      弾く＝`services/notification.js`）。通知は **SSE 経由**でしか来ない
+    - クリック時の処理は `App.xaml.cs` の `OnNotificationInvoked`。
+      `Arguments["url"]` があれば **既定ブラウザ**（`Process.Start` + `UseShellExecute`）で開き、
+      **アプリは前面に出さない**（ブラウザのフォーカスを奪わない）。
+      「ブラウザを開いたか」は**ローカル変数**で持つこと（フィールドにすると
+      一度開いた後、URL 無しの通知でアプリは前面に出なくなる）
+    - アプリが起動していない状態で通知をタップされた場合も、
+      `OnLaunched` は `AppInstance.GetCurrent().GetActivatedEventArgs()` で
+      **AppNotification による起動か**を判定し（`ExtendedActivationKind.AppNotification`）、
+      通知の到着を待ってから、ブラウザで開くだけならウィンドウを表示しない。
+      判定は `AppInstance` が使えない環境（try/catch）で通常の起動にフォールバックする。
+      タイムアウト（3秒）で「来なかった」判定にして permanently 待たないこと
+    - `ShowToast` の第4引数は **http/https だけ**渡す（他の scheme を OS に渡さない）
   - **UI コールバックの例外ログは連発を制限する**（v1.8.6 教訓, Issue #17）。`AppWindow.Changed` や
     `EnqueueUi` の例外境界は繰り返し失敗しうるため、毎回 `Diagnostics.Log` すると
     UI スレッドの同期ファイル書き込みが連発して操作がもたくなり、`log.txt` も溢れる。

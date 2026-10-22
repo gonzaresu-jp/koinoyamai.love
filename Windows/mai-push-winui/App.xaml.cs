@@ -8,6 +8,10 @@ public partial class App : Application
     private static Mutex? _mutex;
     private MainWindow? _window;
 
+    // 通知クリックの処理が完了したことを知らせる（起動直後に表示，判断するため）
+    private readonly TaskCompletionSource<bool> _notificationHandled =
+        new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
     public App()
     {
         // WebView2 ユーザーデータをローカル AppData に固定
@@ -63,14 +67,74 @@ public partial class App : Application
 
         // --hidden 引数があればトレイに格納したまま起動（自動起動時など）
         if (Environment.GetCommandLineArgs().Contains("--hidden"))
+        {
             _window.HideToTray();
-        else
-            _window.Activate();
+            return;
+        }
+
+        // 通知クリックで起動された場合（アプリが停止していたとき）は、
+        // ブラウザを開くだけでアプリのウィンドウは前面に出さない。
+        if (IsNotificationLaunch())
+        {
+            _ = ActivateAfterNotificationAsync();
+            return;
+        }
+
+        // 通常の起動は即座に表示する（従来どおり）
+        _window.Activate();
+    }
+
+    /// <summary>
+    /// 通知クリックで起動されたか（AppNotification による起動）を判定する。
+    /// 判定できない場合は通常の起動として扱う。
+    /// </summary>
+    private static bool IsNotificationLaunch()
+    {
+        try
+        {
+            var activated = Microsoft.Windows.AppLifecycle.AppInstance.GetCurrent().GetActivatedEventArgs();
+            return activated.Kind ==
+                   Microsoft.Windows.AppLifecycle.ExtendedActivationKind.AppNotification;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 通知の到着を待ってから、必要ならウィンドウを前面に出す。
+    /// ブラウザで内容を開いた場合は、アプリは前面に出さない（フォーカスを奪わない）。
+    /// </summary>
+    private async Task ActivateAfterNotificationAsync()
+    {
+        bool openedExternally = false;
+        try
+        {
+            // 通知が届かないケース（不正な起動など）で永久に待たないよう上限を設ける
+            openedExternally = await _notificationHandled.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        }
+        catch
+        {
+            openedExternally = false;
+        }
+
+        if (openedExternally) return;   // ブラウザで開いた → アプリは出さない
+
+        var win = _window;
+        if (win is null) return;
+        win.DispatcherQueue.TryEnqueue(() =>
+        {
+            try { win.Activate(); }
+            catch { }
+        });
     }
 
     private void OnNotificationInvoked(AppNotificationManager sender, AppNotificationActivatedEventArgs args)
     {
-        // 「ダウンロード」ボタン → URL を既定ブラウザで開く
+        // 通知本体 / 「ダウンロード」ボタン → URL を既定ブラウザで開く
+        // （URL が無い通知は従来どおり「アプリを前面に出す」）
+        bool openedExternally = false;
         if (args.Arguments.TryGetValue("url", out var url) &&
             Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
             (uri.Scheme == "http" || uri.Scheme == "https"))
@@ -81,9 +145,20 @@ public partial class App : Application
                 {
                     UseShellExecute = true
                 });
+                openedExternally = true;
             }
-            catch { }
+            catch
+            {
+                // 開けなかった場合はフォールバック（アプリを前面に出す）
+                openedExternally = false;
+            }
         }
+
+        // 起動直後の判定（ActivateAfterNotificationAsync）にも渡す
+        _notificationHandled.TrySetResult(openedExternally);
+
+        // ブラウザを開いた場合はアプリを前面に出さない（ブラウザのフォーカスを奪わない）
+        if (openedExternally) return;
 
         _window?.DispatcherQueue.TryEnqueue(() => _window?.BringToFront());
     }
