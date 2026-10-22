@@ -884,12 +884,22 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - 通知は **ongoing**（スワイプで消せない）＋ **「停止」アクション**（`AlarmReceiver` の
     `ACTION_STOP_ALARM` broadcast → `AlarmSoundService.stop()`）。
     アプリを開いたとき（`MainActivity.onResume`）も自動で止まる（「起きた＝止める」）。
-  - **最大 10 分で自動停止**（放置で鳴りっぱなしにならない安全弁）。
+    ⚠️ ただし **アラームの full-screen intent で起動したときは止めない**
+    （`EXTRA_FROM_ALARM` フラグ）。止めると「鳴って数秒後に自分で止まる」→
+    ユーザー報告の主要ケースが残ってしまうため。
+    停止は「停止」ボタン／アプリ内 `stopStreamAlarm()`／通常の起動時に限定する。
+  - **最大 15 分で自動停止**（放置で鳴りっぱなしにならない安全弁）。
+    既定のオフセット（15分前）と同程度にしてある。
   - 発火経路は 2 つ: ① `AlarmManager.setAlarmClock()` の exact alarm
-    （バックグラウンド FGS 起動制限の**免除対象**なので確実）
+    （バックグラウンド FGS 起動制限の**免除対象**＝AOSP の alarm-clock allowlist なので確実）
     ② FCM の配信開始通知（`channel == "mai_stream_alarm"`）。
     ② で FGS 起動が拒否された場合は**通常の通知（1 回鳴る）にフォールバック**する
     （黙って無音にしない）。
+  - ★ **アラーム用チャネルの FCM は data-only で送る**（サーバー側 `services/notification.js` の
+    `isAlarmChannel` 分岐）。`notification` ブロックを付けると**バックグラウンド時に
+    FCM SDK 自身が描画して `onMessageReceived` が呼ばれない** → アプリ側の
+    「ループ再生」に到達できないため。`android.priority: "high"` なのでアプリは起きて処理する。
+    他の通知（一般通知・画像つき）は従来どおり `notification` 付きのままである。
   - サービスの通知は**無音チャネル**（`mai_stream_alarm_loop`）を使う。
     音はサービスが鳴らすので、チャネル音と二重に鳴らさない。
     ※ 既存の `mai_stream_alarm`（アラーム音つき）は事前通知用に残す。
