@@ -132,25 +132,35 @@ async function sendFcmNotification(messaging, token, payload, type, settingKey, 
     const data = buildFcmData(payload, type, settingKey);
     const absoluteImageUrl = payload.image ? normalizeAbsoluteUrl(payload.image) : undefined;
     if (absoluteImageUrl) data.image = absoluteImageUrl;
+    // ★ 配信開始（アラーム用チャネル）の FCM は **data-only** で送る。
+    //   `notification` ブロックを付けると、**バックグラウンド時に FCM SDK 自身が
+    //   描画して `onMessageReceived` が呼ばれない** → アプリ側の
+    //   「ループするアラーム音（フォアグラウンドサービス）」に到達できない。
+    //   data-only なら（priority: high のため）アプリが起きて処理する。
+    const isAlarmChannel = data.channel === "mai_stream_alarm";
     const message = {
       token,
       data,
-      notification: {
-        title: payload.title || "新着通知",
-        body: payload.body || "",
-        image: absoluteImageUrl || undefined
-      },
-      android: {
-        priority: "high",
+      ...(isAlarmChannel ? {} : {
         notification: {
           title: payload.title || "新着通知",
           body: payload.body || "",
-          image: absoluteImageUrl || undefined,
-          click_action: "OPEN_ACTIVITY_1",
-          // 配信開始通知をアラーム用チャネルで配信する（突然の開始でも起きれるように）。
-          // チャネル指定が無い環境では FCM SDK が既定チャネルへフォールバックする。
-          ...(data.channel ? { channel_id: data.channel } : {})
+          image: absoluteImageUrl || undefined
         }
+      }),
+      android: {
+        priority: "high",
+        ...(isAlarmChannel ? {} : {
+          notification: {
+            title: payload.title || "新着通知",
+            body: payload.body || "",
+            image: absoluteImageUrl || undefined,
+            click_action: "OPEN_ACTIVITY_1",
+            // 配信開始通知をアラーム用チャネルで配信する（突然の開始でも起きれるように）。
+            // チャネル指定が無い環境では FCM SDK が既定チャネルへフォールバックする。
+            ...(data.channel ? { channel_id: data.channel } : {})
+          }
+        })
       },
       webpush: {
         headers: { TTL: "86400" }

@@ -762,6 +762,48 @@ async function main() {
       hpSelftest.status === 0 && hpFail === 0,
       `status=${hpSelftest.status} fail=${hpFail} ${hpSelftestOut.slice(-200)}`);
 
+    // --- 12. Android 配信アラームの不変条件（2026-10-22 追加） ---
+    // 「アラームが短く、止まるまで鳴らない」問題の再発を防ぐ。
+    console.log("[12] Android 配信アラームの不変条件");
+    const ktDir = path.join(projectDir, "mai_notification", "app", "src", "main", "java", "com", "yuzuki", "mai_notification");
+    const readKt = (rel) => {
+        try { return fs.readFileSync(path.join(ktDir, rel), "utf8"); } catch (e) { return ""; }
+    };
+    const alarmServiceKt = readKt("AlarmSoundService.kt");
+    const alarmReceiverKt = readKt("AlarmReceiver.kt");
+    const fcmKt = readKt(path.join("MainActivity", "MyFirebaseMessagingService.kt"));
+    const manifestXml = fs.readFileSync(
+      path.join(projectDir, "mai_notification", "app", "src", "main", "AndroidManifest.xml"), "utf8");
+
+    // 12-1. 存在しない API を使わない（NotificationCompat.Builder.setTurnScreenOn は無い＝コンパイルエラー）
+    ok("Android: NotificationCompat の setTurnScreenOn を使わない（存在しない API）",
+      !/setTurnScreenOn/.test(alarmServiceKt) && !/setTurnScreenOn/.test(fcmKt));
+    // 12-2. アラーム音はループ再生
+    ok("Android: アラーム音をループ再生する（isLooping = true）",
+      /isLooping\s*=\s*true/.test(alarmServiceKt));
+    ok("Android: USAGE_ALARM で鳴らす（マナーモードでも鳴る）",
+      /AudioAttributes\.USAGE_ALARM/.test(alarmServiceKt));
+    // 12-3. フォアグラウンドサービスの宣言と権限
+    ok("Android: AlarmSoundService を manifest に宣言している",
+      /android:name="\.AlarmSoundService"/.test(manifestXml) &&
+      /foregroundServiceType="mediaPlayback"/.test(manifestXml));
+    ok("Android: FGS の権限（FOREGROUND_SERVICE / MEDIA_PLAYBACK / VIBRATE）がある",
+      /FOREGROUND_SERVICE"/.test(manifestXml) &&
+      /FOREGROUND_SERVICE_MEDIA_PLAYBACK/.test(manifestXml) &&
+      /VIBRATE/.test(manifestXml));
+    // 12-4. full-screen intent で起動したときはアラームを止めない（止めると数秒で止まる）
+    ok("Android: full-screen intent 起動ではアラームを止めない（launchedFromAlarm）",
+      /EXTRA_FROM_ALARM/.test(alarmServiceKt) &&
+      /launchedFromAlarm/.test(readKt(path.join("MainActivity", "MainActivity.kt"))));
+    // 12-5. サーバーはアラーム用チャネルを data-only で送る（background で onMessageReceived が呼ばれないとループしない）
+    const notifSvc = fs.readFileSync(path.join(projectDir, "services", "notification.js"), "utf8");
+    ok("サーバー: アラーム用チャネルの FCM は data-only（notification ブロックなし）",
+      /isAlarmChannel/.test(notifSvc) && /isAlarmChannel\s*\?\s*\{\s*\}/.test(notifSvc));
+    // 12-6. バージョンの整合（APK 配布は Windows 側・json は APK 配置後）
+    const gradleKt = fs.readFileSync(path.join(projectDir, "mai_notification", "app", "build.gradle.kts"), "utf8");
+    ok("Android: バージョンが 1.7.4 / versionCode 12",
+      /versionName\s*=\s*"1\.7\.4"/.test(gradleKt) && /versionCode\s*=\s*12/.test(gradleKt));
+
     console.log(`\n結果: ${passed} passed, ${failed} failed`);
   } catch (e) {
     failed++;
