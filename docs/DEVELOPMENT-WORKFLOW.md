@@ -110,6 +110,12 @@ bash scripts/deploy/promote.sh <branch> [--sync-staging] [--no-restart] [--dry-r
 9. **旧 PHP の nginx 実行ガードも sudo 必須 → 手動で行う**（`AGENTS.md §5.1`・2026-10-21 追加）
    - `sudo bash scripts/nginx/apply-php-exec-guard.sh --apply`
      （elza vhost の PHP 実行を 404 にする。**本番 :1717 / staging :80 は対象外**）
+10. **Discord 専用メディアの tunnel 限定も sudo 必須 → 手動で行う**（2026-10-22 追加）
+    - `bash scripts/nginx/apply-dmedia-tunnel-only.sh`（dry-run・差分を表示）→
+      `sudo bash scripts/nginx/apply-dmedia-tunnel-only.sh --apply`
+    - `discord.honna-yuzuki.com/dmedia/` に `allow 127.0.0.1; allow ::1; deny all;` を追加し、
+      **cloudflared 経由（127.0.0.1）のみ**許可する（UA 判定は UA を偽装できるため防御にならない）
+    - 反映確認が期待値と違えば非 0 終了する（自動ロールバック手順を案内）
 
 ## セキュリティ履歴（2026-09-20 実施）
 

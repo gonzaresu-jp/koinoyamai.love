@@ -1053,8 +1053,16 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
      `if ($http_user_agent !~* "Discordbot") { return 403; }` は UA をクライアントが自由に
      設定できるため、`curl -A "Discordbot"` で取得できてしまう（実測: 200 / 実ファイル）。
      → 実保護は **URL 側の 128bit ランダム ID**（1 と同じ「推測不能な URL」方式）。
+  4. **upload サービス側でも Host を照合する**（2026-10-22）:
+     nginx の LAN/Tailnet 用 vhost（`location ^~ /upload/` → `proxy_pass http://127.0.0.1:3100/`）は
+     パス置換で `/upload/dmedia/xxx` を `/dmedia/xxx` にしてしまう → そのままでは
+     **LAN から Discord 専用メディアを読めてしまう**（独立レビューで発覚）。
+     そこで upload サービスが `/dmedia` の **Host** を照合する
+     （`DISCORD_PUBLIC_BASE_URL` の host 以外は 403）。
+     discord vhost は `proxy_set_header Host $host` で `discord.honna-yuzuki.com` を渡す。
   - 教訓: 「tunnel 経由」はルーティング設定だけでは保証にならない。
     **origin の listen を 127.0.0.1 限定にするか、nginx で許可リストを入れる**こと。
+    **nginx の別 vhost が同じ upstream にパス置換で繋いでいたら、そこも封鎖が必要**。
 
 ## 12. ドキュメント更新ルール（ARCHITECTURE.md を腐らせない）
 

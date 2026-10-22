@@ -595,7 +595,7 @@ if ($http_user_agent !~* "Discordbot") { return 403; }
 `curl -A "Discordbot/2.0"` で実ファイルを取得できてしまう（実測: HTTP 200 / 943,346 bytes）。
 UA 判定は「公式のクローラしか来ない」程度の補助にすぎず、保護としては機能しない。
 
-### 対策（3 層）
+### 対策（4 層）
 
 1. **到達は tunnel のみ**（上記。DNS 側は元から tunnel を指していた）
 2. **nginx でも tunnel のみに限定** — `location ^~ /dmedia/` に
@@ -609,6 +609,15 @@ UA 判定は「公式のクローラしか来ない」程度の補助にすぎ�
    `?scope=discord` だけ ID を 128bit（`crypto.randomBytes(16)`）にする。
    通常の `media` scope は 32bit のまま（公開メディアなので無意味）。
    → UA を偽装しても **URL が分からない限り取得できない**。
+4. **upload サービスでも Host を照合する** — nginx の LAN/Tailnet 用 vhost
+   （`location ^~ /upload/` → `proxy_pass http://127.0.0.1:3100/`）はパス置換で
+   `/upload/dmedia/xxx` を `/dmedia/xxx` に変換してしまうため、
+   そのままでは **LAN から Discord 専用メディアを読めてしまう**（独立レビューで発覚）。
+   `/dmedia` の Handler で Host を照合し、`DISCORD_PUBLIC_BASE_URL` の host
+   以外を 403 にする（discord vhost は `proxy_set_header Host $host` で
+   `discord.honna-yuzuki.com` を渡す）。
+   実測: `https://discord.honna-yuzuki.com/dmedia/<file>` + Discordbot UA → 200 /
+   LAN IP 経由 `/upload/dmedia/<file>` → 403。
 
 ### 教訓
 
