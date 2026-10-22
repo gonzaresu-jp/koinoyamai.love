@@ -684,7 +684,37 @@ async function main() {
     const hpWatchState = /honeypot-watch-state\.json/.test(hpWatch) ? "honeypot-watch-state.json" : "";
     ok("honeypot: 状態ファイルが setup と watcher で分離されている",
       hpSetupState !== "" && hpWatchState !== "" && hpSetupState !== hpWatchState);
-    // 11-8. 自機リクエストを通知しない仕組み（ノイズ防止）があること
+    // 11-8. `.env` の変種（アンダースコア区切りを含む）も偽物として生成・分類できること
+    ok("honeypot-setup: .env の変種（.env.bak 等）を生成する",
+      /ENV_VARIANTS=/.test(hpSetup) && /\.env\.\$v/.test(hpSetup) || /\.env\.\{v\}/.test(hpSetup) || /\.env\.\$/.test(hpSetup));
+    ok("honeypot-setup: .env_xxx（アンダースコア区切り）の変種も生成する",
+      /ENV_VARIANTS_UNDERSCORE=/.test(hpSetup) && /\.env_\$v/.test(hpSetup));
+    // パターンは**共有ファイル 1 つ**から読む（3 か所に二重管理しない）
+    const hpPatternFile = path.join(projectDir, "scripts", "nginx", "honey-path-pattern.txt");
+    const hpPattern = fs.existsSync(hpPatternFile) ? fs.readFileSync(hpPatternFile, "utf8").trim() : "";
+    ok("ハニーパターンは共有ファイル 1 つに集約されている", hpPattern.length > 0);
+    ok("apply-honeypot.js: 共有パターンファイルを読む",
+      hpPatch.includes("honey-path-pattern.txt"));
+    ok("honeypot-watch: 共有パターンファイルを読む",
+      hpWatch.includes("honey-path-pattern.txt"));
+    ok("apply-honeypot.sh: 共有パターンファイルを読む（ガードも同期）",
+      fs.readFileSync(path.join(projectDir, "scripts", "nginx", "apply-honeypot.sh"), "utf8")
+        .includes("honey-path-pattern.txt"));
+    // 共有パターンで実際の判定が正しいこと（挙動テスト）
+    if (hpPattern) {
+      const hpRe = new RegExp("/(?:[\\w.\\-]+/)*(?:" + hpPattern + ")(?![.\\w\\-])", "i");
+      const shouldMatch = ["/.env", "/.env.bak", "/.env_secret", "/.env_sendgrid",
+        "/.env.docker", "/.env.bak.gz", "/workspace/.env", "/var/.env", "/webui/.env"];
+      const shouldNotMatch = ["/index.php", "/admin.html", "/api/history",
+        "/dl/android.json", "/css/header.css", "/main.js", "/.envx"];
+      ok("共有パターン: ハニーパスにマッチする",
+        shouldMatch.every((p) => hpRe.test(p)),
+        shouldMatch.filter((p) => !hpRe.test(p)).join(", "));
+      ok("共有パターン: 通常パスにマッチしない",
+        shouldNotMatch.every((p) => !hpRe.test(p)),
+        shouldNotMatch.filter((p) => hpRe.test(p)).join(", "));
+    }
+    // 11-9. 自機リクエストを通知しない仕組み（ノイズ防止）があること
     ok("honeypot-watch: 自機リクエストを判定して通知対象から外す",
       /isLocalSelfTest/.test(hpWatch) && /include-local/.test(hpWatch));
     // 11-9. 404（偵察）も honey.log に残る仕組みが入っていること

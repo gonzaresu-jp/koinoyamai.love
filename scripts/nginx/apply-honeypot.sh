@@ -60,7 +60,12 @@ fi
 # そのページが偽物（または 403）に差し替わる＝**既存サイト品位壊れる**。
 # 該当があれば適用しない。
 WEBROOT="${WEBROOT:-/var/www/html/koinoyamai.love/webui}"
-HONEY_RE='^/(?:[\w.\-]+/)*(?:\.env(?:\.[\w.\-]+)?|\.git/(?:config|HEAD)|\.aws/credentials|\.ssh/id_\w+|id_rsa(?:\.pub)?|backup\.(?:zip|tar|gz|7z)|(?:database|db|app|prod|main|site|dump)\.(?:sqlite3?|sql)|config\.(?:php|json|ya?ml)|wp-config\.php|(?:credentials|secret|secrets|passwords?)\.(?:txt|json|ya?ml|db)|dump\.sql)$'
+# パターン本体は nginx 側・監視側と**共有**する（3 か所に二重管理しない）
+PATTERN_FILE="$REPO_ROOT/scripts/nginx/honey-path-pattern.txt"
+[ -f "$PATTERN_FILE" ] || { echo "[ERR] パターン定義が見つかりません: $PATTERN_FILE" >&2; exit 1; }
+HONEY_BODY="$(tr -d '\n' < "$PATTERN_FILE" | sed 's/[[:space:]]*$//')"
+[ -n "$HONEY_BODY" ] || { echo "[ERR] パターン定義が空です: $PATTERN_FILE" >&2; exit 1; }
+HONEY_RE="^/(?:[\w.\-]+/)*($HONEY_BODY)$"
 DENY_RE='\.(?:env|bak|old|orig|save|swp|swo|sql|sqlite3?|db|db3|log|key|pem|p12|pfx|jks|keystore|asc|gpg|pgp|ovpn|tar|tgz|gz|bz2|7z|rar)$'
 echo "--- 事前チェック（webroot と honey/deny パターンの衝突）---"
 if [ -d "$WEBROOT" ]; then
