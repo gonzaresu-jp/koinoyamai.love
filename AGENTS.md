@@ -1021,12 +1021,40 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - **Express 側のレート制限は実クライアント IP 単位**で正しく機能している
     （`trust proxy = "loopback"` + nginx が X-Forwarded-For を渡すため `req.ip` が復元される）。
 - **アップロードサービス（`/var/www/html/upload`・本リポジトリ外）**:
-  - `UPLOAD_KEY` を設定済み（`/var/www/html/upload/.env` = 600。値は `~/upload-key.txt`）。
-    未設定だと API ゲートが無効になる（`server.js` の `if (!UPLOAD_KEY) return next();`）。
+  - **`UPLOAD_KEY` のゲートは無効（2026-10-22 ユーザー判断）**。`/var/www/html/upload/.env` の
+    `UPLOAD_KEY=` は空。tailnet 限定（nginx の allowlist）で二重防御は不要と判断された。
+    値を入れても構文は壊れないが、`~/upload-key.txt` は削除済み。
+    キーを設定すると `server.js` の `if (!UPLOAD_KEY) return next();` でゲートが有効化され、
+    401 ページ（`?key=…`）が出てブラウザに Cookie（30日）が残る。
   - **保存拡張子は許可リスト制**（画像/動画/音声/PDF のみ）。クライアント申告の拡張子を
     そのまま使うと `.html` を名送出せて media ドメインで stored XSS になりうるため。
   - 外部からは到達できない（`/etc/nginx/media.conf` の `location / { return 403; }`）だが、
     アップロード UI は LAN/Tailnet のみ（`192.168.1.72` の server に allowlist）。
+  - **Discord 専用 scope（`?scope=discord`）は ID が 128bit**（`crypto.randomBytes(16)`）。
+    通常の media scope は 32bit のまま（公開メディアなので無意味）。
+    理由は下の「Discord 専用メディア」項の「UA 判定は防御にならない」ため
+    （推測不能な URL ＝ capability URL にする）。
+- **Discord 専用メディア（`/dmedia/`）の保護 — 3 層**
+  1. **到達経路は tunnel のみ**（2026-10-22 実測で確定）:
+     `discord.honna-yuzuki.com` の DNS は CNAME で cloudflared tunnel（`mai` トンネル）を指し、
+     tunnel のリモート設定にも `discord.honna-yuzuki.com → http://localhost:80` がある。
+     origin の `:80` はインターネットから到達できない（access.log の全 rotation 約30万行で
+     peer は `127.0.0.1` / LAN / Tailscale のみ）。
+     ⚠️ **`/etc/cloudflared/config.yml` のローカル ingress は使われていない**
+     （tunnel にリモート設定があるとそちらが優先される。cloudflared のログの
+     `ingressRule=4` が「リモート設定の 4 番目 = koinoyamai.love」を指すのが証拠。
+     ローカル設定の 4 番目は catch-all で `http_status:404`）。
+     → 路由を変更したいときは **API（`~/.cloudflared/cert.pem` のトークン）でリモート設定を編集**する。
+  2. **nginx 側でも tunnel のみに限定**（`/etc/nginx/discord.conf` の `location ^~ /dmedia/`）:
+     `allow 127.0.0.1; allow ::1; deny all;` を入れる。cloudflared は 127.0.0.1 から接続するため
+     経路は確保される。適用は `sudo bash scripts/nginx/apply-dmedia-tunnel-only.sh --apply`
+     （dry-run → --apply。冪等・fail-closed・バックアップ付き）。
+  3. **UA 判定は「防御」ではない**:
+     `if ($http_user_agent !~* "Discordbot") { return 403; }` は UA をクライアントが自由に
+     設定できるため、`curl -A "Discordbot"` で取得できてしまう（実測: 200 / 実ファイル）。
+     → 実保護は **URL 側の 128bit ランダム ID**（1 と同じ「推測不能な URL」方式）。
+  - 教訓: 「tunnel 経由」はルーティング設定だけでは保証にならない。
+    **origin の listen を 127.0.0.1 限定にするか、nginx で許可リストを入れる**こと。
 
 ## 12. ドキュメント更新ルール（ARCHITECTURE.md を腐らせない）
 
