@@ -647,6 +647,55 @@ async function main() {
       /elza/.test(guardJsCode) && !/1717/.test(guardJsCode) && !/koinoyamai\.love/.test(guardJsCode));
     ok("apply-php-exec-guard.js: PHP を 404 にする（return 404）", guardJs.includes("return 404;"));
 
+    // --- 11. ハニーポットの不変条件（2026-10-22 追加） ---
+    // 偽物の置き場・配信ルール・監視が「安全側の既定」を保っているかを固定する。
+    console.log("[11] ハニーポットの不変条件");
+    const hpSetup = fs.readFileSync(path.join(projectDir, "scripts", "security", "honeypot-setup.sh"), "utf8");
+    const hpWatch = fs.readFileSync(path.join(projectDir, "scripts", "security", "honeypot-watch.js"), "utf8");
+    const hpPatch = fs.readFileSync(path.join(projectDir, "scripts", "nginx", "apply-honeypot.js"), "utf8");
+
+    // 11-1. 偽物は Web 公開ツリーの外（/var/www/html 配下には置かない）
+    ok("honeypot: 置き場が Web 公開ツリーの外",
+      /HONEY_DIR="\$\{HONEY_DIR:-\/var\/lib\/mai-push\/honeypot\}"/.test(hpSetup) &&
+      !/\/var\/www\/html/.test(hpSetup.replace(/^#.*$/gm, "")));
+
+    // 11-2. 実物の .env を読み込まない・実在中身を複製しない
+    ok("honeypot: 実物の .env を参照していない（偽物だけを作る）",
+      !/cat\s+\/var\/www\/html\/koinoyamai\.love\/\.env/.test(hpSetup) &&
+      !/cp\s+.*\.env\s+\/var\/www/.test(hpSetup));
+
+    // 11-3. 監視が canary token を Doc で見ない（ログの token だけが手掛かり）
+    ok("honeypot-watch: canary パスで判定している",
+      /canaryPath/.test(hpWatch) && /kind:\s*"canary_used"/.test(hpWatch));
+    ok("honeypot-watch: 取得（stolen）と偵察（probe）を区別している",
+      /kind:\s*"stolen"/.test(hpWatch) && /kind:\s*"probe"/.test(hpWatch));
+
+    // 11-4. nginx パッチは 1717 の vhost だけを対象にする
+    ok("apply-honeypot.js: 1717 + koinoyamai.love の vhost のみ対象",
+      /listen\\s\+1717/.test(hpPatch) && /koinoyamai/.test(hpPatch));
+    // 11-5. 正規表現 location は出現順で評価される → PHP location より前に挿入해야機能する
+    ok("apply-honeypot.js: 最初の location の直前に挿入する",
+      /最初の location の直前/.test(hpPatch) && /const locRe/.test(hpPatch));
+    // 11-6. 機密拡張子の deny ルールがある（.zip はアプリの配布物なので除外されている）
+    ok("apply-honeypot.js: 機密拡張子を deny する（.zip は対象外）",
+      /deny all/.test(hpPatch) && !/\|zip\|/.test(hpPatch.replace(/backup\\\.\(\?:zip[^)]*\)/g, "")));
+    // 11-7. 状態ファイルが setup と watcher で分離されている（同じだと offset 消滅→全件再通知）
+    const hpSetupState = /honeypot-canary\.json/.test(hpSetup) ? "honeypot-canary.json" : "";
+    const hpWatchState = /honeypot-watch-state\.json/.test(hpWatch) ? "honeypot-watch-state.json" : "";
+    ok("honeypot: 状態ファイルが setup と watcher で分離されている",
+      hpSetupState !== "" && hpWatchState !== "" && hpSetupState !== hpWatchState);
+    // 11-8. 挙動テスト（状態管理の不変条件。文字列検査では検出できない）
+    const hpSelftest = require("child_process").spawnSync(
+      process.execPath,
+      [path.join(projectDir, "scripts", "security", "honeypot-watch.js"), "--selftest"],
+      { encoding: "utf8", timeout: 30000 }
+    );
+    const hpSelftestOut = `${hpSelftest.stdout || ""}${hpSelftest.stderr || ""}`;
+    const hpFail = (hpSelftestOut.match(/FAIL/g) || []).length;
+    ok("honeypot-watch --selftest: 状態管理の不変条件がすべて通る",
+      hpSelftest.status === 0 && hpFail === 0,
+      `status=${hpSelftest.status} fail=${hpFail} ${hpSelftestOut.slice(-200)}`);
+
     console.log(`\n結果: ${passed} passed, ${failed} failed`);
   } catch (e) {
     failed++;
