@@ -22,7 +22,7 @@
 #   bash scripts/security/honeypot-setup.sh   # 偽物と canary token を生成済み
 #
 # 安全:
-#   - 冪等（適用済みなら何もせず exit 0）
+#   - 冪等（同じ入力なら差分ゼロ。適用済みなら**ハニー location グループを差し替える**）
 #   - アンカーが曖昧なら fail-closed（何も書き換えない）
 #   - atomic（一時ファイルへ書き出してから install で差し替える）
 #   - バックアップ → nginx -t 失敗時は即座に復元し、復元後に nginx -t を再実行

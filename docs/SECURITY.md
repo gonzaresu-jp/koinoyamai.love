@@ -301,6 +301,12 @@ bash scripts/php/verify-php-security-patch.sh
     サイト全体を止める恐れがあるため。ブロックは別途明示的に判断する）
   - ハニーパスは**正規表現 location** として `location ~ \.php$` より**前**に置く必要がある
     （nginx は正規表現 location を出現順に評価し、最初にマッチしたものが実行される）
+  - **404（偵察）も honey.log に残す**。vhost レベルの `error_page 404 /404.html` だと
+    404 が内部リダイレクトで honey.log の外（access.log）へ逃げるため、
+    ハニー location 内だけで `error_page 404 = @honey_not_found;` を使って
+    named location へ逃がす（2026-10-22 実測で発見・修正）
+  - 適用スクリプトは冪等（2 回適用しても差分ゼロ）。適用済みの場合は
+    ハニー location グループ（honey / named / canary / deny）をまとめて差し替える
 
 ### パッチ前の緩和策（2026-10-21 夜〜リリースまで）
 

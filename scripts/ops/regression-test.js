@@ -684,7 +684,40 @@ async function main() {
     const hpWatchState = /honeypot-watch-state\.json/.test(hpWatch) ? "honeypot-watch-state.json" : "";
     ok("honeypot: 状態ファイルが setup と watcher で分離されている",
       hpSetupState !== "" && hpWatchState !== "" && hpSetupState !== hpWatchState);
-    // 11-8. 挙動テスト（状態管理の不変条件。文字列検査では検出できない）
+    // 11-8. 404（偵察）も honey.log に残る仕組みが入っていること
+    ok("apply-honeypot.js: 404 を named location へ逃がす（error_page）",
+      /error_page 404 = @honey_not_found/.test(hpPatch) && /location @honey_not_found/.test(hpPatch));
+    // 11-9. 冪等性（同じ入力に 2 回適用して差分ゼロ）
+    const hpFixture = [
+      "events { worker_connections 16; }",
+      "http {",
+      "    log_format withff '$remote_addr \"$request\" $status';",
+      "    server {",
+      "        listen 1717;",
+      "        server_name koinoyamai.love;",
+      "        root /var/www/html/koinoyamai.love/webui;",
+      "        location ~ \\.php$ { fastcgi_pass unix:/run/php/php8.3-fpm.sock; }",
+      "    }",
+      "}",
+    ].join("\n");
+    const hpTmp = fs.mkdtempSync(path.join(os.tmpdir(), "honeypot-idem-"));
+    const hpIn = path.join(hpTmp, "nginx.conf");
+    const hpA = path.join(hpTmp, "a.conf");
+    const hpB = path.join(hpTmp, "b.conf");
+    fs.writeFileSync(hpIn, hpFixture);
+    const hpNode = process.execPath;
+    const hpPatchJs = path.join(projectDir, "scripts", "nginx", "apply-honeypot.js");
+    const run1 = require("child_process").spawnSync(hpNode, [hpPatchJs, hpIn, hpA], { encoding: "utf8" });
+    const run2 = require("child_process").spawnSync(hpNode, [hpPatchJs, hpA, hpB], { encoding: "utf8" });
+    let idem = false;
+    try {
+      idem = run1.status === 0 && run2.status === 0 &&
+        fs.readFileSync(hpA, "utf8") === fs.readFileSync(hpB, "utf8");
+    } catch (e) { idem = false; }
+    ok("apply-honeypot.js: 2 回適用しても差分ゼロ（冪等）", idem,
+      `run1=${run1.status} run2=${run2.status} ${(run1.stderr || "").slice(0, 120)}`);
+    try { fs.rmSync(hpTmp, { recursive: true, force: true }); } catch (e) { /* best-effort */ }
+    // 11-10. 挙動テスト（状態管理の不変条件。文字列検査では検出できない）
     const hpSelftest = require("child_process").spawnSync(
       process.execPath,
       [path.join(projectDir, "scripts", "security", "honeypot-watch.js"), "--selftest"],

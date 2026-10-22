@@ -368,8 +368,14 @@
     `.zip` はアプリの配布物があるので**対象外**）
   - `honey.log`（`/var/log/nginx/honey.log`）に記録。**時刻・UA・クライアント IP 入り**
     （メインの `access.log` には時刻も UA も無い＝取证できない）
+  - **取得（200）だけでなく偵察（404）も honey.log に残す**。
+    vhost レベルの `error_page 404 /404.html` だと 404 が内部リダイレクトで
+    honey.log の外（access.log）へ逃げるため、ハニー location 内だけで
+    `error_page 404 = @honey_not_found;` を使って named location へ逃がす
   - nginx は正規表現 `location` を**出現順**に評価するため、
     挿入位置は **vhost 内の最初の `location` の直前**（`location ~ \.php$` より前）である必要がある
+  - 適用スクリプトは**冪等**（同じ入力なら差分ゼロ）。適用済みなら
+    ハニー location グループ（honey / named / canary / deny）を**まとめて差し替える**
 - **監視**: `scripts/security/honeypot-watch.js`（5 分ごとの cron）
   - `stolen`（偽物が 200 で取得された）/ `canary_used`（canary アクセス）= 重大で個別通知
   - `probe`（404 の偵察）= 情報を 1 通に集約
