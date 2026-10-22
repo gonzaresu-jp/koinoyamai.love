@@ -90,6 +90,9 @@ function buildEventNotificationPayload(event, phase) {
   const mm = String(startDate.getMinutes()).padStart(2, "0");
   const isPre = phase.startsWith("event_pre");
   const offsetMin = isPre ? Math.round(parseInt(phase.split("_")[2], 10) / 60000) : 0;
+  // 開始の通知（event_start）のみアラーム用チャネルで配信する。
+  // 事前告知の通知（event_pre_*）は情報通知のままにする。
+  const isStart = phase === "event_start";
   return {
     type: "event", settingKey: "schedule",
     data: {
@@ -99,6 +102,7 @@ function buildEventNotificationPayload(event, phase) {
       image: toHttpsThumb(event.thumbnail_url),
       // 配信開始時刻（ISO）。Android アプリが端末内アラームを予約する時に使う。
       start_time: event.start_time || null,
+      ...(isStart ? { channel: "mai_stream_alarm" } : {}),
     },
   };
 }

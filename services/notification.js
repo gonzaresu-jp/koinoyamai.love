@@ -111,6 +111,9 @@ function buildFcmData(payload, type, settingKey) {
   // 配信の開始時刻（ISO）。Android アプリが端末内アラームを予約하기に使う。
   // 値が無い通知（通常の新着通知など）には付けない。
   put("start_time", data.start_time);
+  // Android の通知チャネル指定（任意）。「配信開始」通知をアラーム用チャネルで
+  // 配信するために使う。指定が無ければ既定チャネル（mai_default）になる。
+  put("channel", data.channel);
   if (type) put("type", type);
   if (settingKey) put("settingKey", settingKey);
   return out;
@@ -143,7 +146,10 @@ async function sendFcmNotification(messaging, token, payload, type, settingKey, 
           title: payload.title || "新着通知",
           body: payload.body || "",
           image: absoluteImageUrl || undefined,
-          click_action: "OPEN_ACTIVITY_1"
+          click_action: "OPEN_ACTIVITY_1",
+          // 配信開始通知をアラーム用チャネルで配信する（突然の開始でも起きれるように）。
+          // チャネル指定が無い環境では FCM SDK が既定チャネルへフォールバックする。
+          ...(data.channel ? { channel_id: data.channel } : {})
         }
       },
       webpush: {

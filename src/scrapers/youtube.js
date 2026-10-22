@@ -1016,7 +1016,12 @@ async function notifyLiveFromRss(item, title) {
             url,
             icon: ICON_URL,
             image: thumbnail,
-            published: null
+            published: null,
+            // ★ 配信開始の通知は「アラーム用チャネル」で配信する。
+            //   事前告知が無い突然の開始でも、端末の中でアラームと同じ音で起きれるようにする
+            //   （通常の mai_default チャネルでは「音は鳴るが画面は起こらない」）。
+            //   チャネルが無い環境（未設定・古い APK）は FCM SDK が既定チャネルへフォールバックする。
+            channel: 'mai_stream_alarm'
         }
     };
     const ok = await sendNotifyApi(payload);
