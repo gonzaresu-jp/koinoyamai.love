@@ -563,3 +563,66 @@ bash scripts/php/verify-php-hardening.sh            # 実測検証（root 不要
 - **復旧**: `sudo bash scripts/php/patch-and-resume.sh`（パッチ適用 → パッチ状態のみ検証 →
   メンテナンス解除 → pm2 再開 → 最終確認）。検証の途中でサイトの応答を期待しないこと
   （メンテナンス中は 503 が正しい。`verify-php-security-patch.sh --patch-only` を使う）。
+
+## Discord 専用メディア（`/dmedia/`）— 2026-10-22 実測
+
+### 経路の整理（実測結論）
+
+`discord.honna-yuzuki.com` の公開経路は **cloudflared tunnel 経由**である。
+
+| 段 | 実体 | 確認方法 |
+|---|---|---|
+| DNS | CNAME → `9bc43a98-….cfargotunnel.com`（`mai` トンネル）/ proxied=true | Cloudflare API（`~/.cloudflared/cert.pem` のトークン）で `GET /zones/<id>/dns_records` |
+| tunnel の ingress | `discord.honna-yuzuki.com → http://localhost:80` | `GET /accounts/<id>/cfd_tunnel/<tunnel-id>/configurations` |
+| origin | nginx `0.0.0.0:80` の `discord.conf`（`/dmedia/` のみ proxy to `127.0.0.1:3100`） | `/etc/nginx/discord.conf` |
+| 外部からの直接到達 | **不可** | `/var/log/nginx/access.log` の全 rotation（約30万行）で peer は `127.0.0.1` / LAN / Tailscale のみ |
+
+⚠️ **`/etc/cloudflared/config.yml`（ローカル ingress）は使われていない。**
+tunnel に API 上のリモート設定があるとそちらが優先される
+（cloudflared のログ `ingressRule=4` は「リモート設定の 4 番目 = `koinoyamai.love`」を指す。
+ローカル設定の 4 番目は catch-all で `http_status:404`）。
+→ 路由の変更は API 経由で行う（`cert.pem` のトークンで `cfd_tunnel/.../configurations`）。
+
+### 残っていた穴（UA 判定は防御にならない）
+
+`/etc/nginx/discord.conf` の UA 判定は
+
+```nginx
+if ($http_user_agent !~* "Discordbot") { return 403; }
+```
+
+だが、**User-Agent はクライアントが自由に設定できる**ため
+`curl -A "Discordbot/2.0"` で実ファイルを取得できてしまう（実測: HTTP 200 / 943,346 bytes）。
+UA 判定は「公式のクローラしか来ない」程度の補助にすぎず、保護としては機能しない。
+
+### 対策（4 層）
+
+1. **到達は tunnel のみ**（上記。DNS 側は元から tunnel を指していた）
+2. **nginx でも tunnel のみに限定** — `location ^~ /dmedia/` に
+   `allow 127.0.0.1; allow ::1; deny all;` を追加する
+   （cloudflared は 127.0.0.1 から接続するため経路は確保される。
+   `allow/deny` は access フェーズ、UA 判定の `if` は rewrite フェーズなので
+   UA 判定が先に 403 を返す）。
+   適用: `sudo bash scripts/nginx/apply-dmedia-tunnel-only.sh --apply`
+   （dry-run → --apply。冪等・fail-closed・バックアップ・`nginx -t` 検証つき）
+3. **URL 自体を推測不能にする（capability URL）** — アップロードサービスの
+   `?scope=discord` だけ ID を 128bit（`crypto.randomBytes(16)`）にする。
+   通常の `media` scope は 32bit のまま（公開メディアなので無意味）。
+   → UA を偽装しても **URL が分からない限り取得できない**。
+4. **upload サービスでも Host を照合する** — nginx の LAN/Tailnet 用 vhost
+   （`location ^~ /upload/` → `proxy_pass http://127.0.0.1:3100/`）はパス置換で
+   `/upload/dmedia/xxx` を `/dmedia/xxx` に変換してしまうため、
+   そのままでは **LAN から Discord 専用メディアを読めてしまう**（独立レビューで発覚）。
+   `/dmedia` の Handler で Host を照合し、`DISCORD_PUBLIC_BASE_URL` の host
+   以外を 403 にする（discord vhost は `proxy_set_header Host $host` で
+   `discord.honna-yuzuki.com` を渡す）。
+   実測: `https://discord.honna-yuzuki.com/dmedia/<file>` + Discordbot UA → 200 /
+   LAN IP 経由 `/upload/dmedia/<file>` → 403。
+
+### 教訓
+
+- 「tunnel 経由」はルーティング設定だけでは保証にならない。
+  origin の listen を `127.0.0.1` 限定にするか、nginx 側に許可リストを入れる。
+- UA / Referer などのクライアント制御ヘッダを「認可」の根拠にしない
+  （ defense in depth の最下層にしかならない）。
+- 推測されにくい URL（＝capability URL）を持つことが、実保護の要。
