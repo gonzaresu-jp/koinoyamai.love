@@ -27,10 +27,12 @@
  *   - **検知経路は状態を報告する**（AGENTS.md §11）。
  *     監視が静かに死んでも察觉できるよう `/api/internal/scraper-status` へ報告する。
  *   - **自機からのリクエストは通知しない**（ノイズ防止）。
- *     `ip=127.0.0.1` かつ `cf=-` かつ `xff=-` ＝ **Cloudflare を通っていない自機/LAN 直叩き**
- *     （= 運用者の確認・テスト）。インターネット経由は必ず `cf=` に入るので、
- *     公開トラフィックは絶対に落とさない。
- *     通知ingale('--include-local') で含めることは可能。
+ *     `ip=127.0.0.1` かつ `cf=-` かつ `xff=-` ＝ **Cloudflare を通っていない自機からの
+ *     確認・テスト**（= 運用者本人のテスト）。
+ *     インターネット経由は必ず `cf=` に入るので、**公開トラフィックは絶対に落とさない**。
+ *     **LAN 直叩き（192.168.1.x 等）は自機扱いせず通知する**
+ *     （LAN 内の端末が侵害されている可能性があるため）。
+ *     `--include-local` を付けると自機イベントも通知する。
  *
  * 通知: Discord（security/notify.js の sendDiscord を再利用。Bot API）
  * ログ : logs/honeypot.log（イベント記録）/ cron の stdout は logs/honeypot-cron.log
@@ -110,9 +112,10 @@ function parseLine(line) {
   out.cf = (cf && cf[1]) ? cf[1] : "-";
   out.xff = (xff && xff[1]) ? xff[1] : "-";
   out.remote = ip ? ip[1] : "?";
-  out.ip = (cf && cf[1] && cf[1] !== "-") ? cf[1]
-    : (xff && xff[1] && xff[1] !== "-") ? xff[1].split(",")[0].trim()
-    : (ip ? ip[1] : "?");
+  // 表示用の IP: Cloudflare 経由なら cf=（実クライアント）。
+  // 直接アクセス（LAN / origin 直叩き）なら **実 peer**（$remote_addr）を使う。
+  // ※ xff は攻撃者が任意に set できるので、表示には使わない（誤誘導を避ける）。
+  out.ip = (cf && cf[1] && cf[1] !== "-") ? cf[1] : (ip ? ip[1] : "?");
   out.ua = ua ? ua[1] : "?";
   out.status = st ? Number(st[1]) : 0;
   out.uri = uri ? uri[1] : "";
@@ -138,7 +141,8 @@ function isLocalSelfTest(ev) {
   if (ev.cf && ev.cf !== "-") return false;
   if (ev.xff && ev.xff !== "-") return false;
   const remote = ev.remote || ev.ip || "";
-  return remote === "127.0.0.1" || remote === "::1" || remote === "localhost";
+  return remote === "127.0.0.1" || remote === "::1" || remote === "localhost"
+    || remote === "::ffff:127.0.0.1" || remote.startsWith("127.");
 }
 
 /** 機密ファイル名っぽいパスか */
@@ -334,6 +338,23 @@ async function main() {
   }
   if (localEvents.length) {
     log(`${localEvents.length} 件のイベントは自機からのリクエストのため通知しません（--include-local で含められます）`);
+    if (localEvents.length > 50) {
+      // 短時間に大量の「自機扱い」= Cloudflare の CF-Connecting-IP が
+      // 付かなくなった（設定退行）疑いがある。1 通だけ警告する。
+      log("[WARN] 自機扱いのイベントが異常に多い。Cloudflare のヘッダが抜けていないか確認してください");
+      if (!DRY_RUN) {
+        await notify.sendDiscord(
+          { token: process.env.DISCORD_BOT_TOKEN, channelId: process.env.DISCORD_CHANNEL_ID },
+          {
+            title: "警告: ハニーポット監視で自機扱いのイベントが大量発生",
+            description: `${localEvents.length} 件が「自機（Cloudflare 経由ではない）」として抑制されました。\n` +
+              `インターネットからのトラフィックが全部 suppress されている可能性があります。\n` +
+              `cloudflared / nginx のヘッダ設定を確認してください。`,
+            color: notify.SEVERITY_COLOR.warning,
+          }
+        );
+      }
+    }
     for (const e of localEvents) {
       log(`[${e.kind}] ${e.time} ip=${e.ip} status=${e.status} path=${e.path} ua=${e.ua}`);
     }
@@ -428,7 +449,8 @@ async function main() {
   // --- 状態報告（AGENTS.md §11）---
   const summary = state.pending.length
     ? `未通知 ${state.pending.length} 件（通知に失敗しています）`
-    : `最新イベント: ${fresh.length} 件`;
+    : `最新イベント: ${fresh.length} 件` +
+      (localEvents.length ? `（自機 ${localEvents.length} 件は通知対象外）` : "");
   const reportOk = await reportStatus(notifiedAll ? "success" : "degraded", `${summary}（監視実行: ${new Date().toISOString()}）`);
   if (!notifiedAll) {
     log("通知に失敗したため degraded として報告しました（fail-closed）");
