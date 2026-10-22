@@ -861,20 +861,23 @@ async function main() {
     ok("apply-dmedia-tunnel-only.js: アンカーが 0 件/複数件なら fail-closed（出力を作らない）", dmFailClosed);
     try { fs.rmSync(dmTmp, { recursive: true, force: true }); } catch (e) { /* best-effort */ }
     // upload サービス側: /dmedia の Host 照合（LAN vhost のパス置換による迂回防止）
+    // ※ upload サービスは **リポジトリ外**（/var/www/html/upload）のため
+    //   GitHub Actions ランナーには存在しない。存在しない環境ではスキップする
+    //   （CI で「不在 = 失敗」になると，皆読で回らない）。
     const uploadServer = "/var/www/html/upload/server.js";
-    let uploadHostCheck = false;
-    try {
-      const us = fs.readFileSync(uploadServer, "utf8");
-      uploadHostCheck = /app\.use\("\/dmedia",[\s\S]{0,400}?req\.headers\.host/.test(us);
-    } catch (e) { uploadHostCheck = false; }
-    ok("upload サービス: /dmedia で Host を照合する（LAN 経由の迂回防止）", uploadHostCheck);
-    // 128bit の ID（scope=discord のみ）
-    let uploadIdBits = false;
-    try {
-      const us = fs.readFileSync(uploadServer, "utf8");
-      uploadIdBits = /req\.query\.scope\s*===\s*"discord"\s*\?\s*16\s*:\s*4/.test(us);
-    } catch (e) { uploadIdBits = false; }
-    ok("upload サービス: scope=discord の ID が 128bit（16 バイト）", uploadIdBits);
+    let uploadSrc = null;
+    try { uploadSrc = fs.readFileSync(uploadServer, "utf8"); } catch (e) { uploadSrc = null; }
+    if (uploadSrc === null) {
+      ok("upload サービス: /dmedia で Host を照合する（LAN 経由の迂回防止）※CI では対象不在のためスキップ", true,
+        `not found: ${uploadServer}`);
+      ok("upload サービス: scope=discord の ID が 128bit（16 バイト）※CI では対象不在のためスキップ", true,
+        `not found: ${uploadServer}`);
+    } else {
+      ok("upload サービス: /dmedia で Host を照合する（LAN 経由の迂回防止）",
+        /app\.use\("\/dmedia",[\s\S]{0,400}?req\.headers\.host/.test(uploadSrc));
+      ok("upload サービス: scope=discord の ID が 128bit（16 バイト）",
+        /req\.query\.scope\s*===\s*"discord"\s*\?\s*16\s*:\s*4/.test(uploadSrc));
+    }
 
     console.log(`\n結果: ${passed} passed, ${failed} failed`);
   } catch (e) {
