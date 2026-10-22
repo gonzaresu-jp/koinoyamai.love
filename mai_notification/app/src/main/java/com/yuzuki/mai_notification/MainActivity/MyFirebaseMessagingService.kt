@@ -69,7 +69,27 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             }
         }
 
-        sendNotification(title, body, url, iconUrl, imageUrl)
+        // 通知チャンネルID。サーバー側で `channel`（例: 配信開始の "mai_stream_alarm"）を
+        // 付けている場合はそれを尊重する（付け無ければ既定の mai_default）。
+        // ※ バックグラウンド時は FCM SDK 自身が `channel_id` で描画するため、
+        //   ここではフォアグラウンド受信時（および data のみの通知）の描画だけを担う。
+        val channelId = remoteMessage.data["channel"]?.takeIf { it.isNotBlank() } ?: "mai_default"
+
+        // ★ 配信開始のときはアラーム音を**ループ再生**する（ユーザーが止めるまで鳴らす）。
+        //   サーバーの scheduler.js / youtube.js が `channel: "mai_stream_alarm"` を付けるので、
+        //   それを「配信開始」の判定に使う（事前告知 event_pre_* は情報通知のまま）。
+        if (channelId == com.yuzuki.mai_notification.AlarmScheduler.CHANNEL_ID) {
+            // アラーム用チャネルが無い端末でも確実に鳴るように作成しておく
+            try {
+                com.yuzuki.mai_notification.AlarmScheduler.ensureChannel(applicationContext)
+            } catch (e: Exception) {
+                Log.w("FCM", "アラームチャネルの作成に失敗: ${e.message}")
+            }
+            val loopStarted = com.yuzuki.mai_notification.AlarmSoundService.start(applicationContext, title, url)
+            Log.i("FCM", "配信開始: ループアラームを${if (loopStarted) "開始" else "開始できず（通知にフォールバック）"}")
+        }
+
+        sendNotification(title, body, url, iconUrl, imageUrl, channelId)
         Log.d("FCM", "=== onMessageReceived END ===")
     }
 
@@ -178,7 +198,14 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
     }
 
     // 実際にスマホの画面上に通知を表示する処理
-    private fun sendNotification(title: String, messageBody: String, url: String?, iconUrl: String?, imageUrl: String?) {
+    private fun sendNotification(
+        title: String,
+        messageBody: String,
+        url: String?,
+        iconUrl: String?,
+        imageUrl: String?,
+        channelId: String = "mai_default"
+    ) {
         Log.d("FCM", "sendNotification called: title=$title")
         // 自サイトならアプリ内ブラウザ、外部URLならブラウザ／専用アプリで開く（MainActivity側で判定）
         val finalUrl = normalizeUrl(url)
@@ -194,8 +221,6 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
             this, 0, intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_ONE_SHOT
         )
-
-        val channelId = "mai_default" // 通知チャンネルID
 
         val notificationBuilder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_notification)
@@ -251,8 +276,12 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        // Android 8.0以降は通知チャンネルの作成が必須
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        // Android 8.0以降は通知チャンネルの作成が必須。
+        // アラーム用チャネル（mai_stream_alarm）は AlarmScheduler.ensureChannel が
+        // アラーム音つきで作るため、こちらは**既に存在すれば触らない**
+        // （チャネルの音・バイブはインストール後ユーザーが変えられないので、
+        //   作り直すと設定がリセットされる）。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && channelId == "mai_default") {
             val channel = NotificationChannel(
                 channelId,
                 "一般通知",

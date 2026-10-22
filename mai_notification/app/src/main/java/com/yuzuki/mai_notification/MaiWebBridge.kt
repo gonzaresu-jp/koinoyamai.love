@@ -85,7 +85,7 @@ class MaiWebBridge(
         FcmRegistrar.sendTest(context)
     }
 
-    // ===== 配信開始アラーム（v1.7.3 で追加）=====
+    // ===== 配信開始アラーム（v1.7.3 で追加 / v1.7.4 でループ再生に強化）=====
 
     /**
      * アラームの状態を JSON で返す。
@@ -113,6 +113,20 @@ class MaiWebBridge(
     fun setStreamAlarmOffsetMin(minutes: Int) {
         Log.d("MaiWebBridge", "setStreamAlarmOffsetMin: $minutes")
         AlarmScheduler.setOffsetMin(context, minutes)
+    }
+
+    /**
+     * 鳴っているアラームを止める（アプリ内から）。
+     * 通知の「停止」ボタンやアプリを開く操作と同じ効果。
+     */
+    @JavascriptInterface
+    fun stopStreamAlarm() {
+        Log.d("MaiWebBridge", "stopStreamAlarm")
+        try {
+            AlarmSoundService.stop(context)
+        } catch (e: Exception) {
+            Log.w("MaiWebBridge", "アラームの停止に失敗: ${e.message}")
+        }
     }
 
     /** 正確なアラームの権限画面を開く（権限が無いときの導線） */

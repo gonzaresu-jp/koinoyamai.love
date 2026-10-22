@@ -17,6 +17,12 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 画面が消えていてもアラームを全画面表示する（Android 10+） -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- アラーム音をループ再生するフォアグラウンドサービス用（Android 9+） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Android 14+ の FGS タイプ別権限（mediaPlayback = 音源の再生） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- アラームのバイブ -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:allowBackup="true"
@@ -86,6 +92,15 @@
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
             </intent-filter>
         </service>
+
+        <!-- 配信アラームの音をループ再生するフォアグラウンドサービス。
+             通知チャネル音は 1 回鳴るだけなので、アラームとして起きれるように
+             ユーザーが止めるまで鳴らす（2026-10-22 ユーザー報告）。
+             exact alarm からの起動はバックグラウンド起動制限の免除対象。 -->
+        <service
+            android:name=".AlarmSoundService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <!-- 配信開始アラームの発火 -->
         <receiver

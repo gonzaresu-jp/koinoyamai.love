@@ -837,7 +837,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     JST 変換で 9 時間ずれるので使わない）。
   検証は `bash scripts/deploy/verify-deploy.sh webui/dl/desktop.json` 相当（配信バイト数 == ディスクのバイト数）。
 
-### 10.2 配信開始アラーム（Android v1.7.3 で追加）
+### 10.2 配信開始アラーム（Android v1.7.3 で追加 / v1.7.4 で「止まるまで鳴らす」に強化）
 - **目的**: 配信の 15 分前（など）に**端末内アラーム**を鳴らして、寝ていても起きて配信を見られるようにする。
   通知（FCM push）に頼らないので、push が届かない・遅延する環境でも鳴る。
 - **方式は `AlarmManager.setAlarmClock()`**（`mai_notification/.../AlarmScheduler.kt`）:
@@ -871,6 +871,31 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     （通知が drop されることはない）→ v1.7.2 のままの端末にも通知は届く。
   - 対象は **配信開始だけ**（`【ライブ】` と スケジュールの開始通知 `event_start`）。
     事前告知（`event_pre_*`＝30分前/3分前）は情報通知のまま。
+  - サーバー側は `services/scheduler.js`（`isStart`）と `src/scrapers/youtube.js` が
+    `channel: "mai_stream_alarm"` を付ける。アプリ側は FCM の `data.channel` を読む
+    （フォアグラウンド時は自前の通知を描くため、ここで respect する）。
+- **アラーム音は「ユーザーが止めるまで鳴らす」**（v1.7.4・2026-10-22 ユーザー報告で追加）:
+  - 症状: 通知チャネルの音は**1 回鳴るだけ**で止まる →
+    「アラームが鳴ったけど短い」「これじゃ起きれない」。
+    チャネル音はループ再生できないため、**自前の再生**が必要。
+  - 方式: `AlarmSoundService`（**フォアグラウンドサービス**）が
+    MediaPlayer で端末のアラーム音（`RingtoneManager.TYPE_ALARM`）を `isLooping = true` で
+    **ループ再生**し、バイブも繰り返す。`USAGE_ALARM` なのでマナーモード/消音でも鳴る。
+  - 通知は **ongoing**（スワイプで消せない）＋ **「停止」アクション**（`AlarmReceiver` の
+    `ACTION_STOP_ALARM` broadcast → `AlarmSoundService.stop()`）。
+    アプリを開いたとき（`MainActivity.onResume`）も自動で止まる（「起きた＝止める」）。
+  - **最大 10 分で自動停止**（放置で鳴りっぱなしにならない安全弁）。
+  - 発火経路は 2 つ: ① `AlarmManager.setAlarmClock()` の exact alarm
+    （バックグラウンド FGS 起動制限の**免除対象**なので確実）
+    ② FCM の配信開始通知（`channel == "mai_stream_alarm"`）。
+    ② で FGS 起動が拒否された場合は**通常の通知（1 回鳴る）にフォールバック**する
+    （黙って無音にしない）。
+  - サービスの通知は**無音チャネル**（`mai_stream_alarm_loop`）を使う。
+    音はサービスが鳴らすので、チャネル音と二重に鳴らさない。
+    ※ 既存の `mai_stream_alarm`（アラーム音つき）は事前通知用に残す。
+  - 権限: `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_MEDIA_PLAYBACK`（Android 14+ の
+    タイプ別権限）/ `VIBRATE`。FGS のタイプは `mediaPlayback`。
+  - アプリ内から止めるなら `MaiWebBridge.stopStreamAlarm()`。
 - **「標準のアラーム時計に設定」は補助手段**（`ACTION_SET_ALARM`）:
   ⚠️ 公式ドキュメント: `EXTRA_SKIP_UI` は **API 19 以降無視され、アラームアプリが必ず
   確認 UI を出す**（＝ユーザーの 1 タップが必須）。確認画面を開くだけなので、

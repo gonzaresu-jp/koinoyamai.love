@@ -53,6 +53,12 @@ class MainActivity : AppCompatActivity() {
     @Volatile
     private var menuOpen: Boolean = false
 
+    /**
+     * アラームの full-screen intent で起動したか。
+     * true の間は onResume でアラームを止めない（止めると数秒で鳴り終わってしまう）。
+     */
+    private var launchedFromAlarm: Boolean = false
+
     // 別ウィンドウ要求（target="_blank" / window.open）の受け皿となる一時WebView
     private var windowHolder: WebView? = null
 
@@ -127,6 +133,20 @@ class MainActivity : AppCompatActivity() {
         // JS/CSS は ?v=更新日時 付きで配信され、HTML はサーバーが no-store を返すので、キャッシュを使っても古くならない。
         // v1.6: 通知タップ等で targetUrl 指定がない場合は前回のページを restoreState で即復元（2回目以降の起動を高速化）。
         // targetUrl 指定時・初回起動時は clearHistory してから読み込む。
+        // アラーム用通知チャネルを先に作っておく。
+        // 未作成のチャネルに配信すると**通知が破棄される**ため
+        // （バックグラウンドの FCM でアラーム開始が来た場合に破棄される）。
+        try {
+            com.yuzuki.mai_notification.AlarmScheduler.ensureChannel(this)
+        } catch (e: Exception) {
+            Log.w("MainActivity", "アラームチャネルの作成に失敗: ${e.message}")
+        }
+
+        // アラームの full-screen intent で起動したか（その場合はアラームを止めない）
+        launchedFromAlarm = intent?.getBooleanExtra(
+            com.yuzuki.mai_notification.AlarmSoundService.EXTRA_FROM_ALARM, false
+        ) ?: false
+
         val targetUrlIntent = intent?.getStringExtra("targetUrl")
         val canRestore = savedInstanceState != null && targetUrlIntent == null
         if (!canRestore) {
@@ -359,6 +379,17 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         web.onResume()
+        // 通常の起動（アイコンタップ等）ならアラームを止める（起きた＝止める）。
+        // ★ ただし **アラームの full-screen intent で起動したときは止めない**。
+        //   止めると、アラームが鳴って数秒後に自分で止まってしまう（起きれない）。
+        //   その場合は通知の「停止」ボタンか、アプリ内の停止ボタンで止める。
+        if (!launchedFromAlarm) {
+            try {
+                com.yuzuki.mai_notification.AlarmSoundService.stop(this)
+            } catch (e: Exception) {
+                Log.w("MainActivity", "アラームの停止に失敗: ${e.message}")
+            }
+        }
         // インストール許可の設定画面から戻った時にアップデート案内を再表示する。
         // 通常時は6時間クールダウンで弾かれるため、起動直後の二重表示にはならない
         web.postDelayed({ com.yuzuki.mai_notification.UpdateChecker.checkOnLaunch(this) }, 1500)
@@ -522,6 +553,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
+        // 同上（アラームの full-screen intent 経由の起動かを更新する）
+        launchedFromAlarm = intent?.getBooleanExtra(
+            com.yuzuki.mai_notification.AlarmSoundService.EXTRA_FROM_ALARM, false
+        ) ?: false
         setIntent(intent)
         // 通知・ウィジェットから URL 指定で開かれた時だけ読み込む。
         // ランチャーから再表示しただけの時は、今のページをそのまま見せる（再読み込みしない）
