@@ -51,7 +51,7 @@
          スクリプト
          ===================================================== -->
     <!-- iOS Helper を main.js より先に読み込む -->
-    <script src="/ios-helper.js" defer></script>
+    <script src="/ios-helper.js?v=<?= @filemtime(__DIR__ . '/ios-helper.js') ?: time(); ?>" defer></script>
 
     <!-- Fonts: 週間メッセージ/ボイス吹き出し専用の装飾フォント。
          <link> を直書きすると Cloudflare Fonts が約28KBの @font-face を HTML に展開するため、

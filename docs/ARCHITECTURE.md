@@ -221,6 +221,7 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 | `twitter-media.php` | Twitter メディア |
 | `_domain.php` | ドメインの単一ソース（`Host` / `X-Forwarded-Proto` から導出する `$domain`） |
 | `_mb.php` | mbstring 非依存の UTF-8 補助関数（`mai_utf8_len` / `mai_utf8_strpos`）。mbstring は未導入（`AGENTS.md §5.1`） |
+| `ios-helper.js` | iOS の PWA 判定と「ホーム画面に追加」案内。**`window.iosHelper` として公開**し、`js/main.js` が通知トグル時に参照（未参照だと iPhone で登録が無言失敗する） |
 | `admin.html` / `chat.html` / `compare.html` | 管理/チャット/比較の各画面 |
 | `js/` | 画面別 JS。`index-*`, `admin-*`, `wave-*`, `header-auth.js`, `header-jst.js`, `pushService.js`, `palette.js` 等 |
 | `css/`, `style.css`, `sp.css` | スタイル。`css/header.css` は非 minify で `?v=filemtime` 読込 |

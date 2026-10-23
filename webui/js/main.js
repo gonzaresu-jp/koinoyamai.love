@@ -281,7 +281,8 @@ document.addEventListener('DOMContentLoaded', async () => {
               }
             }
             await initPush();
-            if (!(await savePlatformSettings())) throw new Error();
+            // message を空にすると alert が「理由が不明です」になる（サーバ保存失敗は最有力の失敗経路）
+            if (!(await savePlatformSettings())) throw new Error("通知設定の保存に失敗しました");
 
             const input = document.getElementById('subscriber-name-input');
             const name = input?.value?.trim();
@@ -303,7 +304,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           // 失敗を無言にすると「押したのに何も起きない」になる（iPhone で実際に報告された挙動）
           console.error("[push] 通知登録に失敗:", e);
           alert("通知を登録できませんでした。\n" + (reason || "理由が不明です") +
-            "\n\nブラウザの通知許可設定を確認して、もう一度お試しください。");
+            "\n\nもう一度お試しいただくか、ブラウザの通知許可設定を確認してください。");
         }
       } finally {
         updatePlatformSettingsVisibility($toggleNotify.checked);

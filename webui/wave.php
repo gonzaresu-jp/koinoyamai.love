@@ -15,7 +15,7 @@
 
 
 <!-- iOS Helper を main.js より先に読み込む -->
-    <script src="/ios-helper.js" defer></script>
+    <script src="/ios-helper.js?v=<?= @filemtime(__DIR__ . '/ios-helper.js') ?: time(); ?>" defer></script>
     <script type="module" src="/js/main.js" defer></script>
     <!-- wave-log-settings.js は index.php のログ設定ボタン用のため本頁では読み込まない -->
     <script src="/js/wave-oshidays.js?v=20260926"></script>
