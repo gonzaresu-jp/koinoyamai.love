@@ -3,6 +3,7 @@
 
 const sqlite3 = require('sqlite3').verbose();
 const webpush = require('web-push');
+const { publicHttpUrl } = require('../../lib/validate');
 const path = require('path');
 
 class MilestoneScheduler {
@@ -184,6 +185,15 @@ class MilestoneScheduler {
 
   // Push通知を送信
   async sendPushNotification(subscription, payload) {
+    // 🔒 services/notification.js と同じ SSRF ガード（2026-10-23）。
+    //  このクラスは webpush を直接呼ぶため、二段検証を通らない実装のままだと
+    //  登録済みの危険な endpoint に届く経路が残る。内部宛に見える送信はしない。
+    try {
+      publicHttpUrl(subscription && subscription.endpoint, { field: 'endpoint' });
+    } catch (e) {
+      console.log('[milestone] Skip non-public endpoint (SSRF guard)');
+      return false;
+    }
     try {
       await webpush.sendNotification(subscription, JSON.stringify(payload));
       return true;

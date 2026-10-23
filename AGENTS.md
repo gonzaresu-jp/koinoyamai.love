@@ -544,7 +544,7 @@
   `lib/` に移動（nginx の alias も同dir直配信のため、移動が必須）。
 - `/api/system-info` は公開（CPU%・メモリ%・loadavg・稼働時間・RSSのみ。**ホスト名/ディスク/OS詳細は返さない**）。status ページのリソース欄は誰でも閲覧可能。
 - `/api/ask`（公開）は 5回/分＋質問500文字上限。管理者用 `/api/admin/ask` は対象外。
-- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 186 項目・2026-10-23 時点）に接続済み。
+- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 229 項目・2026-10-23 時点）に接続済み。
 - pm2-logrotate 導入済み（20M・10世代・圧縮）。
 
 ## 6.7 admin は Tailnet 専用（2026-10-10 追加）
@@ -716,7 +716,7 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 - ステージ・コミット対象の `.js` に対し `node --check`
 - `.php` に対し `php -l`
 - アプリバージョンの3箇所整合（`scripts/ops/check-app-version.sh`・`SKIP_PREPUSH_VERSION=1` でスキップ可）
-- 回帰テスト `npm test`（186項目・2026-10-23 時点、約6秒）
+- 回帰テスト `npm test`（229項目・2026-10-23 時点、約6秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
 ### 7.4 staging/本番のドリフト検出
@@ -1054,6 +1054,43 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - **通知送信は `src/core/notify-sign.js` 経由**: `signNotifyPayload(secret, bodyString)` で**送信する生 JSON 文字列**に署名し
   `x-notify-hmac` + `x-notify-timestamp` を付与（`§3`, `§6.5`）。API 側は生ボディで検証・`timingSafeEqual`。`==` 比較に戻すな。
 - **fail-closed**: トークン/秘密が未設定なら認証系は 503/401 で閉じる（通すな）。
+- **外部入力は型と上限を検証してから使う（2026-10-23 追加）**: 共通ヘルパは **`lib/validate.js`**
+  （`str` / `num` / `bool` / `enumOf` / `arr` / `objKeys` / `httpUrl` / `publicHttpUrl`・依存ゼロ・`ValidationError` を投げる）。
+  - 検証は **認証・HMAC 検証の後**に置くこと（前に置くと認証バイパスになる）。
+  - 実害の中心は「例外が出る」ことではなく **静かな失敗**。例: `/api/notify` の `data.title` が
+    数値だと sqlite3 のバインドがエラーになり、**記録も送信もされないまま `success` を返す**。
+    そこで違反は **400 で原因を返す**（`§5.2` の「壊れても気づけるように」と同じ考え方）。
+  - **未知キーは弾かない**（新フィールドを足すだけで既存経路を壊さないため）。既知フィールドの
+    **型と上限だけ**を検証する。上限は既存クライアントを妨げない値にする
+    （現行: `data.title` 500 / `data.body` 4000 / URL 系 2048 / `type`・`settingKey` 50）。
+  - 適用済み: `routes/notify.js`（`/api/notify` の `data`・`/api/internal/twitter/analysis` の長さ）、
+    `lib/admin.js`（ログイン入力・同名ヘッダが**配列**で来た場合）。
+  - **SSRF 対策（push エンドポイント）**: web push は**クライアントが指定した URL へサーバーが POST する**。
+    `routes/subscriptions.js` の登録時と `services/notification.js` および `src/core/milestone.js` の
+    **送信直前**の 3 箇所で `publicHttpUrl()`（http/https かつ**公開ホスト**）を検証する。
+    拒否: loopback / private / link-local（`169.254.169.254` 含む）/ multicast / broadcast /
+    Tailscale（100.64/10）/ `localhost`・単一ラベル・`.local` 等。IPv6 は `URL.hostname` が
+    **角括弧付き**で返すので括弧を外し、**nibble 列**で判定する（`geoip.isPrivateIp` は圧縮表記しか見ない）。
+    **IPv4-mapped の 16 進表記（`[::ffff:a9fe:a9fe]`）は IPv4 として判定する**（数え違えるとメタデータが素通り）。
+    ⚠️ **非 http（デスクトップアプリの `webview2://` 等）は従来どおり受理する**
+    （送信時にスキップされ HTTP は一切飛ばない。400 にすると WinUI 版が壊れる）。
+    ⚠️ 残る限界: ホスト名が公開 IP に**解決されるか**までは見ない（DNS rebinding）。
+    本番の登録 6 件は影響 0 件（http 4 件は公開 push サービス / 残り 2 件は `webview2://` の偽）。
+  - 併せて実施: `/api/android/send-test` に 5 回/分のレート制限（**無認証の FCM リレー化**を防ぐ）と
+    `deviceName` の型・上限検証 / OAuth エラー応答を `text/plain`（クエリを HTML にしない）/
+    YouTube webhook の不正 `published`（`new Date` は Invalid Date でも truthy → 24 時間フィルタを素通り）/
+    `routes/rag.js` の transcript 取得 `video_id` を書式検証 + `encodeURIComponent`。
+  - 追加するときは `npm test` の `[14]` に「違反 → 400」「未知キーは通す」「内部宛は拒否」の両方を固定すること。
+- **型は TypeScript を入れずに `// @ts-check` + JSDoc で持つ（2026-10-23 判断）**:
+  - **全面移行しない**。`webui/js`（13k 行）はバンドラー無しの直配信（CSP `script-src 'self'` +
+    `?v=filemtime`）、`scripts/`（6.5k 行）は cron が `NODE_BIN` で `node` 直実行、
+    `pi-vector-service` は 32bit Pi 向け依存ゼロ実装。ビルドステップを増やすと
+    「配信バイト == ディスクのバイト」（`§7.1`）と `check-drift` の前提が崩れる。
+  - 導入済み: `src/core/notify-sign.js` / `lib/admin.js` / `lib/validate.js` / `services/geoip.js`。
+    **回帰テストが `@ts-check` の存在と「TypeScript を依存に入れていない」を固定している**。
+  - 検証は開発時のみ `npx -p typescript tsc --noEmit --allowJs --checkJs --skipLibCheck`（依存は追加しない）。
+    `@types` を入れていないのでモジュール解決エラー（`TS2307`）は出るが、それ以外は実エラー。
+    引数の型違いは実際に検出される（2026-10-23 実測 3 件）。
 - **PHP は「読まない・実行しない」を原則にする（2026-10-21 追加・`§5.1`）**:
   - **`$_POST` / `$_FILES` / `$_REQUEST` を読む PHP を書かない**。
     php-fpm は `enable_post_data_reading=Off`（pool の `php_admin_value`）で
@@ -1181,6 +1218,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 | デプロイ/検証の作法 | `AGENTS.md §7` / `docs/DEVELOPMENT-WORKFLOW.md` |
 | webui 構成/CSP/静的配信 | `docs/ARCHITECTURE.md §4.5` / `AGENTS.md §6.6` |
 | nginx への新ルート追加（例: `/display/`） | `AGENTS.md §6.9` / `docs/ARCHITECTURE.md §4.5b` / `docs/SECURITY.md` |
+| 外部入力の検証 / SSRF / 型の部分導入（`@ts-check`） | `AGENTS.md §11` / `docs/ARCHITECTURE.md §4.4` |
 | アーカイブ API | `docs/ARCHIVE-ADMIN-SPEC.md` |
 | ハニーポットの可視化（管理画面タブ・集計 API・GeoIP） | `AGENTS.md §5.3` / `docs/ARCHITECTURE.md §4.2, §4.3` |
 | 予定抽出/スケジュール | `docs/SCHEDULE-FEATURES.md` |
@@ -1203,7 +1241,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - [ ] 上の表に該当するドキュメントを更新した（該当なしなら不要）
 - [ ] ユーザーに見える変更なら `webui/updatelogs.php` を更新した（`lines` を `count-lines.sh` の実測値で）
 - [ ] `node --check <file>` / `php -l <file>`（pre-push でも自動実行, `§7.3`）
-- [ ] `npm test`（回帰テスト 186 項目）
+- [ ] `npm test`（回帰テスト 229 項目）
 - [ ] 本番操作の前に `bash scripts/deploy/assert-port.sh prod|staging`（`§7.2`）
 - [ ] 感度の高い変更なら PR＋別エージェントの独立レビューを通した（`§13`）
 - [ ] 秘密情報・DB・`webui/data` を不用意にコミットしていない
@@ -1246,6 +1284,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
+最終更新: 2026-10-23（§11 外部入力の**境界バリデーション**（`lib/validate.js`・依存ゼロ）を導入し `/api/notify` の data・管理ログイン・push endpoint に入れた。**無認証 SSRF**（任意 endpoint 登録 → 内部 URL への POST）を登録時＋送信直前（`services/notification.js` / `src/core/milestone.js`）の 3 箇所で遮断（IPv6 は角括弧を外して nibble 列で判定・IPv4-mapped の 16 進表記も IPv4 として判定）／`/api/android/send-test` にレート制限／OAuth エラーを text/plain／YouTube webhook の Invalid Date／rag の video_id 検証 / 型は **TypeScript を入れず `@ts-check` + JSDoc** で部分導入（notify-sign・admin・validate・geoip）／§12 に更新先を追加）
 最終更新: 2026-10-23（§5 依存更新：`ip-address` 10.7.4 / **firebase-admin 14.5.0**（v14 は名前空間 API 廃止＝モジュラー API へ移行）/ **puppeteer 25.16.0**（`browser.isConnected()` 廃止 → `.connected`）。未使用の `puppeteer-extra` 系を削除し npm audit 17→1 / §5.2 security-watch の PHP 判定を **Ubuntu CVE トラッカー準拠**に（not-affected / ignored を対象外に・取得失敗は fail-closed）/ §5.3 ハニーポットの**可視化**を追加：管理画面「ハニーポット」タブ＋`GET /api/admin/honeypot`（`requireAuth`・公開ドメインは 403）・`services/honeypot-report.js`（honey.log を直接集計・**日次ローテートの .1/.gz も読む**・自機テスト除外・canary token はマスク・`previousCanaryPaths` も canary_used）・`services/geoip.js`（Team Cymru の DNS で国/ASN/組織名・IPv6 対応・JSON キャッシュ・合計 3 秒で打ち切り）・時刻は JST 固定 / §12 に更新先を追加）
 最終更新: 2026-10-22（§5.3 ハニーポット（偽物の秘密ファイル）を新設：scripts/security/honeypot-setup.sh で偽物を生成・scripts/nginx/apply-honeypot.sh で nginx に配信・scripts/security/honeypot-watch.js が取得/canary使用を通知 / §10.2 配信開始アラーム（Android v1.7.3）を新設：AlarmManager.setAlarmClock による端末内アラーム・exact alarm 権限・TZ 混在の扱い・標準アラームへの補助経路 / §5.1 PHP 実行時ハードニングを拡張：scripts/php/apply-php-hardening.sh（enable_post_data_reading=Off で multipart パーサ無効・ffi.enable=preload で FFI 迂回を塞ぐ・post_max_size 縮小）と scripts/php/verify-php-hardening.sh（実測検証）を追加／scripts/nginx/apply-php-exec-guard.sh で elza vhost の PHP 実行を 404 化／mbstring は意図的に未導入（webui/_mb.php で代替）／§11 に PHP の「読まない・実行しない」規約を追加／§5 のリリース時刻の誤記（23:00 UTC→14:00 UTC）を修正 / §5.1 PHP コアの緊急 RCE 期間の対応（メンテナンスモードで公開 PHP ページを 503 化・patch-and-resume.sh で復旧）を追加 / §5 Node.js を v24.22.1 に更新（2026-10-21 の security release）・パッチ版移行スクリプト scripts/deploy/migrate-node-patch.sh を追加（pm2 save 必須・旧 ~/migrate-*.sh は v24.22.0 固定で参照先ではない） / §6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
 最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10 待ちタイマーの連打による延長禁止（v1.8.5 / Issue #14）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）

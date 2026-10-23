@@ -5,6 +5,7 @@ const webpush = require("web-push");
 const { initializeApp, getApps, cert } = require("firebase-admin/app");
 const { getMessaging } = require("firebase-admin/messaging");
 const ctx = require("./context");
+const { publicHttpUrl } = require("../lib/validate");
 
 // --- VAPID ---
 function loadVapid() {
@@ -77,6 +78,15 @@ async function sendPushNotification(subscription, payload, isTest = false) {
   // （デスクトップ側は send-test をクライアントで傍受してローカル通知を出す）
   if (!/^https?:\/\//i.test(subscription.endpoint)) {
     console.log("Skip non-http endpoint (desktop app):", subscription.endpoint);
+    return false;
+  }
+  // 🔒 送信直前にも検証する（2026-10-23・SSRF 対策）。
+  //  登録時の検証だけでは、①過去に登録された行 ②DNS が内部 IP に変わる経路 を塞げない。
+  //  内部向けに見える宛先は**送信しない**（404/410 と同様に「送らない」が正解。DB 行は残す）。
+  try {
+    publicHttpUrl(subscription.endpoint, { field: "endpoint" });
+  } catch (e) {
+    console.log("Skip non-public endpoint (SSRF guard)");
     return false;
   }
   try {

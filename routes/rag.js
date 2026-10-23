@@ -1,6 +1,8 @@
 // rag.js - ベクトル検索(/api/search) と RAG Q&A(/api/ask)
 // RAG_CHAT_ENDPOINT(Ollama等) を流用して、Piのベクトル検索結果とYT配信字幕を根拠に、まいの口調で回答する。
 // VECTOR_DB_URL / EMBEDDING_ENDPOINT 未設定時は 503 を返す（機能オフ）。
+// routes/admin-archive.js などと同じ video_id 書式（他ルートとの整合）
+const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const rateLimit = require("express-rate-limit");
 
 const fs = require("fs");
@@ -412,8 +414,14 @@ async function fetchParentTranscripts(minuteHits, limit) {
     if (seen.has(key)) continue;
     seen.add(key);
     try {
+      // vid はベクトル DB の payload 由来（＝外部コンテンツ由来）。`../` や `?` が来ると
+      // パスを操作される。routes/archive.js など他ルートと同じ video_id 書式で検証する。
+      if (!VIDEO_ID_RE.test(String(vid))) {
+        console.warn("[rag] skip transcript fetch: invalid video_id format");
+        continue;
+      }
       const params = new URLSearchParams({ from_ms: String(from), to_ms: String(to) });
-      const res = await fetch(`${ARCHIVE_API_BASE}/api/transcript/${vid}?${params}`, { timeout: TRANSCRIPT_TIMEOUT_MS });
+      const res = await fetch(`${ARCHIVE_API_BASE}/api/transcript/${encodeURIComponent(String(vid))}?${params}`, { timeout: TRANSCRIPT_TIMEOUT_MS });
       if (!res.ok) continue;
       const data = await res.json();
       const segs = Array.isArray(data?.segments) ? data.segments : [];

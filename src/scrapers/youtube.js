@@ -535,7 +535,9 @@ function createWebhookApp(opts = {}) {
             }
 
             const publishedDate = publishedStr ? new Date(publishedStr) : null;
-            if (!publishedDate) {
+            // `new Date("不正な文字列")` は truthy な Invalid Date になる。
+            // そのまま比較すると diffMs が NaN になり「24時間以内」フィルタを素通りする。
+            if (!publishedDate || Number.isNaN(publishedDate.getTime())) {
                 console.warn(`No published date for video ${videoId}, skip.`);
                 continue;
             }

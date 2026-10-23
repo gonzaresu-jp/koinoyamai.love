@@ -88,7 +88,9 @@ function register(app, db, authLimiter) {
 
   app.get('/auth/discord/callback', limiter, async (req, res) => {
     const { code, state, error, error_description } = req.query;
-    if (error) { console.warn('[auth/discord/callback] Discord returned error:', error, error_description); return res.status(400).send(`Authentication failed: ${error_description || error}`); }
+    // 🔒 クエリ文字列を HTML として返さない（2026-10-23）。text/plain にすると
+    //  ブラウザは HTML として解釈しない（CSP だけに頼らない）。詳細はサーバーログ側に出す。
+    if (error) { console.warn('[auth/discord/callback] Discord returned error:', error, error_description); return res.status(400).type('text/plain').send('Authentication failed'); }
     if (!code) { console.warn('[auth/discord/callback] Missing code. Query:', req.query); return res.status(400).send('Missing authorization code'); }
     const stateData = consume(oauthStates, state);
     if (!stateData) return res.status(400).send('Invalid or expired OAuth state');
