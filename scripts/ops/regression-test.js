@@ -744,6 +744,8 @@ async function main() {
       /e\.notified\s*=\s*!!ok/.test(hpWatch) && /filter\(\(e\)\s*=>\s*!e\.notified\)/.test(hpWatch));
     ok("honeypot-watch: 同じイベントを一定期間は再通知しない（state.recent）",
       /function eventKey/.test(hpWatch) && /state\.recent/.test(hpWatch) && /DEDUPE_HOURS/.test(hpWatch));
+    ok("honeypot-watch: canary_used は重複抑制しない（最も重要な証拠）",
+      /e\.kind !== "canary_used"/.test(hpWatch));
     ok("notify.sendDiscord: description を上限で切り詰める（安全網）",
       /truncate\(payload\.description/.test(
         fs.readFileSync(path.join(projectDir, "scripts", "security", "notify.js"), "utf8")));

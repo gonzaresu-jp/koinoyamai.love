@@ -398,8 +398,10 @@ async function main() {
     }
     // 同じイベント（種別・IP・パス・status）は一定期間は再通知しない。
     // 同じスキャナが同じファイルを何度も取りに来るのは「新規」ではない。
+    // ※ `canary_used` だけは**重複抑制しない**: 追跡 URL が使われたこと自体が
+    //   最も重要な証拠で、2 回目以降も「使った」事実は通知する価値がある（頻度も低い）。
     const k = eventKey(e);
-    if (seenKey.has(k)) {
+    if (e.kind !== "canary_used" && seenKey.has(k)) {
       deduped.push(e);
       continue;
     }
