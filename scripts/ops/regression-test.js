@@ -1123,7 +1123,11 @@ async function main() {
     //  型は TypeScript を入れず `// @ts-check` + JSDoc で持つ（ビルドステップを増やさないため）。
     console.log("\n[14] 境界バリデーションと型検査（@ts-check）");
     {
-      const vTmp = fs.mkdtempSync(path.join(os.tmpdir(), "validate-"));
+      // ⚠️ `lib/admin.js` をプロセス内で require すると sqlite3 のハンドルが開いたまま残る。
+      //  **テスト終了時に DB ファイルを消すと**、起動時の CREATE TABLE が IOERR を起こして
+      //  「テストは 190 pass なのにプロセスが非 0 で終了する」（pre-push が落ちる）になる。
+      //  そのため固定パスを置き去りにし（/tmp は再起動で消える）、消さない。
+      const adminLibDb = path.join(os.tmpdir(), "regression-admin-lib.db");
       const v = require(path.join(projectDir, "lib", "validate.js"));
       const throws = (fn) => { try { fn(); return false; } catch (e) { return e instanceof v.ValidationError; } };
       ok("lib/validate.js: 文字列の型・長さ・トリムを検証する",
@@ -1193,7 +1197,7 @@ async function main() {
         lBadType.status === 400, `status=${lBadType.status}`);
 
       // 14-4. 同名ヘッダが複数（Node は配列で返す）来ても 500 にならない
-      process.env.ADMIN_DB_PATH = path.join(vTmp, "admin-lib-test.db");
+      process.env.ADMIN_DB_PATH = adminLibDb;
       process.env.TRUST_PROXY = "true";
       const adminLib = require(path.join(projectDir, "lib", "admin.js"));
       ok("admin: X-Forwarded-For が配列でも壊れない（`.split()` で 500 にならない）",
@@ -1216,7 +1220,6 @@ async function main() {
         /SignedNotifyPayload/.test(fs.readFileSync(path.join(projectDir, "src", "core", "notify-sign.js"), "utf8")));
       ok("型を書いたファイルが実際に型エラーを検出すること（構造の確認）",
         fs.readFileSync(path.join(projectDir, "src", "core", "notify-sign.js"), "utf8").includes("@param {string|null|undefined} secret"));
-      try { fs.rmSync(vTmp, { recursive: true, force: true }); } catch (e) { /* best-effort */ }
     }
 
     console.log(`\n結果: ${passed} passed, ${failed} failed`);
