@@ -72,7 +72,7 @@ async function getPage() {
   const browser = await getBrowser();
 
   // ブラウザが切断されている場合、sharedPage参照をリセット
-  if (!browser.isConnected()) {
+  if (!browser.connected) {
     sharedPage = null;
   }
 

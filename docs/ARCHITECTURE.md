@@ -288,6 +288,11 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
   主なキー: `NOTIFY_API_TOKEN` / `NOTIFY_HMAC_SECRET` / `INTERNAL_API_TOKEN` / `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` / `JWT_SECRET` / `SESSION_SECRET` / `PUBLIC_URL` / `COOKIE_SECURE` / `TRUST_PROXY`（他に FCM・`DB_FILE_NAME`・`DISABLE_NOTIFICATIONS`・`VECTOR_DB_*`・`TAILNET_ADMIN_SECRET`・`WEBAUTHN_*`・`YOUTUBE_WEBHOOK_TOKEN` 等）。
   実装が実際に読むキーは約140個あるため、任意設定は上記コマンドで全キーを確認すること。
 - 通知 API 認証: **token + HMAC v2 + timestamp（±300秒）**。比較は `timingSafeEqual`。
+- **FCM（Android push）のサービスアカウント鍵は webroot 外**:
+  `FCM_SERVICE_ACCOUNT_PATH=/var/lib/mai-push/secrets/fcm-service-account.json`（mode 600・dir 700）。
+  パスが無いと `initFcm()` は **`null` を返して静かにスキップ**し、通知履歴が `android=0` になる
+  （2026-10-20〜23 に実際に 3 日間停止した。`docs/SECURITY.md` の「秘密鍵の置き場所」）。
+  firebase-admin v14 はモジュラー API のみ（`AGENTS.md §5`）。
 - 管理画面: 正規は **Tailnet（`elza.poitou-mora.ts.net`）で自動認証**。公開ドメインの `/admin*` は ts.net へ 302、`/api/admin` は 403（`AGENTS.md §6.7`）。
 - TZ は `Asia/Tokyo` 固定（`server.js`/`main.js` 冒頭）。
 - ハニーポット可視化の任意 env（未設定で既定値）: `HONEY_LOG_PATH` / `HONEY_CANARY_STATE` /

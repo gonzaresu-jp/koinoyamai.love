@@ -1,5 +1,9 @@
 const webpush = require("web-push");
-const admin = require("firebase-admin");
+// firebase-admin v14 は名前空間 API を廃止した（admin.messaging / admin.credential は undefined
+// になる）。モジュラー API（firebase-admin/app, firebase-admin/messaging）だけを使う。
+// v12 の `admin.messaging()` に戻すと FCM 初期化が静かに失敗する（実測: 2026-10-23）。
+const { initializeApp, getApps, cert } = require("firebase-admin/app");
+const { getMessaging } = require("firebase-admin/messaging");
 const ctx = require("./context");
 const { publicHttpUrl } = require("../lib/validate");
 
@@ -51,8 +55,8 @@ function initFcm() {
       }
     }
     if (!serviceAccount) { console.warn("FCM disabled: service account not configured"); return null; }
-    if (!admin.apps.length) admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-    ctx.fcmMessaging = admin.messaging();
+    if (!getApps().length) initializeApp({ credential: cert(serviceAccount) });
+    ctx.fcmMessaging = getMessaging();
     console.log("FCM initialized");
     return ctx.fcmMessaging;
   } catch (e) {

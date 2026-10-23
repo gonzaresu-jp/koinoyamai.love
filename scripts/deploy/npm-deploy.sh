@@ -94,16 +94,32 @@ for app in $APPS; do
   fi
 done
 
+# 停止した後は「どのステップで失敗しても必ず再起動する」。
+# 2026-10-23 実測: 検証ステップ（下のロード確認）が exit 1 したとき、
+# 再起動の前にスクリプトが終了して **本番 3 プロセスが止まったまま**になった。
+# trap を EXIT に掛けることで、検証失敗・構文エラー・中断（Ctrl+C）でも復旧する。
+restore_pm2() {
+  local st=$?
+  if [ -n "${STOPPED:-}" ]; then
+    echo "==> 復旧: 停止していたアプリを再起動します（exit=$st）" >&2
+    for app in $STOPPED; do
+      pm2 start ecosystem.config.js --only "$app" --update-env >/dev/null 2>&1 || true
+    done
+    pm2 save >/dev/null 2>&1 || true
+    STOPPED=""
+  fi
+  exit "$st"
+}
+trap restore_pm2 EXIT
+
 # --- 3. npm install ---
 echo "==> npm install（Node $(basename "$(dirname "$NODE_BIN")")）"
 export PATH="$(dirname "$NODE_BIN"):$PATH"
 if ! npm install 2>&1 | tail -5; then
   echo "[NG] npm install に失敗しました" >&2
-  echo "==> 復旧: lockfile を戻して再インストールします" >&2
+  echo "==> 復旧: lockfile を戻して再インストールします（再起動は EXIT の trap が行います）" >&2
   (umask 002; git checkout -- package-lock.json) 2>/dev/null || true
   npm install >/dev/null 2>&1 || true
-  for app in $STOPPED; do pm2 start ecosystem.config.js --only "$app" --update-env >/dev/null 2>&1 || true; done
-  echo "[NG] 復旧を試みましたが、サービスが戻っていない可能性があります" >&2
   exit 1
 fi
 
@@ -131,11 +147,21 @@ fi
 echo "  ✓ node_modules は package-lock.json と一致"
 
 echo "==> 主要モジュールのロード確認"
+# firebase-admin v14 は名前空間 API（admin.messaging）を廃止している。
+# ここを旧 API のままにしておくと、更新完了後に必ず exit 1 になる
+# （2026-10-23 実測: 本番が停止したまま再起動されなかった）。
+# puppeteer は v25 が ESM のみなので、require できる＝Node の版が仕様を満たす確認を兼ねる。
 "$NODE_BIN" -e '
 require("sqlite3"); require("bcrypt");
 const s = require("sharp"); if (!s.versions.vips) throw new Error("sharp vips なし");
-const a = require("firebase-admin"); if (typeof a.messaging !== "function") throw new Error("firebase-admin.messaging なし");
-console.log("  ✓ sqlite3 / bcrypt / sharp / firebase-admin");
+const fa = require("firebase-admin/app");
+if (typeof fa.initializeApp !== "function") throw new Error("firebase-admin/app.initializeApp なし");
+if (typeof fa.getApps !== "function") throw new Error("firebase-admin/app.getApps なし");
+if (typeof fa.cert !== "function") throw new Error("firebase-admin/app.cert なし");
+const fm = require("firebase-admin/messaging");
+if (typeof fm.getMessaging !== "function") throw new Error("firebase-admin/messaging.getMessaging なし");
+const p = require("puppeteer"); if (typeof p.launch !== "function") throw new Error("puppeteer.launch なし");
+console.log("  ✓ sqlite3 / bcrypt / sharp / firebase-admin(app+messaging) / puppeteer");
 ' || { echo "[NG] モジュールのロードに失敗しました" >&2; exit 1; }
 
 # --- 5. 再起動 ---
@@ -145,5 +171,6 @@ for app in $STOPPED; do
   echo "  start $app"
 done
 pm2 save >/dev/null 2>&1 || true
+STOPPED=""   # 再起動済み。trap に二重起動させない
 
 echo "=== 完了 ==="
