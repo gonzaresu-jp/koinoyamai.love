@@ -35,7 +35,7 @@
 
 ## 5. 依存関係
 - **sqlite3 は 6.0.1 に昇格済み（2026-09-22 本番反映）**。npm audit critical は解消。
-  依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト(83/83) → smoke」を通すこと。
+  依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト(186/186) → smoke」を通すこと。
 - **依存更新の反映は `scripts/deploy/npm-deploy.sh` で行う（2026-10-21 追加）**:
   - `git pull` は **package-lock.json しか更新しない**。node_modules が旧版のままでは
     「lockfile 上は安全 / 実際のコードは脆弱」という食い違いが起きる。
@@ -60,8 +60,34 @@
   | **firebase（クライアント SDK）** | **削除** | **未使用だった**（Node 側は firebase-admin のみ。webui は gstatic の CDN 版）。削除で advisory 3 件と推移 45 パッケージが消えた |
   | gaxios | 6.7.1 → 6.3.0 | **ダウングレード**。gaxios 6.4.0+ が脆弱な uuid を依存し 6.x に修正版が無いための意図的な pin 解決 |
   - 監査結果: **total 28 → 17**（critical **1 → 0** / high 18 → 10 / moderate 7 → 6 / low 2 → 1）
-  - 残 17 件は direct 依存の更新が必要（`puppeteer` → 25.x / `firebase-admin` → 14.x /
-    `@simplewebauthn/server` → 13.3.3）。**破壊的変更を伴うため次回以降に検討**。
+  - 残 17 件のうち **16 件を 2026-10-23 に解消**（下記。残るのは `@simplewebauthn/server` の low 1 件）。
+- **2026-10-23 の依存更新（direct 2 件のメジャー更新を含む）**:
+  | パッケージ | 変更 | 備考 |
+  |---|---|---|
+  | ip-address | 10.7.2 → 10.7.4 | moderate 解消（GHSA-rxp7-6hxx-x8q5・IPv6 ゾーンIDの二次時間 DoS）。非破壊 |
+  | **firebase-admin** | 12.7.0 → **14.5.0** | high 2 + moderate 5 解消。node-forge / `@google-cloud/*` の多くが推移から消える |
+  | **puppeteer** | 24.43.1 → **25.16.0** | high 8 解消（Chrome 156.0.8078.47）。`@puppeteer/browsers` 3.x で extract-zip / proxy-agent / basic-ftp / get-uri / pac-proxy-agent が消える |
+  | **puppeteer-extra / puppeteer-extra-plugin-stealth** | **削除** | **コード参照 0 件**（`src/scrapers/ytcommunity.js` のコメントのみ）。v3.3.6 は puppeteer 25 非対応 |
+  - 監査結果: **total 17 → 1**（critical 0 / high 0 / moderate 0 / low 1）。残るのは
+    `@simplewebauthn/server` の low 1 件（GHSA-6hxq-p678-4hr2・attestation 連鎖の検証。
+    `lib/webauthn.js` は `attestationType: 'none'` なので該当経路を使っていない）。13.3.3 への更新は別途。
+  - ⚠️ **firebase-admin v14 は名前空間 API を廃止した**（`admin.messaging` / `admin.credential.cert` が
+    `undefined` になる。2026-10-23 実測）。`services/notification.js` は `firebase-admin/app` の
+    `initializeApp` / `getApps` / `cert` と `firebase-admin/messaging` の `getMessaging` を使う。
+    **v12 の書き方に戻すと FCM 初期化が静かに失敗し、Android への push が 0 件になる**（ログは
+    `FCM init failed: ...` なので気づきにくい）。
+  - ⚠️ **puppeteer v22 以降で `browser.isConnected()` は廃止**（`browser.connected` プロパティ）。
+    未修正だと `TypeError: browser.isConnected is not a function`。`page.waitForTimeout()` も廃止
+    （`src/scrapers/gipt.js` は `typeof` 判定で `setTimeout` にフォールバックしている）。
+  - 依存を上げたら **`allowScripts` の pin も更新する**（`puppeteer@24.43.1` の stale な pin は削除し
+    `puppeteer@25.16.0` に差し替え）。`npm install-scripts ls` が
+    「No packages with unreviewed install scripts」であることを確認する。
+  - Chrome の実体は共有キャッシュ `~/.cache/puppeteer/chrome/linux-<ver>/`。**旧版の Chrome を消すと
+    ロールバックできなくなる**ので、ディスクが厳しいとき以外は残す（puppeteer の postinstall は
+    既にキャッシュがあればダウンロードしない＝本番デプロイでネットワークに依存しない）。
+  - ⚠️ **puppeteer 25 は ESM のみで、Node 22.12 未満では `require()` が `ERR_REQUIRE_ESM` で即死する**（puppeteer の engines は `>=22.12`、firebase-admin 14 は `>=22`）。`main.js` はスクレイパー経由で `src/core/browser.js` を**最初に読み込む**ため、interpreter を間違えると**ワーカーだけ起動不能**になる（API は動く＝部分障害で気づきにくい）。`ecosystem.config.js` の `interpreter` を絶対パスで明示すること（§5 冒頭）。
+  - **コードと依存は同時に反映する**（`scripts/deploy/npm-deploy.sh --apply`）。今回のように API 移行を
+    伴う更新を片方だけ反映すると、起動しない／静かに壊れる。
 - **`npm audit fix --force` は禁止**。npm の `fixAvailable` は信用せず、
   ダウングレード提案（例: `firebase` → 9.14.0）はセキュリティ後退なので却下する。
 - **Node.js は v24.22.1 に統一（2026-10-21 反映）**。全プロセスで同じ版を使う。
@@ -304,6 +330,20 @@
 - **PHP の判定はバージョン比較をしない**（`§5.1` のとおり Ubuntu は upstream のバージョン文字列を
   固定して Debian リビジョンでバックポートするため）。**CVE 集合の包含関係**で判定し、
   古い CVE は公開日ベース（365日）で除外する。
+  - **さらに Ubuntu の CVE トラッカーで「対象外」を除外する（2026-10-23 追加）**:
+    `https://ubuntu.com/security/cves/<CVE>.json` を引き、`php8.3` × 対象リリース
+    （`/etc/os-release` の `VERSION_CODENAME`）の状態を見る。
+    - `not-affected` / `ignored`（例: `ignored windows only`）→ **info** に落として要対応から外す
+      （summary に「対象外 N 件」とだけ出す）
+    - `needed` / `pending` / `deferred` / `released` / `needs-triage` → 従来どおり critical
+    - **取得失敗・記載なしは critical**（fail-closed）。tracker は CVE ごとに並列取得し、
+      timeout 30 秒 / retry 2（ubuntu.com は応答が遅いことがある）
+    - 実例: CVE-2026-12184 = noble の php8.3 は `not-affected`（8.3.23 で混入した不具合で
+      noble の 8.3.6 には入っていない）/ CVE-2026-17545 = `ignored`（Windows 専用）。
+      修正前は 3 件、修正後は「要対応 1 件（対象外 2 件）」（残る 1 件は GD 由来で
+      tracker に php8.3 の記載が無いもの＝`--ack` で承認済み）
+  - **「Ubuntu に CVE の記載が無い＝未修正」ではない**ので、`--ack` で承認するときは
+    「なぜこの環境に影響しないか」を `--note` に必ず残す（後から判断を追えるようにする）。
 - **検知と通知のみ。適用（パッチインストール・npm update・pm2 再起動）はしない**。適用は人が判断して行う。
 - **通知の再発火制御**:
 
@@ -492,7 +532,7 @@
   `lib/` に移動（nginx の alias も同dir直配信のため、移動が必須）。
 - `/api/system-info` は公開（CPU%・メモリ%・loadavg・稼働時間・RSSのみ。**ホスト名/ディスク/OS詳細は返さない**）。status ページのリソース欄は誰でも閲覧可能。
 - `/api/ask`（公開）は 5回/分＋質問500文字上限。管理者用 `/api/admin/ask` は対象外。
-- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 35 項目）に接続済み。
+- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 186 項目・2026-10-23 時点）に接続済み。
 - pm2-logrotate 導入済み（20M・10世代・圧縮）。
 
 ## 6.7 admin は Tailnet 専用（2026-10-10 追加）
@@ -664,7 +704,7 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 - ステージ・コミット対象の `.js` に対し `node --check`
 - `.php` に対し `php -l`
 - アプリバージョンの3箇所整合（`scripts/ops/check-app-version.sh`・`SKIP_PREPUSH_VERSION=1` でスキップ可）
-- 回帰テスト `npm test`（35項目、約5秒）
+- 回帰テスト `npm test`（186項目・2026-10-23 時点、約6秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
 ### 7.4 staging/本番のドリフト検出
@@ -1151,7 +1191,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - [ ] 上の表に該当するドキュメントを更新した（該当なしなら不要）
 - [ ] ユーザーに見える変更なら `webui/updatelogs.php` を更新した（`lines` を `count-lines.sh` の実測値で）
 - [ ] `node --check <file>` / `php -l <file>`（pre-push でも自動実行, `§7.3`）
-- [ ] `npm test`（回帰テスト 35 項目）
+- [ ] `npm test`（回帰テスト 186 項目）
 - [ ] 本番操作の前に `bash scripts/deploy/assert-port.sh prod|staging`（`§7.2`）
 - [ ] 感度の高い変更なら PR＋別エージェントの独立レビューを通した（`§13`）
 - [ ] 秘密情報・DB・`webui/data` を不用意にコミットしていない
@@ -1194,7 +1234,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-23（§5.3 ハニーポットの**可視化**を追加：管理画面「ハニーポット」タブ＋`GET /api/admin/honeypot`（`requireAuth`・公開ドメインは 403）・`services/honeypot-report.js`（honey.log を直接集計・**日次ローテートの .1/.gz も読む**・自機テスト除外・canary token はマスク・`previousCanaryPaths` も canary_used）・`services/geoip.js`（Team Cymru の DNS で国/ASN/組織名・IPv6 対応・JSON キャッシュ・合計 3 秒で打ち切り）・時刻は JST 固定 / §12 に更新先を追加）
+最終更新: 2026-10-23（§5 依存更新：`ip-address` 10.7.4 / **firebase-admin 14.5.0**（v14 は名前空間 API 廃止＝モジュラー API へ移行）/ **puppeteer 25.16.0**（`browser.isConnected()` 廃止 → `.connected`）。未使用の `puppeteer-extra` 系を削除し npm audit 17→1 / §5.2 security-watch の PHP 判定を **Ubuntu CVE トラッカー準拠**に（not-affected / ignored を対象外に・取得失敗は fail-closed）/ §5.3 ハニーポットの**可視化**を追加：管理画面「ハニーポット」タブ＋`GET /api/admin/honeypot`（`requireAuth`・公開ドメインは 403）・`services/honeypot-report.js`（honey.log を直接集計・**日次ローテートの .1/.gz も読む**・自機テスト除外・canary token はマスク・`previousCanaryPaths` も canary_used）・`services/geoip.js`（Team Cymru の DNS で国/ASN/組織名・IPv6 対応・JSON キャッシュ・合計 3 秒で打ち切り）・時刻は JST 固定 / §12 に更新先を追加）
 最終更新: 2026-10-22（§5.3 ハニーポット（偽物の秘密ファイル）を新設：scripts/security/honeypot-setup.sh で偽物を生成・scripts/nginx/apply-honeypot.sh で nginx に配信・scripts/security/honeypot-watch.js が取得/canary使用を通知 / §10.2 配信開始アラーム（Android v1.7.3）を新設：AlarmManager.setAlarmClock による端末内アラーム・exact alarm 権限・TZ 混在の扱い・標準アラームへの補助経路 / §5.1 PHP 実行時ハードニングを拡張：scripts/php/apply-php-hardening.sh（enable_post_data_reading=Off で multipart パーサ無効・ffi.enable=preload で FFI 迂回を塞ぐ・post_max_size 縮小）と scripts/php/verify-php-hardening.sh（実測検証）を追加／scripts/nginx/apply-php-exec-guard.sh で elza vhost の PHP 実行を 404 化／mbstring は意図的に未導入（webui/_mb.php で代替）／§11 に PHP の「読まない・実行しない」規約を追加／§5 のリリース時刻の誤記（23:00 UTC→14:00 UTC）を修正 / §5.1 PHP コアの緊急 RCE 期間の対応（メンテナンスモードで公開 PHP ページを 503 化・patch-and-resume.sh で復旧）を追加 / §5 Node.js を v24.22.1 に更新（2026-10-21 の security release）・パッチ版移行スクリプト scripts/deploy/migrate-node-patch.sh を追加（pm2 save 必須・旧 ~/migrate-*.sh は v24.22.0 固定で参照先ではない） / §6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
 最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10 待ちタイマーの連打による延長禁止（v1.8.5 / Issue #14）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）

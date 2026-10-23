@@ -78,11 +78,22 @@ jobs:
               console.log('[smoke] sharp OK', b.length, 'bytes / vips', sharp.versions.vips);
             })
             .then(() => {
-              // firebase-admin: FCM 送出に使う API の表面
-              const admin = require('firebase-admin');
-              if (typeof admin.messaging !== 'function') throw new Error('firebase-admin.messaging が無い');
-              if (typeof admin.initializeApp !== 'function') throw new Error('firebase-admin.initializeApp が無い');
+              // firebase-admin: FCM 送出に使う API の表面。
+              // v14 は名前空間 API（admin.messaging / admin.credential）を廃止したため、
+              // モジュラー API（firebase-admin/app, firebase-admin/messaging）を確認する。
+              // services/notification.js が実際に使うものだけを検査する。
+              const firebaseApp = require('firebase-admin/app');
+              if (typeof firebaseApp.initializeApp !== 'function') throw new Error('firebase-admin/app.initializeApp が無い');
+              if (typeof firebaseApp.getApps !== 'function') throw new Error('firebase-admin/app.getApps が無い');
+              if (typeof firebaseApp.cert !== 'function') throw new Error('firebase-admin/app.cert が無い');
+              const firebaseMsg = require('firebase-admin/messaging');
+              if (typeof firebaseMsg.getMessaging !== 'function') throw new Error('firebase-admin/messaging.getMessaging が無い');
               console.log('[smoke] firebase-admin OK');
+              // puppeteer: v25 は ESM のみ。require できる＝Node の版が仕様
+              // （>=22.12）を満たし、ESM 相互運用が通っていることの確認。
+              const puppeteer = require('puppeteer');
+              if (typeof puppeteer.launch !== 'function') throw new Error('puppeteer.launch が無い');
+              console.log('[smoke] puppeteer OK');
               // web-push: VAPID 設定が通るか（通知経路の入口）。
               // 鍵は前のステップで生成した vapid.json を使う（ハードコードしない）
               const wp = require('web-push');

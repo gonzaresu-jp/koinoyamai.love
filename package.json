@@ -33,7 +33,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "express-rate-limit": "^8.2.1",
-    "firebase-admin": "^12.7.0",
+    "firebase-admin": "^14.5.0",
     "google-auth-library": "^10.6.1",
     "googleapis": "^165.0.0",
     "helmet": "^8.1.0",
@@ -41,9 +41,7 @@
     "kuromoji": "^0.1.2",
     "node-cron": "^4.2.1",
     "node-fetch": "^2.7.0",
-    "puppeteer": "^24.37.0",
-    "puppeteer-extra": "^3.3.6",
-    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "puppeteer": "^25.16.0",
     "querystring": "^0.2.1",
     "sharp": "^0.35.4",
     "sqlite3": "^6.0.1",
@@ -56,8 +54,9 @@
   "allowScripts": {
     "bcrypt@6.0.0": true,
     "protobufjs@7.6.6": true,
-    "puppeteer@24.43.1": true,
     "sqlite3@6.0.1": true,
-    "esbuild@0.28.2": true
+    "esbuild@0.28.2": true,
+    "@firebase/util@1.15.3": true,
+    "puppeteer@25.16.0": true
   }
 }
