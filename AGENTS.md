@@ -44,6 +44,18 @@
   - `bash scripts/deploy/npm-deploy.sh`（dry-run）→ `--apply` で乖離を検出・修正する。
     pm2 を停止 → `npm install` → 乖離とモジュールのロードを検証 → 再起動、まで自動。
     失敗時は lockfile を git から戻して復旧する。
+    - **停止したアプリは EXIT の trap で必ず再起動する（2026-10-23 追加）**:
+      依存更新の反映時に、**ロード確認が exit 1 して再起動前にスクリプトが終了**し、
+      **本番 3 プロセス（`mai-push-api` / `mai-push-worker` / `discord-bot`）が止まったまま**
+      になった（実測）。`trap ... EXIT` を入れ、検証失敗・構文エラー・中断（Ctrl+C）でも
+      再起動するようにした。**停止後は再起動経路が trap のみ**であることを確認すること。
+    - **ロード確認は firebase-admin v14 / puppeteer v25 の API を検査する**:
+      `require("firebase-admin").messaging`（名前空間 API）は **v14 で `undefined`**。
+      この古い検査が残っていると **更新が成功しても必ず exit 1 になる**（上記の事故の原因）。
+      `firebase-admin/app` の `initializeApp` / `getApps` / `cert`、
+      `firebase-admin/messaging` の `getMessaging`、`puppeteer.launch` を検査する。
+      依存のメジャーを上げたら**このスクリプトと CI の `.github/workflows/ci.yml` の
+      smoke も同時に更新する**（2026-10-23 は CI の smoke も同じ箇所で赤になった）。
   - `npm ci` は node_modules を全削除するため**本番では使わない**（レジストリ障害時に
     依存ごと無くなる）。`npm install` を使う。
   - `check-drift.sh` が `package-lock.json` の md5 と node_modules の主要パッケージの
