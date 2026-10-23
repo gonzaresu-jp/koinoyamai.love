@@ -9,7 +9,7 @@
  *   2. **canary_used（窃取後の使用）**: `/_canary/<token>` へのリクエスト
  *      → 盗んだ情報（中身を実際に使った）= 窃取確定
  *   3. **probe（偵察）**: ハニーパスに 404 が返った
- *      → 探している（まだ手EMS 수는ない）＝前兆
+ *      → 探している（まだ手に入れていない）＝前兆
  *
  * 設計上の要点（独立レビュー 2026-10-22 の指摘を反映）:
  *   - **通知に失敗したイベントは失わない**（fail-closed）。
@@ -56,6 +56,11 @@ const WATCH_STATE = process.env.HONEY_WATCH_STATE || path.join(REPO_ROOT, "data"
 const CANARY_STATE = process.env.HONEY_CANARY_STATE || path.join(REPO_ROOT, "data", "honeypot-canary.json");
 const LOG_FILE = path.join(REPO_ROOT, "logs", "honeypot.log");
 const PENDING_LIMIT = 200;
+// 同じイベント（種別・IP・パス・status）を再通知しない期間。
+// 「新規がないのに毎回通知が来る」を防ぐ（2026-10-23 ユーザー報告）。
+const DEDUPE_HOURS = Number(process.env.HONEY_DEDUPE_HOURS || 24);
+const DEDUPE_MS = DEDUPE_HOURS * 3600 * 1000;
+const RECENT_LIMIT = 2000;
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
@@ -71,6 +76,7 @@ require("dotenv").config({
 });
 
 const notify = require(path.join(REPO_ROOT, "scripts", "security", "notify.js"));
+const { chunkLines } = require(path.join(REPO_ROOT, "scripts", "security", "discord-chunk.js"));
 
 // パターン本体は nginx 側と**共有**する（scripts/nginx/honey-path-pattern.txt）。
 // 二重管理すると「配信はされるのに監視が拾えない」不整合が起きる。
@@ -156,6 +162,28 @@ function isLocalSelfTest(ev) {
 const HONEY_PATH_RE = HONEY_BODY
   ? new RegExp("/(?:[\\w.\\-]+/)*(?:" + HONEY_BODY + ")(?![.\\w\\-])", "i")
   : /\/(?:\.env|\.git\/config)\b/i;
+
+/** 重複判定のキー。**時刻は含めない**（同じ相手・同じ要求を一定期間は再通知しない）。 */
+function eventKey(e) {
+  return `${e.kind}|${e.ip}|${e.path}|${e.status}`;
+}
+
+/** 古い重複記録を落とす（無制限に育つと状態ファイルが肥大する） */
+function pruneRecent(recent, nowMs) {
+  const out = {};
+  const entries = Object.entries(recent || {})
+    .map(([k, v]) => [k, Date.parse(v)])
+    .filter(([, t]) => Number.isFinite(t))
+    .sort((a, b) => a[1] - b[1]);
+  for (const [k, t] of entries) {
+    if (nowMs - t < DEDUPE_MS) out[k] = new Date(t).toISOString();
+  }
+  const keys = Object.keys(out);
+  if (keys.length > RECENT_LIMIT) {
+    for (const k of keys.slice(0, keys.length - RECENT_LIMIT)) delete out[k];
+  }
+  return out;
+}
 
 function classify(ev, canaryPaths) {
   if (!ev.path) return null;
@@ -263,7 +291,7 @@ function selftest() {
   fs.appendFileSync(logPath, '2026-10-22T00:00:02Z ip=1.1.1.1 cf=- xff="-" st=200 uri=/.env3');
   const r3 = readNewLines(st3, logPath);
   check("末尾の未完成行は読まない", r3.lines.length === 2);
-  // 未完成行が 완성したら（改行が追記されたら）次回で読める
+  // 未完成行が完成したら（改行が追記されたら）次回で読める
   fs.appendFileSync(logPath, "\n");
   const r3b = readNewLines({ offset: r3.offset, inode: r3.inode }, logPath);
   check("未完成行は次回に読まれる", r3b.lines.length === 1);
@@ -337,8 +365,10 @@ async function main() {
     await reportStatus("degraded", `ハニーポットの canary token がデシンクしています（${tokenMismatch}）。窃取確定の通知が出ません。`);
     return 2;
   }
-  const state = readJson(WATCH_STATE, { offset: 0, inode: 0, pending: [] });
+  const state = readJson(WATCH_STATE, { offset: 0, inode: 0, pending: [], recent: {} });
   if (!state.pending) state.pending = [];
+  // 通知済みイベントの重複抑制マップ（キー → 最後に通知した時刻）
+  state.recent = pruneRecent(state.recent, Date.now());
 
   const r = readNewLines(state);
   if (r.missing) {
@@ -353,6 +383,8 @@ async function main() {
   // --- 新しいイベントを取り込んで pending へ ---
   const fresh = [];
   const localEvents = [];
+  const deduped = [];
+  const seenKey = new Set(Object.keys(state.recent));
   for (const line of r.lines) {
     const ev = parseLine(line);
     const c = classify(ev, canaryPaths);
@@ -364,7 +396,18 @@ async function main() {
       localEvents.push(e);
       continue;
     }
+    // 同じイベント（種別・IP・パス・status）は一定期間は再通知しない。
+    // 同じスキャナが同じファイルを何度も取りに来るのは「新規」ではない。
+    const k = eventKey(e);
+    if (seenKey.has(k)) {
+      deduped.push(e);
+      continue;
+    }
+    seenKey.add(k);
     fresh.push(e);
+  }
+  if (deduped.length) {
+    log(`${deduped.length} 件は通知済みのイベントのため再通知しません（${DEDUPE_HOURS} 時間の重複抑制）`);
   }
   if (localEvents.length) {
     log(`${localEvents.length} 件のイベントは自機からのリクエストのため通知しません（--include-local で含められます）`);
@@ -404,12 +447,19 @@ async function main() {
   }
 
   // --- 通知（pending を全部まとめて）---
+  // 設計（2026-10-23 修正・ユーザー報告「新規ないのに毎回通知いらない」）:
+  //   - **1 メッセージに詰め込みすぎない**: Discord の embed description は 4096 文字上限で、
+  //     超えると**通知全体が 400 で落ちる**（一部だけ捨てられる、ではない）。
+  //     37 件の窃取（UA 付き）で実際に落ち、「窃取の通知が一度も届かない」うえ
+  //     失敗ループで偵察の通知が 5 分おきに再送され続けた。
+  //     → 行数ベースで分割し**複数メッセージ**で送る（`discord-chunk.js`）。
+  //   - **イベント単位で配送を追跡する**（`notified`）。1 カテゴリが失敗しても
+  //     成功したカテゴリ／チャンクを再送しない（通知の重複を防ぐ）。
+  //   - **同じイベントは再通知しない**（`state.recent`。既定 24 時間）。
   let notifiedAll = true;
-  if (state.pending.length) {
-    const used = state.pending.filter((e) => e.kind === "canary_used");
-    const stolen = state.pending.filter((e) => e.kind === "stolen");
-    const probes = state.pending.filter((e) => e.kind === "probe");
-
+  if (!state.pending.length) {
+    if (!fresh.length) log("新しいイベントはありません");
+  } else {
     const send = async (title, description, color) => {
       if (DRY_RUN) { log(`(dry-run) 通知: ${title}`); return true; }
       const res = await notify.sendDiscord(
@@ -421,45 +471,74 @@ async function main() {
       return false;
     };
 
+    // 1 カテゴリを、上限以内の複数メッセージに分けて送る。
+    // 送れたイベントだけ `notified = true` にし、失敗分は pending に残す。
+    const sendEvents = async (items, title, color, fmt, footer) => {
+      const chunks = chunkLines(items, fmt);
+      let allOk = true;
+      for (let i = 0; i < chunks.length; i++) {
+        const c = chunks[i];
+        const head = i === 0 ? "" : `（続き ${i + 1}/${chunks.length}）\n`;
+        const tail = i === chunks.length - 1 ? (footer || "") : "";
+        const ok = await send(i === 0 ? title : `${title}（続き）`, head + c.text + tail, color);
+        if (!ok) allOk = false;
+        for (const e of c.items) e.notified = !!ok;
+        // Discord のレート制限（5 通/5 秒）を避ける
+        if (i < chunks.length - 1) await new Promise((r) => setTimeout(r, 1200));
+      }
+      return allOk;
+    };
+
+    const used = state.pending.filter((e) => e.kind === "canary_used");
+    const stolen = state.pending.filter((e) => e.kind === "stolen");
+    const probes = state.pending.filter((e) => e.kind === "probe");
+
     let okAll = true;
     if (used.length) {
-      okAll = (await send(
+      okAll = (await sendEvents(
+        used,
         "重大: ハニーポットの canary が使われました（窃取後の使用）",
-        used.map((e) => `• \`${e.time}\` **${e.ip}** が \`${e.path}\` にアクセス\n  UA: \`${e.ua}\``).join("\n") +
-        `\n\n偽物の設定ファイルに埋め込んだ追跡 URL にアクセスされています。\n` +
-        `**偽物の中身を知っている（＝ファイルを取得した）**ことを意味します。`,
-        notify.SEVERITY_COLOR.critical
+        notify.SEVERITY_COLOR.critical,
+        (e) => `• \`${e.time}\` **${e.ip}** が \`${e.path}\` にアクセス\n  UA: \`${e.ua}\``,
+        "\n\n偽物の設定ファイルに埋め込んだ追跡 URL にアクセスされています。\n" +
+          "**偽物の中身を知っている（＝ファイルを取得した）**ことを意味します。"
       )) && okAll;
     }
     if (stolen.length) {
-      okAll = (await send(
-        "重大: ハニーファイルが取得されました（窃取）",
-        stolen.map((e) => `• \`${e.time}\` **${e.ip}** が \`${e.path}\`（${e.bytes} bytes）を取得\n  UA: \`${e.ua}\``).join("\n") +
-        `\n\n返したのは**偽物**です（実物の秘密値は含まれません）。\n` +
-        `次の段階（canary の使用）まで来ると窃取が確定します。`,
-        notify.SEVERITY_COLOR.critical
+      okAll = (await sendEvents(
+        stolen,
+        `重大: ハニーファイルが取得されました（窃取 ${stolen.length} 件）`,
+        notify.SEVERITY_COLOR.critical,
+        (e) => `• \`${e.time}\` **${e.ip}** が \`${e.path}\`（${e.bytes} bytes）を取得\n  UA: \`${e.ua}\``,
+        "\n\n返したのは**偽物**です（実物の秘密値は含まれません）。\n" +
+          "次の段階（canary の使用）まで来ると窃取が確定します。"
       )) && okAll;
     }
     if (probes.length) {
-      const uniqIps = [...new Set(probes.map((e) => e.ip))];
-      okAll = (await send(
+      okAll = (await sendEvents(
+        probes,
         `情報: 秘密ファイルの探索 ${probes.length} 件（偵察）`,
-        `探索元: ${uniqIps.map((ip) => `\`${ip}\``).join(", ")}\n\n` +
-        probes.slice(-10).map((e) => `• \`${e.time}\` \`${e.path}\` → ${e.status}`).join("\n") +
-        `\n\nまだ何も取れていません（偽物もまだ配信されていません）。`,
-        notify.SEVERITY_COLOR.info
+        notify.SEVERITY_COLOR.info,
+        (e) => `• \`${e.time}\` \`${e.ip}\` \`${e.path}\` → ${e.status}`,
+        "\n\n" + (stolen.length || used.length
+          ? "※ 同時に**取得（窃取）**も検知しています（上の通知）。"
+          : "まだ何も取れていません（偽物もまだ配信されていません）。")
       )) && okAll;
     }
     notifiedAll = okAll;
-    if (okAll) {
-      state.pending = [];   // 通知できたので pending を空にする
-    } else {
-      // **通知に失敗したイベントは pending に残す**（fail-closed）。
-      // 読み取り位置は進めてよい（pending が保持している）。
-      log("通知に失敗したため、イベントは pending に保持します（次回に再送されます）");
+
+    // 送れたイベントを重複抑制マップに記録し、pending から外す
+    const nowIso = new Date().toISOString();
+    for (const e of state.pending) {
+      if (e.notified) state.recent[eventKey(e)] = nowIso;
     }
-  } else if (!fresh.length) {
-    log("新しいイベントはありません");
+    const before = state.pending.length;
+    state.pending = state.pending.filter((e) => !e.notified);
+    if (state.pending.length) {
+      log(`通知に失敗した ${state.pending.length} 件は pending に保持します（次回に再送されます）`);
+    } else if (before) {
+      log(`${before} 件のイベントをすべて通知しました`);
+    }
   }
 
   // --- 状態を保存（dry-run は一切書き換えない）---

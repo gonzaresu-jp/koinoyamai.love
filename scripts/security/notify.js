@@ -173,12 +173,21 @@ async function sendDiscord(cfg, payload) {
   if (!cfg.token || !cfg.channelId) {
     return { ok: false, error: "Discord の設定（token / channelId）が未設定" };
   }
+  // ★ 安全網: embed は title 256 / description 4096 文字が上限で、超えると
+  //   **メッセージ全体が 400 で落ちる**（一部だけ捨てられる、ではない）。
+  //   呼び出し側で分割していても、漏れがあると通知が丸ごと失われるため
+  //   ここでも切り詰める（2026-10-23: 窃取 37 件の通知がこれで落ちていた）。
+  const { truncate } = require("./discord-chunk.js");
   const body = {
     embeds: [{
-      title: payload.title,
-      description: payload.description,
+      title: String(payload.title == null ? "" : payload.title).slice(0, 256),
+      description: truncate(payload.description, DISCORD_DESCRIPTION_LIMIT - 20),
       color: payload.color || SEVERITY_COLOR.warning,
-      fields: payload.fields || [],
+      fields: (payload.fields || []).map((f) => ({
+        name: String(f.name == null ? "" : f.name).slice(0, 256),
+        value: truncate(f.value, 1024),
+        inline: !!f.inline,
+      })),
       footer: { text: `Host: ${payload.hostname || "?"} | security-watch` },
       timestamp: new Date().toISOString(),
     }],
