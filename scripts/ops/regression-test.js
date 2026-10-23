@@ -813,6 +813,82 @@ async function main() {
       hpSelftest.status === 0 && hpFail === 0,
       `status=${hpSelftest.status} fail=${hpFail} ${hpSelftestOut.slice(-200)}`);
 
+    // 11-12. ハニーポット可視化（管理画面、2026-10-23 追加）
+    //   攻撃元の IP・UA・国は**公開に出さない**（§5.3）。集計は services/ に分離してテスト可能に。
+    const hpReportPath = path.join(projectDir, "services", "honeypot-report.js");
+    const hpReport = require(hpReportPath);
+    const hpRouteSrc = fs.readFileSync(path.join(projectDir, "routes", "admin-honeypot.js"), "utf8");
+    ok("admin-honeypot: /api/admin/ 配下 + requireAuth（公開エリアに出さない）",
+      /app\.get\("\/api\/admin\/honeypot",\s*adminAuth\.requireAuth/.test(hpRouteSrc));
+    ok("admin-honeypot: server.js に登録されている",
+      /require\("\.\/routes\/admin-honeypot"\)\.register\(app\)/.test(
+        fs.readFileSync(path.join(projectDir, "server.js"), "utf8")));
+    ok("admin-honeypot: 集計が lib/admin を巻き込まない（HTTP 非依存＝テストが終了する）",
+      !/require\("\.\.\/lib\/admin"\)/.test(fs.readFileSync(hpReportPath, "utf8")));
+    const hpUnauth = await request("GET", "/api/admin/honeypot?days=7");
+    ok("admin-honeypot: 未認証では 401（集計を返さない）",
+      hpUnauth.status === 401 && !(hpUnauth.json && hpUnauth.json.totals), `status=${hpUnauth.status}`);
+    {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "honeypot-report-"));
+      const logFile = path.join(tmp, "honey.log");
+      const canaryFile = path.join(tmp, "canary.json");
+      const now = Date.parse("2026-10-23T12:00:00+09:00");
+      const line = (iso, ip, cf, xff, st, uri, ua) =>
+        `${iso} ip=${ip} cf=${cf} xff="${xff}" st=${st} uri=${uri} bytes=10 req="GET ${uri} HTTP/1.1" ref="-" ua="${ua}"`;
+      fs.writeFileSync(canaryFile, JSON.stringify({ token: "abc123", canaryPath: "/_canary/abc123" }));
+      fs.writeFileSync(logFile, [
+        line("2026-10-23T11:00:00+09:00", "127.0.0.1", "-", "-", 200, "/.env", "curl/8.5.0"), // 自機（除外）
+        line("2026-10-23T10:00:00+09:00", "127.0.0.1", "203.0.113.5", "203.0.113.5", 200, "/.env", "Scanner/1.0"), // 窃取
+        line("2026-10-23T10:01:00+09:00", "127.0.0.1", "203.0.113.5", "203.0.113.5", 404, "/secrets.json", "Scanner/1.0"), // 偵察
+        line("2026-10-23T10:02:00+09:00", "127.0.0.1", "203.0.113.6", "203.0.113.6", 200, "/_canary/abc123", "curl/8.0"), // canary 使用
+        line("2026-10-23T10:03:00+09:00", "127.0.0.1", "203.0.113.7", "203.0.113.7", 204, "/_canary/", "curl/8.0"), // canary 探査
+        line("2026-10-23T10:04:00+09:00", "127.0.0.1", "203.0.113.8", "203.0.113.8", 404, "/db.sql",
+          "Mozilla/5.0 st=200 uri=/.env"), // UA 偽装（実体は 404）
+        line("2026-10-15T10:00:00+09:00", "127.0.0.1", "203.0.113.9", "203.0.113.9", 200, "/.env", "old"), // 期間外
+      ].join("\n") + "\n");
+
+      const fakeGeo = async (ips) => new Map([...new Set(ips)].map((ip) => [ip, {
+        cc: ip === "203.0.113.6" ? "HU" : "US",
+        country: ip === "203.0.113.6" ? "ハンガリー" : "アメリカ合衆国",
+        asn: "AS64500", org: "TEST-ORG - Example, US", ok: true,
+      }]));
+      const d = await hpReport.collect({ days: 7, logPath: logFile, canaryStatePath: canaryFile, now, geoLookup: fakeGeo });
+
+      ok("honeypot-report: 自機テストと期間外を除外する",
+        d.source.selfTests === 1 && d.totals.events === 5,
+        `self=${d.source.selfTests} events=${d.totals.events}`);
+      ok("honeypot-report: 窃取 / canary 使用 / 偵察を分類する",
+        d.totals.stolen === 1 && d.totals.canaryUsed === 1 && d.totals.probe === 3 &&
+        d.totals.canaryScans === 1,
+        JSON.stringify(d.totals));
+      ok("honeypot-report: UA に紛れ込ませた st= / uri= に騙されない",
+        d.recent.filter((r) => r.ua.includes("st=200")).every((r) => r.kind === "probe" && r.status === 404),
+        JSON.stringify(d.recent.filter((r) => r.ua.includes("st=200")).map((r) => [r.kind, r.status])));
+      ok("honeypot-report: 国別に集計する（IP は重複しない）",
+        d.byCountry.length === 2 && d.byCountry[0].cc === "US" && d.byCountry[0].events === 4 &&
+        d.totals.ips === 4 && d.totals.countries === 2,
+        JSON.stringify(d.byCountry.map((c) => [c.cc, c.events, c.ips])));
+      ok("honeypot-report: canary の token を UI に出さない（マスクする）",
+        d.recent.every((r) => !r.path.includes("abc123")) &&
+        d.topPaths.every((p) => !p.path.includes("abc123")),
+        d.recent.map((r) => r.path).join(","));
+      ok("honeypot-report: 日別を期間の全日で 0 埋めする",
+        d.byDay.length === 7 && d.byDay.every((x) => typeof x.events === "number"));
+      try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { /* best-effort */ }
+    }
+
+    // 11-13. geoip（DNS 方式・外部 DB 不要）の不変条件
+    const geoipMod = require(path.join(projectDir, "services", "geoip.js"));
+    ok("geoip: IPv4 の問い合わせ名（逆順オクテット）",
+      geoipMod.originName("207.175.199.227") === "227.199.175.207.origin.asn.cymru.com");
+    ok("geoip: IPv6 の問い合わせ名（nibble 逆順 + origin6）",
+      geoipMod.originName("2001:db8::1") ===
+      "1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.b.d.0.1.0.0.2.origin6.asn.cymru.com");
+    ok("geoip: 私有/ループバックは問い合わせない（Tailscale 100.64/10 含む）",
+      geoipMod.isPrivateIp("100.65.152.57") && geoipMod.isPrivateIp("192.168.1.10") &&
+      geoipMod.isPrivateIp("::ffff:127.0.0.1") && !geoipMod.isPrivateIp("8.8.8.8"));
+    ok("geoip: 不正な IP は null（DNS を引かない）", geoipMod.originName("not-an-ip") === null);
+
     // --- 12. Android 配信アラームの不変条件（2026-10-22 追加） ---
     // 「アラームが短く、止まるまで鳴らない」問題の再発を防ぐ。
     console.log("[12] Android 配信アラームの不変条件");

@@ -242,6 +242,7 @@ require("./routes/android").register(app, db);
 require("./routes/events").register(app, db);
 require("./routes/admin").register(app, db);
 require("./routes/admin-archive").register(app, db);
+require("./routes/admin-honeypot").register(app);
   require("./routes/admin-twitter-stats").register(app, db);
 require("./routes/scraper-status").register(app, db);
 require("./routes/system").register(app);
