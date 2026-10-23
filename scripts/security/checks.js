@@ -41,6 +41,9 @@ const PHP_CHANGELOG_URL = "https://www.php.net/ChangeLog-8.php";
 // Ubuntu は upstream のバージョン文字列ではなく Debian リビジョンでバックポートするため、
 // バージョン比較では判定できない（AGENTS.md §5.1）。
 // 古い CVE（Ubuntu が遡及的に言及しないもの）を誤検出しないよう、公開日を基準に絞る。
+const UBUNTU_CVE_API = "https://ubuntu.com/security/cves";
+// PHP の判定対象パッケージ（php8.3-fpm の source 名）
+const PHP_UBUNTU_TARGET_PACKAGE = "php8.3";
 const PHP_CVE_WINDOW_DAYS = 365;
 
 const SEVERITY_ORDER = { critical: 0, warning: 1, info: 2 };
@@ -329,6 +332,70 @@ async function checkNode(opts) {
 }
 
 /**
+ * Ubuntu の CVE トラッカー（per-CVE JSON）から「対象パッケージ × 対象リリース」の状態を取り出す。
+ * JSON の packages は配列（{ name, statuses: [{ release_codename, status, description }] }）。
+ * 見つからない場合は status=null（＝判定不能。呼び出し側は fail-closed に扱う）。
+ */
+function ubuntuTrackerStatus(json, packageName, codename) {
+  const pkgs = json && Array.isArray(json.packages) ? json.packages : [];
+  const pkg = pkgs.find((p) => p && p.name === packageName);
+  if (!pkg) return { status: null, description: "" };
+  const list = Array.isArray(pkg.statuses) ? pkg.statuses : [];
+  const st = list.find((s) => s && s.release_codename === codename);
+  if (!st) return { status: null, description: "" };
+  return { status: st.status || null, description: st.description || "" };
+}
+
+/**
+ * tracker の状態が「この環境（このリリース）には影響しない」を意味するか。
+ * - not-affected : upstream に CVE はあるが、そのリリースの版には混入していない
+ * - ignored ...  : 対象外（Ubuntu は Windows 専用を "ignored windows only" とする）
+ * "needed" / "pending" / "deferred" / "released" / "needs-triage" は対象（要対応）。
+ */
+function isUbuntuNotAffected(status) {
+  return /^(not-affected|ignored)\b/i.test(String(status || "").trim());
+}
+
+/** /etc/os-release の VERSION_CODENAME（noble 等）。取れなければ null。 */
+function detectUbuntuCodename() {
+  try {
+    const txt = fs.readFileSync("/etc/os-release", "utf8");
+    const m = txt.match(/^VERSION_CODENAME="?([A-Za-z]+)"?\s*$/m);
+    return m ? m[1] : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+/** 1 CVE 分の tracker を取得する。取得できない/記載が無い場合は throw（呼び出し側で fail-closed）。 */
+async function fetchUbuntuCveTracker(cve, opts) {
+  const o = opts || {};
+  const pkg = o.packageName || "php8.3";
+  const url = `${UBUNTU_CVE_API}/${encodeURIComponent(cve)}.json`;
+  const text = await fetchText(url, o.timeoutMs || 30000, { retries: 2 });
+  const json = JSON.parse(text);
+  const st = ubuntuTrackerStatus(json, pkg, o.codename);
+  if (!st.status) throw new Error(`tracker に ${pkg}/${o.codename} の記載がありません`);
+  return st;
+}
+
+/** tracker の結果（Promise.allSettled の配列）を「対象外」「要対応」に振り分ける（純関数）。 */
+function splitPhpTrackerView(missing, lookups) {
+  const actionable = [];
+  const excluded = [];
+  missing.forEach((cve, i) => {
+    const r = lookups[i] || { status: "rejected", reason: new Error("tracker の結果がありません") };
+    const info = r.status === "fulfilled"
+      ? (r.value || {})
+      : { status: null, error: (r.reason && r.reason.message) || "tracker 取得失敗" };
+    const st = info.status ? String(info.status) : "";
+    if (st && isUbuntuNotAffected(st)) excluded.push({ cve, status: st });
+    else actionable.push({ cve, status: st, error: info.error });
+  });
+  return { actionable, excluded };
+}
+
+/**
  * PHP 8.3: upstream の CVE 修正のうち、Ubuntu がバックポートしていないものを検出。
  * Ubuntu は upstream のバージョン文字列を固定して Debian リビジョンでバックポートするため、
  * バージョン比較ではなく「CVE の集合の包含関係」で判定する。
@@ -410,15 +477,45 @@ async function checkPhp(opts) {
   }
 
   const missing = Array.from(needed.keys()).filter((c) => !covered.has(c)).sort();
-  for (const cve of missing) {
+
+  // upstream の changelog に CVE がある = この環境に影響する、とは限らない。
+  // （Windows 専用の不具合や、noble の 8.3.6 には混入していない不具合がある。）
+  // Ubuntu の CVE トラッカーで「対象外」と判定されたものは info に落とし、
+  // 取得できなかったものは従来どおり critical に倒す（fail-closed）。
+  const codename = o.ubuntuCodename || detectUbuntuCodename();
+  const trackerStatus = o.trackerStatus || ((cve) => fetchUbuntuCveTracker(cve, {
+    packageName: PHP_UBUNTU_TARGET_PACKAGE, codename, timeoutMs: o.trackerTimeoutMs,
+  }));
+
+  // tracker は CVE ごとに独立なので並列に引く（ubuntu.com は応答が遅いことがあり、
+  // 直列だとタイムアウトが積み上がる）。1 件失敗しても他は活かす。
+  const lookups = await Promise.allSettled(missing.map((cve) => trackerStatus(cve)));
+  const { actionable, excluded } = splitPhpTrackerView(missing, lookups);
+
+  for (const { cve, status } of excluded) {
     const info = needed.get(cve);
+    findings.push(finding(`php:${cve}`, "info", "php",
+      `PHP 8.3: ${cve} は Ubuntu ${codename || ""} では対象外`,
+      `upstream ${info.version}（${info.date || "日付不明"}）に CVE があるが、Ubuntu tracker は "${status}" と判定しています（この環境には影響しません）。`));
+  }
+  for (const { cve, status, error } of actionable) {
+    const info = needed.get(cve);
+    const note = status
+      ? `Ubuntu tracker（${codename}）: ${status}`
+      : error
+        ? `Ubuntu tracker を確認できませんでした（${error}）`
+        : `Ubuntu tracker に ${PHP_UBUNTU_TARGET_PACKAGE}/${codename} の記載がありません`;
     findings.push(finding(`php:${cve}`, "critical", "php",
       `PHP 8.3: ${cve} が未適用`,
-      `upstream ${info.version}（${info.date || "日付不明"}）で修正。Ubuntu 側の changelog に未収録です。`));
+      `upstream ${info.version}（${info.date || "日付不明"}）で修正。Ubuntu 側の changelog に未収録です。${note}`));
   }
 
-  const status = missing.length ? "degraded" : "ok";
-  const summary = missing.length ? `要対応 ${missing.length} 件` : "対応済み";
+  const missingCount = actionable.length;
+  const status = missingCount ? "degraded" : "ok";
+  const excludedNote = excluded.length ? `（対象外 ${excluded.length} 件）` : "";
+  const summary = missingCount
+    ? `要対応 ${missingCount} 件${excludedNote}`
+    : `対応済み${excludedNote}`;
   return { source: "php", status, summary, findings };
 }
 
@@ -578,6 +675,11 @@ module.exports = {
   upstreamPhpBaseFromPackage,
   sortFindings,
   finding,
+  ubuntuTrackerStatus,
+  isUbuntuNotAffected,
+  splitPhpTrackerView,
+  detectUbuntuCodename,
+  fetchUbuntuCveTracker,
   checkNode,
   checkPhp,
   checkNpmAudit,
