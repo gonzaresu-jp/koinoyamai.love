@@ -149,6 +149,10 @@ class IOSHelper {
 
 // シングルトンとしてエクスポート
 const iosHelper = new IOSHelper();
+// クラシック script のトップレベル `const` は window に載らない。
+// バンドル（ES module）から確実に参照できるよう明示的に公開する（2026-10-23）。
+// ※ この公開が無いとガイドが「読まれるだけのデッドコード」のままになる。
+if (typeof window !== 'undefined') window.iosHelper = iosHelper;
 
 // デバッグ用
 console.log('[iOS Helper] 初期化完了:', iosHelper.getDebugInfo());

@@ -266,8 +266,23 @@ document.addEventListener('DOMContentLoaded', async () => {
           showLinked(false);
         } else {
           if ($toggleNotify.checked) {
+            // iOS: Web Push は「ホーム画面に追加したアプリ」でのみ使える（Apple 仕様・iOS 16.4+）。
+            // 案内（ios-helper.js）を出さないと「トグルが戻るだけ」になり、
+            // 利用者が理由を知れないままになる（2026-10-23 追加・以前は案内が未呼び出し）。
+            const helper = window.iosHelper;
+            if (helper && helper.isIOS) {
+              if (helper.isIOSChrome) {
+                alert("iOS の Chrome では通知登録はできません（ホーム画面追加も不可）。\nSafari でこのページを開いてから、もう一度お試しください。");
+                throw new Error("IOS_CHROME_UNSUPPORTED");
+              }
+              if (!helper.isPWA) {
+                helper.showInstallGuide();
+                throw new Error("IOS_PWA_REQUIRED");
+              }
+            }
             await initPush();
-            if (!(await savePlatformSettings())) throw new Error();
+            // message を空にすると alert が「理由が不明です」になる（サーバ保存失敗は最有力の失敗経路）
+            if (!(await savePlatformSettings())) throw new Error("通知設定の保存に失敗しました");
 
             const input = document.getElementById('subscriber-name-input');
             const name = input?.value?.trim();
@@ -279,8 +294,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             showLinked(false);
           }
         }
-      } catch {
+      } catch (e) {
         $toggleNotify.checked = false;
+        const reason = String((e && e.message) || "");
+        // iOS の案内モーダルを出している二重表示は避ける
+        if (reason === "IOS_PWA_REQUIRED" || reason === "IOS_CHROME_UNSUPPORTED") {
+          console.warn("[push] 通知登録を中断:", reason);
+        } else {
+          // 失敗を無言にすると「押したのに何も起きない」になる（iPhone で実際に報告された挙動）
+          console.error("[push] 通知登録に失敗:", e);
+          alert("通知を登録できませんでした。\n" + (reason || "理由が不明です") +
+            "\n\nもう一度お試しいただくか、ブラウザの通知許可設定を確認してください。");
+        }
       } finally {
         updatePlatformSettingsVisibility($toggleNotify.checked);
         updateToggleImage();
