@@ -33,7 +33,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
     "express-rate-limit": "^8.2.1",
-    "firebase-admin": "^12.7.0",
+    "firebase-admin": "^14.5.0",
     "google-auth-library": "^10.6.1",
     "googleapis": "^165.0.0",
     "helmet": "^8.1.0",
@@ -58,6 +58,7 @@
     "protobufjs@7.6.6": true,
     "puppeteer@24.43.1": true,
     "sqlite3@6.0.1": true,
-    "esbuild@0.28.2": true
+    "esbuild@0.28.2": true,
+    "@firebase/util@1.15.3": true
   }
 }
