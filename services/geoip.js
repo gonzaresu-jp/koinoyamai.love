@@ -17,8 +17,12 @@
  *   - 同じ IP の並行ルックアップは in-flight でまとめる。
  *
  * 失敗時は **fail-soft**（`cc: null` を返す）。ダッシュボードを壊さない。
+ *
+ * 型検査: TypeScript を入れずに `// @ts-check` + JSDoc で行う（2026-10-23 追加）。
+ * ビルドステップを増やさずに、編集時とエージェントに型を伝えるため。
  */
 
+// @ts-check
 const fs = require("fs");
 const path = require("path");
 const dns = require("dns").promises;
@@ -37,8 +41,23 @@ const CONCURRENCY = 5;
 const CACHE_LIMIT = 5000;
 const LOOKUP_LIMIT = 500;
 
+/**
+ * IP 1 件ぶんの解決結果（`at` はキャッシュ作成時刻）。
+ * @typedef {object} GeoInfo
+ * @property {string|null} cc    ISO 3166-1 alpha-2（不明は null）
+ * @property {string} country    日本語の国名（不明は「不明」/ ローカルは「ローカル」）
+ * @property {string|null} asn   "AS396982" 形式
+ * @property {string|null} org   組織名（Team Cymru の最終フィールド）
+ * @property {boolean} ok        国が判明したか
+ * @property {boolean} [private] ローカル/私有アドレス（問い合わせしていない）
+ * @property {number} [at]       解決時刻（UNIX ms）
+ */
+
+/** @type {Record<string, GeoInfo>|null} */
 let cache = null;
+/** @type {Map<string, Promise<GeoInfo>>} */
 const inflight = new Map();
+/** @type {Intl.DisplayNames|null} */
 let displayNames = null;
 
 function loadCache() {
@@ -83,6 +102,10 @@ function pruneCache() {
 }
 
 /** ローカル/私有アドレスは引かない（Tailscale・LAN・ループバック等） */
+/**
+ * @param {string} ip
+ * @returns {boolean}
+ */
 function isPrivateIp(ip) {
   const s = String(ip || "").toLowerCase();
   if (/^10\./.test(s) || /^127\./.test(s) || /^192\.168\./.test(s) || /^169\.254\./.test(s)) return true;
@@ -96,16 +119,22 @@ function isPrivateIp(ip) {
   return false;
 }
 
+/** @param {*} s @returns {boolean} */
 function isIPv4(s) {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(String(s || ""));
 }
 
+/** @param {*} s @returns {boolean} */
 function isIPv6(s) {
   const v = String(s || "");
   return v.includes(":") && /^[0-9a-f:.]+$/i.test(v.replace(/%.*$/, ""));
 }
 
 /** IPv6 を 8 グループに展開して 32 桁の nibble 文字列にする（失敗は null） */
+/**
+ * @param {string} ip
+ * @returns {string|null} 32 文字の nibble 列（不正は null）
+ */
 function ipv6Nibbles(ip) {
   let s = String(ip || "").toLowerCase().replace(/%.*$/, "");
   if (s.includes(".")) {
@@ -139,6 +168,10 @@ function originName(ip) {
   return null;
 }
 
+/**
+ * @param {string|null} cc
+ * @returns {string}
+ */
 function countryName(cc) {
   if (!cc) return "不明";
   try {
@@ -150,6 +183,10 @@ function countryName(cc) {
 }
 
 /** DNS TXT を 1 つ引く（タイムアウト・失敗は null） */
+/**
+ * @param {string} name
+ * @returns {Promise<string|null>} TXT が引けなければ null
+ */
 async function txt(name) {
   let timer = null;
   const timeout = new Promise((resolve) => {
@@ -166,6 +203,10 @@ async function txt(name) {
   }
 }
 
+/**
+ * @param {string} ip
+ * @returns {Promise<GeoInfo>}
+ */
 async function resolveOne(ip) {
   const at = Date.now();
   const unknown = { cc: null, country: "不明", asn: null, org: null, ok: false, at };
@@ -194,12 +235,18 @@ async function resolveOne(ip) {
  * @param {string} ip
  * @returns {Promise<{cc: string|null, country: string, asn: string|null, org: string|null, ok: boolean, private?: boolean}>}
  */
+/**
+ * IP を 1 つ引く（キャッシュ優先・fail-soft）。
+ * @param {string} ip
+ * @returns {Promise<GeoInfo>}
+ */
 async function lookup(ip) {
   const key = String(ip || "").trim();
   if (!key) return { cc: null, country: "不明", asn: null, org: null, ok: false };
   if (isPrivateIp(key)) {
     return { cc: null, country: "ローカル", asn: null, org: null, ok: false, private: true };
   }
+  /** @type {Record<string, GeoInfo>} */
   const c = loadCache();
   const hit = c[key];
   if (hit && Number.isFinite(hit.at)) {
@@ -243,6 +290,7 @@ async function lookupMany(ips, opts) {
   const uniq = [...new Set((ips || []).map((s) => String(s || "").trim()).filter(Boolean))].slice(0, limit);
   const out = new Map();
   let i = 0;
+  /** @type {Promise<Map<string, GeoInfo>>} */
   const run = (async () => {
     const workers = Array.from({ length: Math.max(1, Math.min(CONCURRENCY, uniq.length)) }, async () => {
       while (i < uniq.length) {

@@ -1002,6 +1002,29 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - **通知送信は `src/core/notify-sign.js` 経由**: `signNotifyPayload(secret, bodyString)` で**送信する生 JSON 文字列**に署名し
   `x-notify-hmac` + `x-notify-timestamp` を付与（`§3`, `§6.5`）。API 側は生ボディで検証・`timingSafeEqual`。`==` 比較に戻すな。
 - **fail-closed**: トークン/秘密が未設定なら認証系は 503/401 で閉じる（通すな）。
+- **外部入力は型と上限を検証してから使う（2026-10-23 追加）**: 共通ヘルパは **`lib/validate.js`**
+  （`str` / `num` / `bool` / `enumOf` / `arr` / `objKeys` / `httpUrl`・依存ゼロ・`ValidationError` を投げる）。
+  - 検証は **認証・HMAC 検証の後**に置くこと（前に置くと認証バイパスになる）。
+  - 実害の中心は「例外が出る」ことではなく **静かな失敗**。例: `/api/notify` の `data.title` が
+    数値だと sqlite3 のバインドがエラーになり、**記録も送信もされないまま `success` を返す**。
+    そこで違反は **400 で原因を返す**（`§5.2` の「壊れても気づけるように」と同じ考え方）。
+  - **未知キーは弾かない**（新フィールドを足すだけで既存経路を壊さないため）。既知フィールドの
+    **型と上限だけ**を検証する。上限は既存クライアントを妨げない値にする
+    （現行: `data.title` 500 / `data.body` 4000 / URL 系 2048 / `type`・`settingKey` 50）。
+  - 適用済み: `routes/notify.js`（`/api/notify` の `data`・`/api/internal/twitter/analysis` の長さ）、
+    `lib/admin.js`（ログイン入力・同名ヘッダが**配列**で来た場合）。
+  - 追加するときは `npm test` の `[14]` に「違反 → 400」「未知キー → 通す」の両方を固定すること。
+- **型は TypeScript を入れずに `// @ts-check` + JSDoc で持つ（2026-10-23 判断）**:
+  - **全面移行しない**。`webui/js`（13k 行）はバンドラー無しの直配信（CSP `script-src 'self'` +
+    `?v=filemtime`）、`scripts/`（6.5k 行）は cron が `NODE_BIN` で `node` 直実行、
+    `pi-vector-service` は 32bit Pi 向け依存ゼロ実装。ビルドステップを増やすと
+    「配信バイト == ディスクのバイト」（`§7.1`）と `check-drift` の前提が崩れる。
+  - 導入済み: `src/core/notify-sign.js` / `lib/admin.js` / `lib/validate.js` / `services/geoip.js`。
+    **回帰テストが `@ts-check` の存在と「TypeScript を依存に入れていない」を固定している**。
+  - 検証は開発時のみ `npx -p typescript tsc --noEmit --allowJs --checkJs --skipLibCheck`（依存は追加しない）。
+    `@types` を入れていないのでモジュール解決エラー（`TS2307`）は出るが、それ以外は実エラー。
+    引数の型違いは実際に検出される（2026-10-23 実測 3 件）。
+  - `services/notification.js` は `deps/2026-10-23-security`（依存更新）が触っているため**後追い**。
 - **PHP は「読まない・実行しない」を原則にする（2026-10-21 追加・`§5.1`）**:
   - **`$_POST` / `$_FILES` / `$_REQUEST` を読む PHP を書かない**。
     php-fpm は `enable_post_data_reading=Off`（pool の `php_admin_value`）で
@@ -1129,6 +1152,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 | デプロイ/検証の作法 | `AGENTS.md §7` / `docs/DEVELOPMENT-WORKFLOW.md` |
 | webui 構成/CSP/静的配信 | `docs/ARCHITECTURE.md §4.5` / `AGENTS.md §6.6` |
 | nginx への新ルート追加（例: `/display/`） | `AGENTS.md §6.9` / `docs/ARCHITECTURE.md §4.5b` / `docs/SECURITY.md` |
+| 外部入力の検証 / 型の部分導入（`@ts-check`） | `AGENTS.md §11` / `docs/ARCHITECTURE.md §4.4` |
 | アーカイブ API | `docs/ARCHIVE-ADMIN-SPEC.md` |
 | ハニーポットの可視化（管理画面タブ・集計 API・GeoIP） | `AGENTS.md §5.3` / `docs/ARCHITECTURE.md §4.2, §4.3` |
 | 予定抽出/スケジュール | `docs/SCHEDULE-FEATURES.md` |
@@ -1194,7 +1218,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-23（§5.3 ハニーポットの**可視化**を追加：管理画面「ハニーポット」タブ＋`GET /api/admin/honeypot`（`requireAuth`・公開ドメインは 403）・`services/honeypot-report.js`（honey.log を直接集計・**日次ローテートの .1/.gz も読む**・自機テスト除外・canary token はマスク・`previousCanaryPaths` も canary_used）・`services/geoip.js`（Team Cymru の DNS で国/ASN/組織名・IPv6 対応・JSON キャッシュ・合計 3 秒で打ち切り）・時刻は JST 固定 / §12 に更新先を追加）
+最終更新: 2026-10-23（§5.3 ハニーポットの**可視化**を追加：管理画面「ハニーポット」タブ＋`GET /api/admin/honeypot`（`requireAuth`・公開ドメインは 403）・`services/honeypot-report.js`（honey.log を直接集計・**日次ローテートの .1/.gz も読む**・自機テスト除外・canary token はマスク・`previousCanaryPaths` も canary_used）・`services/geoip.js`（Team Cymru の DNS で国/ASN/組織名・IPv6 対応・JSON キャッシュ・合計 3 秒で打ち切り）・時刻は JST 固定 / §12 に更新先を追加 / §11 外部入力の**境界バリデーション**（`lib/validate.js`・依存ゼロ）を導入し `/api/notify` の data と管理ログインに入れた（型違いは 400 で可視化・未知キーは通す）／型は **TypeScript を入れず `@ts-check` + JSDoc** で部分導入（notify-sign・admin・validate・geoip。`webui/js` はバンドラー無し・`scripts/` は cron 直実行・`pi-vector` は依存ゼロのため全面移行しない）)
 最終更新: 2026-10-22（§5.3 ハニーポット（偽物の秘密ファイル）を新設：scripts/security/honeypot-setup.sh で偽物を生成・scripts/nginx/apply-honeypot.sh で nginx に配信・scripts/security/honeypot-watch.js が取得/canary使用を通知 / §10.2 配信開始アラーム（Android v1.7.3）を新設：AlarmManager.setAlarmClock による端末内アラーム・exact alarm 権限・TZ 混在の扱い・標準アラームへの補助経路 / §5.1 PHP 実行時ハードニングを拡張：scripts/php/apply-php-hardening.sh（enable_post_data_reading=Off で multipart パーサ無効・ffi.enable=preload で FFI 迂回を塞ぐ・post_max_size 縮小）と scripts/php/verify-php-hardening.sh（実測検証）を追加／scripts/nginx/apply-php-exec-guard.sh で elza vhost の PHP 実行を 404 化／mbstring は意図的に未導入（webui/_mb.php で代替）／§11 に PHP の「読まない・実行しない」規約を追加／§5 のリリース時刻の誤記（23:00 UTC→14:00 UTC）を修正 / §5.1 PHP コアの緊急 RCE 期間の対応（メンテナンスモードで公開 PHP ページを 503 化・patch-and-resume.sh で復旧）を追加 / §5 Node.js を v24.22.1 に更新（2026-10-21 の security release）・パッチ版移行スクリプト scripts/deploy/migrate-node-patch.sh を追加（pm2 save 必須・旧 ~/migrate-*.sh は v24.22.0 固定で参照先ではない） / §6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
 最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10 待ちタイマーの連打による延長禁止（v1.8.5 / Issue #14）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）

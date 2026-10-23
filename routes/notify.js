@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const ctx = require("../services/context");
 const notif = require("../services/notification");
 const sse = require("../services/sse");
+const { isPlainObject, str, ValidationError } = require("../lib/validate");
 const { scheduleHistoryJsonUpdate } = require("../services/history");
 
 const notifyLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false, message: { error: "Too many notify requests, please try again later." } });
@@ -40,8 +41,41 @@ function register(app, db) {
     next();
   }
 
+  // 🔒 入力検証（fail-closed）。HMAC で「改ざんされていない」ことは保証されるが、
+  //  **型が想定と違う**入力は sqlite3 のバインドでエラーになり、記録も送信もされないまま
+  //  `success` を返す「静かな失敗」になる（通知というメイン機能が止まる）。
+  //  未知キーは弾かない（新フィールドを足すだけで壊れないようにするため）。
+  //  既知フィールドの**型と上限だけ**を検証し、違反は 400 で原因を返す。
+  const NOTIFY_TEXT_LIMITS = { title: 500, body: 4000, url: 2048, icon: 2048, image: 2048 };
+
   app.post("/api/notify", notifyLimiter, requireNotifyToken, verifyNotifyHmac, (req, res) => {
-    const { data, type, settingKey } = req.body;
+    let data;
+    let type;
+    let settingKey;
+    try {
+      const body = isPlainObject(req.body) ? req.body : {};
+      if (!isPlainObject(body.data)) throw new ValidationError("data must be an object");
+      data = { ...body.data };
+      type = str(body.type, { field: "type", min: 1, max: 50 });
+      settingKey = body.settingKey == null
+        ? null
+        : str(body.settingKey, { field: "settingKey", min: 1, max: 50 });
+      for (const [key, max] of Object.entries(NOTIFY_TEXT_LIMITS)) {
+        const v = data[key];
+        if (v == null) { data[key] = null; continue; } // 未指定は従来どおり null（送信側の仕様を変えない）
+        data[key] = str(v, { field: `data.${key}`, max });
+      }
+      // tweet_id は Twitter の snowflake が number で来る（文字列も許容）
+      if (data.tweet_id != null && typeof data.tweet_id !== "number" && typeof data.tweet_id !== "string") {
+        throw new ValidationError("data.tweet_id must be a string or a number");
+      }
+    } catch (e) {
+      if (e instanceof ValidationError) {
+        console.warn("[/api/notify] rejected:", e.message);
+        return res.status(400).json({ error: e.message });
+      }
+      throw e;
+    }
     if (!data || !type) return res.status(400).json({ error: "Missing data or type" });
     console.log("[/api/notify] Received:", { title: data.title, settingKey });
 
@@ -133,9 +167,19 @@ function register(app, db) {
   // twitter.js のgemmaPromiseから送信され、以降ツイート統計はログなしでこのカラムから集計できる。
   // 認証は /api/notify と同じ（トークン + HMAC 署名必須）で受ける。
   app.post("/api/internal/twitter/analysis", requireNotifyToken, verifyNotifyHmac, (req, res) => {
-    const { tweet_id, platform } = req.body || {};
-    const analysis = req.body?.analysis;
-    if (!tweet_id || !platform || !analysis || typeof analysis !== "object") {
+    const body = isPlainObject(req.body) ? req.body : {};
+    const analysis = body.analysis;
+    let tweet_id;
+    let platform;
+    try {
+      // 長さだけ検証（型は従来どおり。DB にそのまま入るので無制限は避ける）
+      tweet_id = str(String(body.tweet_id ?? ""), { field: "tweet_id", min: 1, max: 64 });
+      platform = str(body.platform, { field: "platform", min: 1, max: 50 });
+    } catch (e) {
+      if (e instanceof ValidationError) return res.status(400).json({ error: e.message });
+      throw e;
+    }
+    if (!analysis || typeof analysis !== "object" || Array.isArray(analysis)) {
       return res.status(400).json({ error: "tweet_id, platform, analysis required" });
     }
     db.run(

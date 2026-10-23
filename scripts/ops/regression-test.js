@@ -1118,6 +1118,107 @@ async function main() {
         /req\.query\.scope\s*===\s*"discord"\s*\?\s*16\s*:\s*4/.test(uploadSrc));
     }
 
+    // --- 14. 境界バリデーションと型検査の部分導入（2026-10-23 追加） ---
+    //  「JSON に型を書くだけでは検証していないのと同じ」。壊れる入力は 400 に倒して可視化する。
+    //  型は TypeScript を入れず `// @ts-check` + JSDoc で持つ（ビルドステップを増やさないため）。
+    console.log("\n[14] 境界バリデーションと型検査（@ts-check）");
+    {
+      const vTmp = fs.mkdtempSync(path.join(os.tmpdir(), "validate-"));
+      const v = require(path.join(projectDir, "lib", "validate.js"));
+      const throws = (fn) => { try { fn(); return false; } catch (e) { return e instanceof v.ValidationError; } };
+      ok("lib/validate.js: 文字列の型・長さ・トリムを検証する",
+        v.str("x", { field: "a", min: 1, max: 5 }) === "x" && v.str("  x ", { field: "a", trim: true }) === "x");
+      ok("lib/validate.js: 型が違う入力は ValidationError（数値・配列・null・boolean の混入）",
+        throws(() => v.str(123, { field: "a" })) && throws(() => v.str(null, { field: "a" })) &&
+        throws(() => v.num("10", { field: "a" })) && throws(() => v.bool("false", { field: "a" })) &&
+        throws(() => v.arr("x", { field: "a" })) && throws(() => v.enumOf("z", { field: "a", values: ["a", "b"] })));
+      ok("lib/validate.js: 長さ・範囲・整数・許可キー・http(s) のみ",
+        throws(() => v.str("xxxxx", { field: "a", max: 4 })) && throws(() => v.num(11, { field: "a", max: 10 })) &&
+        throws(() => v.num(1.5, { field: "a", int: true })) &&
+        throws(() => v.objKeys({ evil: 1 }, { field: "a", allowed: ["good"] })) &&
+        throws(() => v.httpUrl("javascript:alert(1)", { field: "u" })) &&
+        v.httpUrl("https://example.com/x", { field: "u" }) === "https://example.com/x");
+      ok("lib/validate.js: null 許容・既定値は指定どおり（送信側の仕様を変えないため）",
+        v.str(null, { field: "a", allowNull: true }) === null &&
+        v.num(undefined, { field: "a", default: 7 }) === 7 &&
+        v.enumOf(undefined, { field: "a", values: ["x"], default: "x" }) === "x");
+
+      // 14-2. /api/notify は HMAC 検証の**後**に型も検証する
+      //   （型違いを「認証失敗」として数えると、キーが合っているのに原因不明の失敗になる）
+      const sign = require(path.join(projectDir, "src", "core", "notify-sign.js")).signNotifyPayload;
+      const postNotify = async (payload) => {
+        const bodyStr = JSON.stringify(payload);
+        const signed = sign(HMAC_SECRET, bodyStr);
+        return request("POST", "/api/notify", {
+          headers: {
+            "x-notify-token": TOKEN,
+            "x-notify-hmac": signed.hmac,
+            "x-notify-timestamp": signed.timestamp,
+          },
+          body: bodyStr,
+        });
+      };
+      const rOk = await postNotify({ type: "regression", data: { title: "テスト", body: "b", url: "/x", tweet_id: 123 } });
+      ok("notify 検証: 整形済みペイロードは受理される（test env では抑制）",
+        rOk.status === 200 && rOk.json && rOk.json.suppressed === true, `status=${rOk.status} body=${rOk.raw && rOk.raw.slice(0, 80)}`);
+      const rExtra = await postNotify({ type: "regression", data: { title: "t", unknownNewField: "x" } });
+      ok("notify 検証: 未知のフィールドは弾かない（新フィールド追加を壊さないため）",
+        rExtra.status === 200, `status=${rExtra.status}`);
+      const rTitle = await postNotify({ type: "regression", data: { title: 123 } });
+      ok("notify 検証: title が文字列でなければ 400（DB バインドの静かな失敗を防ぐ）",
+        rTitle.status === 400 && /data\.title/.test(rTitle.raw || ""), `status=${rTitle.status} body=${rTitle.raw}`);
+      const rLong = await postNotify({ type: "regression", data: { title: "x".repeat(501) } });
+      ok("notify 検証: title が上限超過なら 400", rLong.status === 400, `status=${rLong.status}`);
+      const rType = await postNotify({ type: "x".repeat(51), data: { title: "t" } });
+      ok("notify 検証: type が上限超過なら 400", rType.status === 400, `status=${rType.status}`);
+      const rNoData = await postNotify({ type: "regression", data: [] });
+      ok("notify 検証: data がオブジェクトでなければ 400",
+        rNoData.status === 400 && /data must be an object/.test(rNoData.raw || ""), `status=${rNoData.status}`);
+      const rUnsigned = await (async () => {
+        const bodyStr = JSON.stringify({ type: "regression", data: { title: 123 } });
+        return request("POST", "/api/notify", {
+          headers: { "x-notify-token": TOKEN, "x-notify-hmac": "0".repeat(64), "x-notify-timestamp": String(Math.floor(Date.now() / 1000)) },
+          body: bodyStr,
+        });
+      })();
+      ok("notify 検証: HMAC 不一致は 401（検証の前後関係が保たれている）",
+        rUnsigned.status === 401, `status=${rUnsigned.status}`);
+
+      // 14-3. 管理ログインの入力（`req.body` は JSON 以外だと undefined）
+      const lNoBody = await request("POST", "/api/admin/login");
+      ok("admin login: ボディ無しは 500 ではなく 400",
+        lNoBody.status === 400, `status=${lNoBody.status}`);
+      const lBadType = await request("POST", "/api/admin/login", { body: { username: { $ne: "" }, password: "x" } });
+      ok("admin login: 型が違うボディは 400（型違いを「認証失敗」として数えない）",
+        lBadType.status === 400, `status=${lBadType.status}`);
+
+      // 14-4. 同名ヘッダが複数（Node は配列で返す）来ても 500 にならない
+      process.env.ADMIN_DB_PATH = path.join(vTmp, "admin-lib-test.db");
+      process.env.TRUST_PROXY = "true";
+      const adminLib = require(path.join(projectDir, "lib", "admin.js"));
+      ok("admin: X-Forwarded-For が配列でも壊れない（`.split()` で 500 にならない）",
+        adminLib.getClientIP({ headers: { "x-forwarded-for": ["1.2.3.4", "5.6.7.8"] }, socket: { remoteAddress: "9.9.9.9" } }) === "1.2.3.4");
+      ok("admin: ヘッダが無いときは remoteAddress に倒す",
+        adminLib.getClientIP({ headers: {}, socket: { remoteAddress: "9.9.9.9" } }) === "9.9.9.9");
+
+      // 14-5. 型検査は TypeScript を入れずに持つ（ビルド・デプロイ経路を変えない判断）
+      const pkg = JSON.parse(fs.readFileSync(path.join(projectDir, "package.json"), "utf8"));
+      const depNames = Object.keys({ ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) });
+      ok("型検査: TypeScript / tsx を依存に入れていない（ビルドステップを増やす判断をしない）",
+        !depNames.some((n) => ["typescript", "tsx", "ts-node", "ts-jest", "swc"].includes(n)),
+        depNames.filter((n) => /typescript|tsx|swc/.test(n)).join(",") || "なし");
+      for (const rel of ["lib/validate.js", "lib/admin.js", "src/core/notify-sign.js", "services/geoip.js"]) {
+        const src = fs.readFileSync(path.join(projectDir, rel), "utf8");
+        ok(`${rel}: @ts-check と JSDoc で型検査している`,
+          /\/\/ @ts-check/.test(src) && /@param|@returns|@property/.test(src));
+      }
+      ok("notify-sign.js: 署名対象の型を JSDoc で固定（JSON を作り直さないことの明文化）",
+        /SignedNotifyPayload/.test(fs.readFileSync(path.join(projectDir, "src", "core", "notify-sign.js"), "utf8")));
+      ok("型を書いたファイルが実際に型エラーを検出すること（構造の確認）",
+        fs.readFileSync(path.join(projectDir, "src", "core", "notify-sign.js"), "utf8").includes("@param {string|null|undefined} secret"));
+      try { fs.rmSync(vTmp, { recursive: true, force: true }); } catch (e) { /* best-effort */ }
+    }
+
     console.log(`\n結果: ${passed} passed, ${failed} failed`);
   } catch (e) {
     failed++;
