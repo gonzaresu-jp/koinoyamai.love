@@ -11,6 +11,22 @@
             const loginCta = document.getElementById('nav-login-cta');
             const logoutAvatar = document.getElementById('nav-logout-avatar');
 
+            // アバター画像が読めないとき（Google のホスト不通・Googleアカウントに
+            // プロフィール写真が無い・ファイル欠品など）は「壊れた画像アイコン」を
+            // 出さず、デフォルトアバター → 非表示 に倒す
+            function guardAvatar(img) {
+                img.addEventListener('error', () => {
+                    if (img.dataset.avatarFallback) {
+                        img.style.visibility = 'hidden';
+                        return;
+                    }
+                    img.dataset.avatarFallback = '1';
+                    img.src = '/default-avatar.webp';
+                });
+            }
+            if (avatar) guardAvatar(avatar);
+            if (logoutAvatar) guardAvatar(logoutAvatar);
+
             try {
                 const res = await fetch('/api/user/me', { credentials: 'include' });
 
