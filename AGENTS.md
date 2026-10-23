@@ -544,7 +544,7 @@
   `lib/` に移動（nginx の alias も同dir直配信のため、移動が必須）。
 - `/api/system-info` は公開（CPU%・メモリ%・loadavg・稼働時間・RSSのみ。**ホスト名/ディスク/OS詳細は返さない**）。status ページのリソース欄は誰でも閲覧可能。
 - `/api/ask`（公開）は 5回/分＋質問500文字上限。管理者用 `/api/admin/ask` は対象外。
-- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 229 項目・2026-10-23 時点）に接続済み。
+- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 234 項目・2026-10-23 時点）に接続済み。
 - pm2-logrotate 導入済み（20M・10世代・圧縮）。
 
 ## 6.7 admin は Tailnet 専用（2026-10-10 追加）
@@ -716,7 +716,7 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 - ステージ・コミット対象の `.js` に対し `node --check`
 - `.php` に対し `php -l`
 - アプリバージョンの3箇所整合（`scripts/ops/check-app-version.sh`・`SKIP_PREPUSH_VERSION=1` でスキップ可）
-- 回帰テスト `npm test`（229項目・2026-10-23 時点、約6秒）
+- 回帰テスト `npm test`（234項目・2026-10-23 時点、約6秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
 ### 7.4 staging/本番のドリフト検出
@@ -1241,7 +1241,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - [ ] 上の表に該当するドキュメントを更新した（該当なしなら不要）
 - [ ] ユーザーに見える変更なら `webui/updatelogs.php` を更新した（`lines` を `count-lines.sh` の実測値で）
 - [ ] `node --check <file>` / `php -l <file>`（pre-push でも自動実行, `§7.3`）
-- [ ] `npm test`（回帰テスト 229 項目）
+- [ ] `npm test`（回帰テスト 234 項目）
 - [ ] 本番操作の前に `bash scripts/deploy/assert-port.sh prod|staging`（`§7.2`）
 - [ ] 感度の高い変更なら PR＋別エージェントの独立レビューを通した（`§13`）
 - [ ] 秘密情報・DB・`webui/data` を不用意にコミットしていない
