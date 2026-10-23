@@ -1013,6 +1013,19 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     （現行: `data.title` 500 / `data.body` 4000 / URL 系 2048 / `type`・`settingKey` 50）。
   - 適用済み: `routes/notify.js`（`/api/notify` の `data`・`/api/internal/twitter/analysis` の長さ）、
     `lib/admin.js`（ログイン入力・同名ヘッダが**配列**で来た場合）。
+  - **SSRF 対策（push エンドポイント）**: web push は**クライアントが指定した URL へサーバーが POST する**。
+    `routes/subscriptions.js` の登録時と `services/notification.js` の**送信直前**の両方で
+    `publicHttpUrl()`（http/https かつ**公開ホスト**）を検証する。
+    拒否: loopback / private / link-local（`169.254.169.254` 含む）/ multicast / broadcast /
+    Tailscale（100.64/10）/ `localhost`・単一ラベル・`.local` 等。
+    ⚠️ **非 http（デスクトップアプリの `webview2://` 等）は従来どおり受理する**
+    （送信時にスキップされ HTTP は一切飛ばない。400 にすると WinUI 版が壊れる）。
+    ⚠️ 残る限界: ホスト名が公開 IP に**解決されるか**までは見ない（DNS rebinding）。
+    本番の登録 6 件は影響 0 件（http 4 件は公開 push サービス / 残り 2 件は `webview2://` の偽）。
+  - 併せて実施: `/api/android/send-test` に 5 回/分のレート制限（**無認証の FCM リレー化**を防ぐ）と
+    `deviceName` の型・上限検証 / OAuth エラー応答を `text/plain`（クエリを HTML にしない）/
+    YouTube webhook の不正 `published`（`new Date` は Invalid Date でも truthy → 24 時間フィルタを素通り）/
+    `routes/rag.js` の transcript 取得 `video_id` を書式検証 + `encodeURIComponent`。
   - 追加するときは `npm test` の `[14]` に「違反 → 400」「未知キー → 通す」の両方を固定すること。
 - **型は TypeScript を入れずに `// @ts-check` + JSDoc で持つ（2026-10-23 判断）**:
   - **全面移行しない**。`webui/js`（13k 行）はバンドラー無しの直配信（CSP `script-src 'self'` +

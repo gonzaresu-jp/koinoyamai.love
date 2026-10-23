@@ -22,6 +22,7 @@ const sendTestLimiter = rateLimit({
 
 function register(app, db, authLimiter) {
   const { parseAndMergePlatformSettings, sendPushNotification } = notif;
+  const { publicHttpUrl, ValidationError } = require("../lib/validate");
 
   app.post("/api/save-platform-settings", (req, res) => {
     const { clientId, subscription, settings } = req.body || {};
@@ -31,6 +32,22 @@ function register(app, db, authLimiter) {
     try { subscriptionJson = JSON.stringify(subscription); } catch (e) { return res.status(400).json({ error: "invalid subscription object" }); }
     const mergedSettings = settings ? parseAndMergePlatformSettings(settings) : { ...ctx.DEFAULT_PLATFORM_SETTINGS };
     const settingsJson = JSON.stringify(mergedSettings);
+    // 🔒 SSRF 対策（2026-10-23）: エンドポイントはクライアントが自由に指定でき、
+    //  サーバーがその URL へ POST する。内部 LAN / loopback / メタデータ宛を登録できると
+    //  「任意の内部 URL への POST + ステータスオラクル」になる。
+    //  **非 http（デスクトップアプリの webview2:// 等）は従来どおり受理する**
+    //  （送信時にスキップされ、HTTP は一切飛ばない。400 にするとデスクトップ版が壊れる）。
+    if (/^https?:\/\//i.test(String(subscription.endpoint))) {
+      try {
+        publicHttpUrl(subscription.endpoint, { field: "subscription.endpoint" });
+      } catch (e) {
+        if (e instanceof ValidationError) {
+          console.warn("[save-platform-settings] rejected non-public endpoint");
+          return res.status(400).json({ error: e.message });
+        }
+        throw e;
+      }
+    }
     const endpoint = subscription.endpoint;
     const upsertSql = "INSERT INTO subscriptions (client_id, endpoint, subscription_json, settings_json) VALUES (?, ?, ?, ?) ON CONFLICT(endpoint) DO UPDATE SET client_id = excluded.client_id, subscription_json = excluded.subscription_json, settings_json = excluded.settings_json";
     db.run(upsertSql, [clientId, endpoint, subscriptionJson, settingsJson], function (upsertErr) {

@@ -1218,6 +1218,78 @@ async function main() {
       }
       ok("notify-sign.js: 署名対象の型を JSDoc で固定（JSON を作り直さないことの明文化）",
         /SignedNotifyPayload/.test(fs.readFileSync(path.join(projectDir, "src", "core", "notify-sign.js"), "utf8")));
+      // 14-6. SSRF 対策: push エンドポイントは「公開ホスト」しか登録・送信できない
+      //   （web push はクライアントが指定した URL へサーバーが POST するため）
+      const routable = (u) => v.isRoutableHost(new URL(u).hostname);
+      ok("validate: 公開の push サービスは許可する",
+        v.publicHttpUrl("https://fcm.googleapis.com/fcm/send", { field: "u" }) === "https://fcm.googleapis.com/fcm/send" &&
+        routable("https://web.push.apple.com/x") && routable("https://updates.push.services.mozilla.com/x"));
+      ok("validate: loopback / プライベート / メタデータ / Tailscale は拒否する",
+        throws(() => v.publicHttpUrl("http://127.0.0.1:8080/api/notify", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://169.254.169.254/latest/meta-data/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://192.168.1.70:1700/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://10.0.0.5/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://172.16.0.9/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://100.65.152.57/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://[::1]/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://[fd00::1]/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://localhost/x", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://foo.local/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://224.0.0.1/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://255.255.255.255/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://0.0.0.0/", { field: "u" })));
+      ok("validate: 非 http（デスクトップアプリの偽エンドポイント）は httpUrl で拒否される",
+        throws(() => v.publicHttpUrl("webview2://fake", { field: "u" })) &&
+        v.isRoutableHost("100.128.0.1") === true); // CGNAT の外側は通す
+
+      // 14-7. 実サーバーでの挙動（登録時の SSRF 拒否 / デスクトップ用の非 http は通す）
+      const subPrivate = await request("POST", "/api/save-platform-settings", {
+        body: { clientId: "regression-ssrf", subscription: { endpoint: "http://127.0.0.1:8080/api/notify", keys: {} } },
+      });
+      ok("save-platform-settings: 内部 URL のエンドポイントは 400（SSRF）",
+        subPrivate.status === 400 && /public http/.test(subPrivate.raw || ""), `status=${subPrivate.status} body=${subPrivate.raw}`);
+      const subMeta = await request("POST", "/api/save-platform-settings", {
+        body: { clientId: "regression-ssrf", subscription: { endpoint: "http://169.254.169.254/latest/meta-data/", keys: {} } },
+      });
+      ok("save-platform-settings: クラウドメタデータ宛も 400（SSRF）", subMeta.status === 400, `status=${subMeta.status}`);
+      const subDesktop = await request("POST", "/api/save-platform-settings", {
+        body: { clientId: "regression-desktop", subscription: { endpoint: "webview2://regression", keys: {} } },
+      });
+      ok("save-platform-settings: デスクトップアプリの非 http エンドポイントは従来どおり受理する",
+        subDesktop.status === 200, `status=${subDesktop.status} body=${subDesktop.raw}`);
+      const subPublic = await request("POST", "/api/save-platform-settings", {
+        body: { clientId: "regression-public", subscription: { endpoint: "https://fcm.googleapis.com/fcm/regression", keys: {} } },
+      });
+      ok("save-platform-settings: 公開の push サービスは受理する", subPublic.status === 200, `status=${subPublic.status}`);
+
+      // 14-8. OAuth のエラー応答を HTML として返さない（無認証で到達できる）
+      const oauthErr = await request("GET", "/auth/discord/callback?error=access_denied&error_description=%3Cscript%3Ealert(1)%3C/script%3E");
+      ok("user-auth: OAuth エラーは text/plain で、クエリを HTML にしない",
+        oauthErr.status === 400 &&
+        String(oauthErr.headers["content-type"] || "").startsWith("text/plain") &&
+        !/<script>/i.test(oauthErr.raw || ""),
+        `status=${oauthErr.status} ct=${oauthErr.headers["content-type"]} body=${(oauthErr.raw || "").slice(0, 60)}`);
+
+      // 14-9. 無認証の FCM リレー化を防ぐ（send-test にレート制限）
+      const sendTestPath = path.join(projectDir, "routes", "android.js");
+      ok("android: /api/android/send-test にレート制限がある",
+        /app\.post\("\/api\/android\/send-test",\s*androidSendTestLimiter/.test(fs.readFileSync(sendTestPath, "utf8")));
+      ok("android: deviceName を型と上限で検証している",
+        /str\(deviceName, \{ field: "deviceName", max: 100/.test(fs.readFileSync(sendTestPath, "utf8")));
+
+      // 14-10. その他の境界（ソースの不変条件）
+      ok("youtube webhook: 不正な published（Invalid Date）を 24時間フィルタで受けない",
+        /Number\.isNaN\(publishedDate\.getTime\(\)\)/.test(
+          fs.readFileSync(path.join(projectDir, "src", "scrapers", "youtube.js"), "utf8")));
+      ok("rag: transcript 取得の video_id を書式検証 + encodeURIComponent する（他ルートと整合）",
+        (() => {
+          const src = fs.readFileSync(path.join(projectDir, "routes", "rag.js"), "utf8");
+          return /VIDEO_ID_RE\.test\(String\(vid\)\)/.test(src) && /encodeURIComponent\(String\(vid\)\)/.test(src);
+        })());
+      ok("notification: 送信直前にも公開ホストを検証する（登録後の迂回を塞ぐ）",
+        /publicHttpUrl\(subscription\.endpoint/.test(
+          fs.readFileSync(path.join(projectDir, "services", "notification.js"), "utf8")));
+
       ok("型を書いたファイルが実際に型エラーを検出すること（構造の確認）",
         fs.readFileSync(path.join(projectDir, "src", "core", "notify-sign.js"), "utf8").includes("@param {string|null|undefined} secret"));
     }
