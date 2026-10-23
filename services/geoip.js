@@ -61,6 +61,18 @@ function saveCache() {
   } catch (e) { /* キャッシュは best-effort（失敗しても問い合わせは続く） */ }
 }
 
+// 1 IP ごとに全キャッシュ（最大 5000 件）を同期フルライトすると、API のイベントループ
+// （通知と同居）を塞ぐ。1 秒に 1 回へ間引く（プロセスが落ちたら書き込みは失われるだけ）。
+let saveTimer = null;
+function saveCacheSoon() {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    saveCache();
+  }, 1000);
+  if (saveTimer.unref) saveTimer.unref();
+}
+
 function pruneCache() {
   const keys = Object.keys(cache);
   if (keys.length <= CACHE_LIMIT) return;
@@ -199,7 +211,7 @@ async function lookup(ip) {
     .then((v) => {
       cache[key] = v;
       pruneCache();
-      saveCache();
+      saveCacheSoon();
       inflight.delete(key);
       return { ...v };
     })

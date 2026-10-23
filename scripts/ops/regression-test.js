@@ -872,9 +872,121 @@ async function main() {
         d.recent.every((r) => !r.path.includes("abc123")) &&
         d.topPaths.every((p) => !p.path.includes("abc123")),
         d.recent.map((r) => r.path).join(","));
-      ok("honeypot-report: 日別を期間の全日で 0 埋めする",
-        d.byDay.length === 7 && d.byDay.every((x) => typeof x.events === "number"));
+      ok("honeypot-report: 日別を期間の全日で 0 埋めする（データを隠さない）",
+        (d.byDay.length === 7 || d.byDay.length === 8) &&
+        d.byDay.every((x) => typeof x.events === "number" && /^\d{4}-\d{2}-\d{2}$/.test(x.date)) &&
+        d.byDay[d.byDay.length - 1].date === "2026-10-23",
+        `${d.byDay.length} 日: ${d.byDay.map((x) => x.date).join(",")}`);
+
+      // 7 日窓の境界（カレンダー上は 8 日目）のイベントも落とさない
+      fs.writeFileSync(logFile, line("2026-10-16T13:00:00+09:00", "127.0.0.1", "203.0.113.30",
+        "203.0.113.30", 200, "/.env", "BOUNDARY") + "\n");
+      const dB = await hpReport.collect({ days: 7, logPath: logFile, canaryStatePath: canaryFile, now, geoLookup: fakeGeo });
+      ok("honeypot-report: 7 日窓の境界（8 日目）のイベントも集計から落とさない",
+        dB.totals.events === 1 && dB.byDay.length === 8 && dB.byDay[0].date === "2026-10-16",
+        `events=${dB.totals.events} byDay=${dB.byDay.length} first=${dB.byDay[0] && dB.byDay[0].date}`);
+
+      // ローテート前の canary token も watcher と同じく「使用」と判定する
+      fs.writeFileSync(canaryFile, JSON.stringify({
+        token: "newtok", canaryPath: "/_canary/newtok", previousCanaryPaths: ["/_canary/oldtok"],
+      }));
+      fs.writeFileSync(logFile, line("2026-10-23T10:05:00+09:00", "127.0.0.1", "203.0.113.31",
+        "203.0.113.31", 204, "/_canary/oldtok", "curl/8.0") + "\n");
+      const dOld = await hpReport.collect({ days: 7, logPath: logFile, canaryStatePath: canaryFile, now, geoLookup: fakeGeo });
+      ok("honeypot-report: ローテート前の canary token も canary_used（watcher と揃える）",
+        dOld.totals.canaryUsed === 1 && dOld.totals.canaryScans === 0 && dOld.totals.stolen === 0,
+        JSON.stringify(dOld.totals));
+
+      // ローテート済みログ（.1 / .2.gz）も読む（日次ローテートで 7/30/90 日が実質 1 日にならない）
+      const rotDir = path.join(tmp, "rot");
+      fs.mkdirSync(rotDir, { recursive: true });
+      const rot = path.join(rotDir, "honey.log");
+      fs.writeFileSync(`${rot}.2.gz`, require("zlib").gzipSync(
+        line("2026-10-21T10:00:00+09:00", "127.0.0.1", "203.0.113.40", "203.0.113.40", 200, "/.env", "Z") + "\n"));
+      fs.writeFileSync(`${rot}.1`,
+        line("2026-10-22T10:00:00+09:00", "127.0.0.1", "203.0.113.41", "203.0.113.41", 200, "/.env", "Y") + "\n");
+      fs.writeFileSync(rot,
+        line("2026-10-23T10:00:00+09:00", "127.0.0.1", "203.0.113.42", "203.0.113.42", 200, "/.env", "X") + "\n");
+      const dRot = await hpReport.collect({ days: 7, logPath: rot, canaryStatePath: canaryFile, now, geoLookup: fakeGeo });
+      ok("honeypot-report: ローテート済みログ（.1 / .2.gz）も読む",
+        dRot.totals.events === 3 && dRot.byDay.slice(-3).map((x) => x.events).join(",") === "1,1,1",
+        `events=${dRot.totals.events} byDay=${dRot.byDay.map((x) => x.events).join(",")}`);
+
+      // パース: uri の実空白・UA の \xHH エスケープ
+      const spaced = hpReport.parseLine('2026-10-23T10:00:00+09:00 ip=127.0.0.1 cf=203.0.113.5 xff="203.0.113.5" st=404 uri=/a b bytes=10 req="GET /a%20b HTTP/1.1" ref="-" ua="x"');
+      ok("honeypot-report: uri に実空白があってもパースできる（攻撃者が記録を落とせない）",
+        !!spaced && spaced.path === "/a b" && spaced.status === 404 && spaced.ua === "x",
+        JSON.stringify(spaced));
+      const escLine = hpReport.parseLine('2026-10-23T10:00:00+09:00 ip=127.0.0.1 cf=203.0.113.5 xff="-" st=200 uri=/.env bytes=10 req="GET /.env HTTP/1.1" ref="-" ua="Mozilla \\x22q\\x22 end"');
+      ok('honeypot-report: nginx の \\x22 エスケープを戻す（UA を正しく表示）',
+        !!escLine && escLine.ua === 'Mozilla "q" end', escLine && escLine.ua);
       try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) { /* best-effort */ }
+    }
+
+    // 11-12b. 管理画面 JS（時刻の TZ・XSS・異常時の表示）
+    const hpJs = fs.readFileSync(path.join(projectDir, "webui", "js", "admin-honeypot.js"), "utf8");
+    ok("admin-honeypot.js: 時刻は JST 固定（端末の TZ に依存させない）",
+      /timeZone:\s*"Asia\/Tokyo"/.test(hpJs) && /hourCycle:\s*"h23"/.test(hpJs));
+    ok("admin-honeypot.js: 攻撃者が制御できる値は esc() を通す（XSS 防止）",
+      /function esc\(/.test(hpJs) && /esc\(r\.path\)/.test(hpJs) &&
+      /esc\(r\.ua\)/.test(hpJs) && /esc\(r\.ip\)/.test(hpJs));
+    ok("admin-honeypot.js: ログが読めない時に黙って「アクセスなし」にしない",
+      /logPresent/.test(hpJs) && /canaryConfigured/.test(hpJs) && /skipped/.test(hpJs));
+
+    // 11-12c. スタブ DOM で実際に描画し、例外・XSS・TZ を挙動で確認する（文字列検査だけでは不十分）
+    {
+      const hpJsPath = path.join(projectDir, "webui", "js", "admin-honeypot.js");
+      const fixture = {
+        ok: true, days: 7, generatedAt: "2026-10-23T01:00:00.000Z",
+        source: {
+          logPresent: true, logLines: 1, selfTests: 0, skipped: 0, events: 1,
+          firstSeen: "2026-10-22T03:58:43.000Z", lastSeen: "2026-10-23T01:00:39.000Z",
+        },
+        totals: { events: 1, stolen: 1, canaryUsed: 0, probe: 0, canaryScans: 0, ips: 1, countries: 1, canaryConfigured: true },
+        byCountry: [{ cc: "US", country: "アメリカ合衆国<img src=x>", events: 1, stolen: 1, canaryUsed: 0, probe: 0, ips: 1, orgs: [{ org: "<b>x</b>", n: 1 }] }],
+        byDay: [
+          { date: "2026-10-22", events: 1, stolen: 1, canaryUsed: 0, probe: 0 },
+          { date: "2026-10-23", events: 0, stolen: 0, canaryUsed: 0, probe: 0 },
+        ],
+        topIps: [], topPaths: [{ path: "/.env<img src=x>", events: 1, stolen: 1, canaryUsed: 0, probe: 0 }],
+        recent: [{
+          time: "2026-10-23T10:00:00+09:00", ip: "<img src=x>", cc: "US", country: "<img>",
+          asn: "AS1", org: "<b>", kind: "stolen", status: 200, path: "/.env<img src=x>",
+          ua: "<script>alert(1)</script>",
+        }],
+        note: "note",
+      };
+      const el = { innerHTML: "", querySelectorAll: () => [], addEventListener: () => {} };
+      const saved = { document: global.document, fetch: global.fetch, setInterval: global.setInterval, set: null };
+      global.document = {
+        getElementById: () => el,
+        querySelectorAll: () => [],
+        querySelector: () => ({ classList: { contains: () => false } }),
+        hidden: false,
+      };
+      global.fetch = async () => ({ ok: true, status: 200, json: async () => fixture });
+      global.setInterval = () => 0;
+      let renderError = null;
+      try {
+        delete require.cache[require.resolve(hpJsPath)];
+        require(hpJsPath);
+        await sleep(50);
+      } catch (e) {
+        renderError = e;
+      } finally {
+        const out = el.innerHTML;
+        global.document = saved.document;
+        global.fetch = saved.fetch;
+        global.setInterval = saved.setInterval;
+        try { delete require.cache[require.resolve(hpJsPath)]; } catch (e) { /* best-effort */ }
+        ok("admin-honeypot.js: スタブ DOM で例外なく描画し、攻撃者の文字列を esc する",
+          !renderError && out.length > 500 &&
+          !/<\/?img\b/i.test(out) && !/<script/i.test(out) && out.includes("&lt;img"),
+          renderError ? renderError.message : `len=${out.length}`);
+        // firstSeen は UTC ISO（03:58Z）→ JST 12:58 で出る（端末 TZ 非依存）
+        ok("admin-honeypot.js: 期間表示が JST になる（UTC のまま出さない）",
+          /期間内 10\/22 12:58/.test(out), (out.match(/期間内 [^<]{6,40}/) || ["none"])[0]);
+      }
     }
 
     // 11-13. geoip（DNS 方式・外部 DB 不要）の不変条件

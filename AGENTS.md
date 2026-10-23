@@ -425,25 +425,36 @@
     `X-Forwarded-For` は攻撃者が set できるので表示には**使わない**
 - **可視化（管理画面「ハニーポット」タブ・2026-10-23 追加）**:
   - 入口は**管理画面のみ**（`https://elza.poitou-mora.ts.net/admin.html` → 「ハニーポット」タブ）。
-    API は `GET /api/admin/honeypot?days=7|30|90`（`requireAuth`）。
+    API は `GET /api/admin/honeypot?days=N`（`requireAuth`。N は 1〜90・既定 7。UI は 24時間/7日/30日/90日）。
   - **公開エンドポイントには IP・UA・国を出さない**（本節冒頭の原則）。`/api/admin/` 配下は
     公開ドメインで nginx が 403（§6.7）なので、tailnet 以外からは取得できない。
   - データ源は **`/var/log/nginx/honey.log` を直接解析**（`services/honeypot-report.js`）。
     ハニー location 専用ログなので、ここにある行はすべてハニーへのアクセス。
     自機テスト（`ip=127.0.0.1` かつ `cf=-` かつ `xff=-`）は除外（watcher と同じ規則）。
+  - **日次ローテートを跨いで読む**: `honey.log` は `logrotate`（`daily` / `rotate 14` /
+    `delaycompress`）で回るため、**`.1` と `.2.gz`〜 も読む**。現行ファイルだけだと
+    「7日 / 30日 / 90日」が**実質 24 時間**になる（レビュー指摘）。
+    **保持は最大 14 日**（`rotate 14`）。それより前は見えない（長期傾向は通知履歴側で見る）。
+  - canary は **`previousCanaryPaths`（ローテート前の token）も「使用」と判定**する
+    （`honeypot-watch.js` と同じ）。ここがずれると「Discord は重大で鳴るのに画面は 0 件」になる。
   - 国・ASN・組織名は **Team Cymru の DNS**（`<rev>.origin.asn.cymru.com` / IPv6 は `origin6`）で
     解決する（`services/geoip.js`）。**GeoIP の .mmdb も CLI も不要**で、外部 HTTP API に IP を送らない。
     キャッシュは `data/geoip-cache.json`（成功 30 日 / 不明 1 時間）。失敗しても `cc: null`（「不明」）で返す。
   - **大量 IP で API を固めない**: 頻度順に最大 500 IP・合計 3 秒で打ち切り、未解決分は
     次の取得（60 秒ごと）で埋まる。
-  - **`honey.log` のローテートより前の期間は見えない**（保持期間内のみ）。長期傾向は通知履歴側で見る。
-  - 表示: 総ヒット / 取得（stolen）/ canary 使用 / 偵察 / ユニーク IP / 国数、国別（旗・組織名）、
-    日別の推移、狙われたパス、直近 200 件（時刻・国・IP・組織・種別・パス・status・UA）。
+  - 表示: 総ヒット / 取得（stolen）/ canary 使用 / 偵察 / ユニーク IP / 国数（**判明分のみ**。不明は国に数えない）、
+    国別（旗・組織名）、日別の推移、狙われたパス、直近 200 件（時刻・国・IP・組織・種別・パス・status・UA）。
+    時刻は**JST 固定**（`Intl` の `timeZone: "Asia/Tokyo"`。端末 TZ に依存させない）。
+  - **ログが読めない・パースできない・canary 状態が無い**ときは、画面に警告を出す
+    （黙って「アクセスなし」にすると監視が死んでも気づけない）。
   - **canary の token は UI に出さない**（`/_canary/***` にマスク。スクショ共有時の漏洩防止）。
   - UA は攻撃者が自由に設定できるが、**パースは固定フィールドを先頭から読む**ので、
     UA に `st=200 uri=/.env` を混ぜても分類は騙されない（回帰テストで固定）。
   - 管理画面の JS は `webui/js/admin-honeypot.js`（外部 CDN 不使用・CSP `script-src 'self'` 準拠）。
-    攻撃者が制御できるパス/UA を描画するため、**必ず `esc()` を通す**（XSS 防止）。
+    攻撃者が制御できるパス/UA/IP を描画するため、**必ず `esc()` を通す**（XSS 防止）。
+  - 任意 env（未設定で既定値）: `HONEY_LOG_PATH`（`/var/log/nginx/honey.log`）/
+    `HONEY_CANARY_STATE`（`data/honeypot-canary.json`）/ `GEOIP_CACHE_FILE`（`data/geoip-cache.json`）/
+    `GEOIP_TIMEOUT_MS`（1200）/ `GEOIP_BUDGET_MS`（3000）。
 
 - **安全の鉄則**:
   - 偽物の中身は**必ず偽**。実物の `.env`・鍵・DB を絶対に置かない
@@ -1183,7 +1194,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
-最終更新: 2026-10-23（§5.3 ハニーポットの**可視化**を追加：管理画面「ハニーポット」タブ＋`GET /api/admin/honeypot`（`requireAuth`・公開ドメインは 403）・`services/honeypot-report.js`（honey.log を直接集計・自機テスト除外・canary token はマスク）・`services/geoip.js`（Team Cymru の DNS で国/ASN/組織名・IPv6 対応・JSON キャッシュ・合計 3 秒で打ち切り） / §12 に更新先を追加）
+最終更新: 2026-10-23（§5.3 ハニーポットの**可視化**を追加：管理画面「ハニーポット」タブ＋`GET /api/admin/honeypot`（`requireAuth`・公開ドメインは 403）・`services/honeypot-report.js`（honey.log を直接集計・**日次ローテートの .1/.gz も読む**・自機テスト除外・canary token はマスク・`previousCanaryPaths` も canary_used）・`services/geoip.js`（Team Cymru の DNS で国/ASN/組織名・IPv6 対応・JSON キャッシュ・合計 3 秒で打ち切り）・時刻は JST 固定 / §12 に更新先を追加）
 最終更新: 2026-10-22（§5.3 ハニーポット（偽物の秘密ファイル）を新設：scripts/security/honeypot-setup.sh で偽物を生成・scripts/nginx/apply-honeypot.sh で nginx に配信・scripts/security/honeypot-watch.js が取得/canary使用を通知 / §10.2 配信開始アラーム（Android v1.7.3）を新設：AlarmManager.setAlarmClock による端末内アラーム・exact alarm 権限・TZ 混在の扱い・標準アラームへの補助経路 / §5.1 PHP 実行時ハードニングを拡張：scripts/php/apply-php-hardening.sh（enable_post_data_reading=Off で multipart パーサ無効・ffi.enable=preload で FFI 迂回を塞ぐ・post_max_size 縮小）と scripts/php/verify-php-hardening.sh（実測検証）を追加／scripts/nginx/apply-php-exec-guard.sh で elza vhost の PHP 実行を 404 化／mbstring は意図的に未導入（webui/_mb.php で代替）／§11 に PHP の「読まない・実行しない」規約を追加／§5 のリリース時刻の誤記（23:00 UTC→14:00 UTC）を修正 / §5.1 PHP コアの緊急 RCE 期間の対応（メンテナンスモードで公開 PHP ページを 503 化・patch-and-resume.sh で復旧）を追加 / §5 Node.js を v24.22.1 に更新（2026-10-21 の security release）・パッチ版移行スクリプト scripts/deploy/migrate-node-patch.sh を追加（pm2 save 必須・旧 ~/migrate-*.sh は v24.22.0 固定で参照先ではない） / §6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
 最終更新: 2026-10-20（§7.1 ファイル権限検査を追記（umask 077 の pull で php が 500）/ §10 UI コールバックの例外境界ルールを追記（Issue #10）/ §10 待ちタイマーの連打による延長禁止（v1.8.5 / Issue #14）/ §10.1 アプリリリース手順を追記：Windows publish→Inno Setup／Android はネットワークドライブで gradle ビルド不可＝ローカルへコピー / §7.1 verify-deploy の比較元を :1717 へ・§7.4 staging worktree の自動解決）
 最終更新: 2026-10-19（§11 規約・§12 更新ルール・§13 GitHub運用を追記 / docs/ARCHITECTURE.md 新設 / main 保護設定）

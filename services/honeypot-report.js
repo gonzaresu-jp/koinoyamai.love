@@ -16,24 +16,31 @@
  *
  * データ源: `/var/log/nginx/honey.log`（ハニー location 専用のログ）
  *   - ハニー location だけがこのログに書くので、ここにある行は**すべてハニーへのアクセス**。
+ *   - ログは日次ローテートされる（`rotate 14` / `delaycompress`）ため、
+ *     **`honey.log.1` と `honey.log.N.gz` も読む**（現行ファイルだけだと 7/30/90 日指定が
+ *     実質 24 時間になる）。
  *   - 自機テスト（`ip=127.0.0.1` かつ `cf=-` かつ `xff=-`）は除外する（watcher と同じ規則）。
  *   - 国・ASN・組織名は `services/geoip.js`（Team Cymru の DNS）で解決してキャッシュする。
  *
  * 分類（watcher と同じ意味）:
- *   - `canary_used`: 偽物に埋め込んだ追跡 URL（`/_canary/<token>`）へのアクセス＝窃取確定
+ *   - `canary_used`: 偽物に埋め込んだ追跡 URL（`/_canary/<token>`）へのアクセス＝窃取確定。
+ *     **ローテート前の token（`previousCanaryPaths`）も同じ**（watcher と揃える）。
  *   - `stolen`     : 偽物が 200 で取得された
  *   - `probe`      : それ以外（404 の偵察・204 の `/_canary/` 探査など）
  */
 
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
 const geoip = require("./geoip");
 
 const LOG_PATH = process.env.HONEY_LOG_PATH || "/var/log/nginx/honey.log";
 const CANARY_STATE = process.env.HONEY_CANARY_STATE
   || path.join(__dirname, "..", "data", "honeypot-canary.json");
+const MAX_FILES = 16; // 現行 + .1 ... （logrotate は rotate 14）
+const MAX_TOTAL_BYTES = 8 * 1024 * 1024;
 const MAX_LINES = 20000;
-const MAX_READ_BYTES = 4 * 1024 * 1024;
+const MAX_UA_CHARS = 500;
 const RECENT_LIMIT = 200;
 const TOP_IPS = 20;
 const TOP_PATHS = 15;
@@ -45,11 +52,19 @@ const GEO_BUDGET_MS = 3000;
 
 // 固定フィールドは UA より前にある。**先頭から固定順に**読むことで、
 // UA に `st=500` などを紛れ込ませたログでも騙されない（watcher と同じ考え方）。
-const PREFIX_RE = /^(\S+) ip=(\S+) cf=(\S+) xff="((?:[^"\\]|\\.)*)" st=(\d{3}) uri=(\S+) bytes=(\d+) /;
+// `uri` は `$uri`（デコード済み）なので実空白を含み得る → ` bytes=` の手前までを取る。
+const PREFIX_RE = /^(\S+) ip=(\S+) cf=(\S+) xff="((?:[^"\\]|\\.)*)" st=(\d{3}) uri=(.+?) bytes=(\d+) /;
 const UA_RE = /\bua="((?:[^"\\]|\\.)*)"\s*$/;
 
+/**
+ * nginx のログエスケープを戻す。
+ * `escape=default` では `"` や制御文字が `\xHH` になる（`\"` 形式でも来る）。
+ */
 function unescapeLogValue(s) {
-  return String(s || "").replace(/\\(.)/g, "$1");
+  return String(s || "")
+    .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\"/g, "\"")
+    .replace(/\\\\/g, "\\");
 }
 
 /** honeyfmt の 1 行をパースする（パースできなければ null） */
@@ -59,6 +74,7 @@ function parseLine(line) {
   const ua = UA_RE.exec(line);
   let pathname = m[6];
   try { pathname = decodeURIComponent(pathname); } catch (e) { /* 生のまま */ }
+  const clip = (s) => (s.length > MAX_UA_CHARS ? s.slice(0, MAX_UA_CHARS) + "…" : s);
   return {
     time: m[1],
     remote: m[2],
@@ -67,16 +83,34 @@ function parseLine(line) {
     status: Number(m[5]),
     path: pathname,
     bytes: Number(m[7]),
-    ua: unescapeLogValue(ua ? ua[1] : ""),
+    ua: clip(unescapeLogValue(ua ? ua[1] : "")),
   };
 }
 
-/** ログの末尾を最大 maxLines 行読む（巨大化しても全体をメモリに載せない） */
-function readTail(file, maxLines) {
+/** ローテート済み（`.1`, `.2.gz`, …）を含むログファイル一覧を**古い順**で返す */
+function expandLogFiles(base) {
+  const out = [];
+  for (let i = MAX_FILES - 1; i >= 1; i -= 1) {
+    for (const cand of [`${base}.${i}.gz`, `${base}.${i}`]) {
+      if (fs.existsSync(cand)) { out.push(cand); break; }
+    }
+  }
+  out.push(base);
+  return out;
+}
+
+/**
+ * 1 ファイル読む。巨大な現行ログは末尾だけ読む。
+ * @returns {{text: string, partial: boolean}|null}
+ */
+function readOneFile(file, st, maxBytes) {
   try {
-    const st = fs.statSync(file);
-    if (!st.isFile() || st.size === 0) return { lines: [], present: false };
-    const bytes = Math.min(st.size, MAX_READ_BYTES);
+    if (file.endsWith(".gz")) {
+      if (st.size > maxBytes) return null; // 圧縮ファイルは先頭から解凍する必要があるため上限で諦める
+      const text = zlib.gunzipSync(fs.readFileSync(file)).toString("utf8");
+      return { text, partial: false };
+    }
+    const bytes = Math.min(st.size, maxBytes);
     const buf = Buffer.alloc(bytes);
     const fd = fs.openSync(file, "r");
     try {
@@ -84,21 +118,23 @@ function readTail(file, maxLines) {
     } finally {
       fs.closeSync(fd);
     }
-    let lines = buf.toString("utf8").split("\n").filter(Boolean);
-    if (bytes < st.size) lines = lines.slice(1); // 先頭は途中で切れている
-    return { lines: lines.slice(-maxLines), present: true };
+    return { text: buf.toString("utf8"), partial: bytes < st.size };
   } catch (e) {
-    return { lines: [], present: false, error: e.code || e.message };
+    return null;
   }
 }
 
-function readCanaryPath(file) {
+function readCanaryPaths(file) {
   try {
     const st = JSON.parse(fs.readFileSync(file, "utf8"));
-    const p = String((st && (st.canaryPath || st.canary_path)) || "");
-    return p.startsWith("/_canary/") ? p : null;
+    const list = [];
+    if (st && st.canaryPath) list.push(String(st.canaryPath));
+    if (st && Array.isArray(st.previousCanaryPaths)) {
+      for (const p of st.previousCanaryPaths) if (p) list.push(String(p));
+    }
+    return [...new Set(list)].filter((p) => p.startsWith("/_canary/"));
   } catch (e) {
-    return null;
+    return [];
   }
 }
 
@@ -107,8 +143,10 @@ function maskCanary(pathname) {
   return String(pathname || "").replace(/^\/_canary\/[^/]+/, "/_canary/***");
 }
 
-function classify(pathname, status, canaryPath) {
-  if (canaryPath && pathname.startsWith(canaryPath)) return "canary_used";
+function classify(pathname, status, canaryPaths) {
+  for (const cp of canaryPaths || []) {
+    if (pathname.startsWith(cp)) return "canary_used";
+  }
   if (status === 200) return "stolen";
   return "probe";
 }
@@ -135,6 +173,79 @@ function bump(bucket, kind) {
   else bucket.probe += 1;
 }
 
+// ログのパース結果キャッシュ（60 秒ごとの再取得で毎回 20k 行を読み直さない）。
+// key = ファイル群の (path,size,mtime) + canary パス。
+let parseCache = null;
+
+function cacheKey(files, canaryPaths) {
+  const sig = files.map((f) => {
+    try {
+      const st = fs.statSync(f);
+      return `${f}:${st.size}:${st.mtimeMs}`;
+    } catch (e) {
+      return `${f}:0:0`;
+    }
+  }).join("|");
+  return `${sig}||${canaryPaths.join(",")}`;
+}
+
+/** ログファイル群を読み、**期間フィルタ前**のイベント一覧を返す（キャッシュあり） */
+function loadAll(logPath, canaryPaths) {
+  const files = expandLogFiles(logPath);
+  const key = cacheKey(files, canaryPaths);
+  if (parseCache && parseCache.key === key) return parseCache;
+
+  const chunks = [];
+  let present = false;
+  let totalBytes = 0;
+  let firstPartial = false;
+  for (const f of files) {
+    let st = null;
+    try { st = fs.statSync(f); } catch (e) { continue; }
+    if (!st.isFile() || st.size === 0) continue;
+    present = true;
+    if (totalBytes >= MAX_TOTAL_BYTES) break;
+    const got = readOneFile(f, st, MAX_TOTAL_BYTES - totalBytes);
+    if (!got) continue;
+    totalBytes += got.text.length;
+    if (chunks.length === 0 && got.partial) firstPartial = true;
+    chunks.push(got.text);
+  }
+
+  let lines = chunks.join("\n").split("\n");
+  if (firstPartial && lines.length) lines = lines.slice(1); // 先頭は途中で切れている
+  lines = lines.filter(Boolean);
+  if (lines.length > MAX_LINES) lines = lines.slice(-MAX_LINES);
+
+  let selfTests = 0;
+  let skipped = 0;
+  const events = [];
+  for (const line of lines) {
+    const e = parseLine(line);
+    if (!e) { skipped += 1; continue; }
+    // 自機（運用者）のテストは通知・集計の対象外（ログには残る）
+    if (e.remote === "127.0.0.1" && e.cf === "-" && e.xff === "-") { selfTests += 1; continue; }
+    const t = Date.parse(e.time);
+    if (!Number.isFinite(t)) { skipped += 1; continue; }
+    const ip = e.cf && e.cf !== "-" ? e.cf : e.remote; // 表示は Cloudflare 経由なら cf=（実クライアント）
+    const pathname = String(e.path || "").split("?")[0];
+    events.push({
+      t,
+      time: e.time,
+      ip,
+      kind: classify(pathname, e.status, canaryPaths),
+      status: e.status,
+      path: pathname,
+      canaryScan: pathname.startsWith("/_canary/") &&
+        !canaryPaths.some((cp) => pathname.startsWith(cp)),
+      ua: e.ua,
+    });
+  }
+
+  parseCache = { key, present, events, selfTests, skipped, lines: lines.length };
+  return parseCache;
+}
+
 /**
  * ハニーポットの集計を返す（HTTP を介さない＝テスト可能）。
  *
@@ -143,39 +254,16 @@ function bump(bucket, kind) {
  * @param {string} [opts.logPath]
  * @param {string} [opts.canaryStatePath]
  * @param {number} [opts.now]
- * @param {(ips: string[]) => Promise<Map<string, object>>} [opts.geoLookup] テスト用に差し替え可
+ * @param {(ips: string[], options?: object) => Promise<Map<string, object>>} [opts.geoLookup] テスト用に差し替え可
  */
 async function collect(opts) {
   const o = opts || {};
   const days = clampDays(o.days);
   const now = Number(o.now) || Date.now();
   const from = now - days * 86400000;
-  const canaryPath = readCanaryPath(o.canaryStatePath || CANARY_STATE);
-  const log = readTail(o.logPath || LOG_PATH, MAX_LINES);
-
-  let selfTests = 0;
-  let skipped = 0;
-  const events = [];
-  for (const line of log.lines) {
-    const e = parseLine(line);
-    if (!e) { skipped += 1; continue; }
-    // 自機（運用者）のテストは通知・集計の対象外（ログには残る）
-    if (e.remote === "127.0.0.1" && e.cf === "-" && e.xff === "-") { selfTests += 1; continue; }
-    const t = Date.parse(e.time);
-    if (!Number.isFinite(t) || t < from) continue;
-    const ip = e.cf && e.cf !== "-" ? e.cf : e.remote; // 表示は Cloudflare 経由なら cf=（実クライアント）
-    const pathname = String(e.path || "").split("?")[0];
-    events.push({
-      t,
-      time: e.time,
-      ip,
-      kind: classify(pathname, e.status, canaryPath),
-      status: e.status,
-      path: pathname,
-      canaryScan: pathname.startsWith("/_canary/") && !(canaryPath && pathname.startsWith(canaryPath)),
-      ua: e.ua,
-    });
-  }
+  const canaryPaths = readCanaryPaths(o.canaryStatePath || CANARY_STATE);
+  const all = loadAll(o.logPath || LOG_PATH, canaryPaths);
+  const events = all.events.filter((e) => e.t >= from);
 
   // 出現回数の多い IP から引く（上限に当たっても重要なものが先に解決される）
   const ipFreq = new Map();
@@ -234,10 +322,14 @@ async function collect(opts) {
     bump(day, e.kind);
   }
 
-  // 日別は「期間の全日」を 0 埋めで返す（グラフの形を安定させる）
-  for (let k = days - 1; k >= 0; k -= 1) {
-    const d = jstDate(now - k * 86400000);
+  // 日別は「期間の全日」を 0 埋めで返す（グラフの形を安定させる）。
+  // 起点は from の属する日（= 7 日指定で 8 日分になり得るが、**データを隠さない**方を優先）。
+  const startDay = jstDate(from);
+  const endDay = jstDate(now);
+  for (let t = Date.parse(`${startDay}T00:00:00+09:00`); jstDate(t) <= endDay; t += 86400000) {
+    const d = jstDate(t);
     if (!byDay.has(d)) byDay.set(d, { date: d, ...emptyBucket() });
+    if (byDay.size > MAX_DAYS + 1) break;
   }
 
   const countries = [...byCountry.values()]
@@ -282,10 +374,10 @@ async function collect(opts) {
     days,
     generatedAt: new Date(now).toISOString(),
     source: {
-      logPresent: log.present,
-      logLines: log.lines.length,
-      selfTests,
-      skipped,
+      logPresent: all.present,
+      logLines: all.lines,
+      selfTests: all.selfTests,
+      skipped: all.skipped,
       events: events.length,
       firstSeen: times.length ? new Date(Math.min(...times)).toISOString() : null,
       lastSeen: times.length ? new Date(Math.max(...times)).toISOString() : null,
@@ -293,17 +385,20 @@ async function collect(opts) {
     totals: {
       ...totals,
       ips: byIp.size,
-      countries: countries.length,
-      canaryConfigured: !!canaryPath,
+      // 「国数」は国コードが分かったものだけ（不明を国として数えない）
+      countries: countries.filter((c) => c.cc).length,
+      canaryConfigured: canaryPaths.length > 0,
     },
     byCountry: countries,
     byDay: [...byDay.values()].sort((a, b) => a.date.localeCompare(b.date)),
     topIps,
     topPaths,
     recent,
-    note: "国・ASN・組織名は Team Cymru の DNS で解決（成功 30 日 / 不明 1 日キャッシュ）。" +
+    note: "国・ASN・組織名は Team Cymru の DNS で解決（成功 30 日 / 不明 1 時間キャッシュ）。" +
       "自機テスト（127.0.0.1 かつ Cloudflare ヘッダ無し）は除外。",
   };
 }
 
-module.exports = { collect, parseLine, classify, clampDays, readTail, maskCanary };
+module.exports = {
+  collect, parseLine, classify, clampDays, readCanaryPaths, expandLogFiles, loadAll, maskCanary,
+};

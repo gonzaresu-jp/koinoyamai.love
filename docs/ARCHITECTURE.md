@@ -289,6 +289,8 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 - 通知 API 認証: **token + HMAC v2 + timestamp（±300秒）**。比較は `timingSafeEqual`。
 - 管理画面: 正規は **Tailnet（`elza.poitou-mora.ts.net`）で自動認証**。公開ドメインの `/admin*` は ts.net へ 302、`/api/admin` は 403（`AGENTS.md §6.7`）。
 - TZ は `Asia/Tokyo` 固定（`server.js`/`main.js` 冒頭）。
+- ハニーポット可視化の任意 env（未設定で既定値）: `HONEY_LOG_PATH` / `HONEY_CANARY_STATE` /
+  `GEOIP_CACHE_FILE` / `GEOIP_TIMEOUT_MS` / `GEOIP_BUDGET_MS`（`AGENTS.md §5.3`）。
 
 ---
 
