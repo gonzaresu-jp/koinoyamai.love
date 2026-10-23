@@ -381,8 +381,22 @@
     ハニー location グループ（honey / named / canary / deny）を**まとめて差し替える**
 - **監視**: `scripts/security/honeypot-watch.js`（5 分ごとの cron）
   - `stolen`（偽物が 200 で取得された）/ `canary_used`（canary アクセス）= 重大で個別通知
-  - `probe`（404 の偵察）= 情報を 1 通に集約
+  - `probe`（404 の偵察）= 情報（3,200 文字を超える場合は分割して送る）
   - 通知は既存の `scripts/security/notify.js`（Discord Bot API）を再利用
+  - **通知は 4096 文字で分割する**（`scripts/security/discord-chunk.js`）:
+    Discord の embed description の上限は 4096 文字で、**超えるとメッセージ全体が 400 で落ちる**
+    （一部だけ捨てられる、ではない）。2026-10-23 実測: 37 件の窃取（UA 付きで 7,574 文字）を
+    1 通に詰めたため落ち、**窃取の通知が一度も届かない**うえ、失敗ループで偵察の通知が
+    5 分おきに再送され続けた（「新規ないのに毎回通知が来る」）。→ 1 メッセージ本文は
+    **3,200 文字**を目安に分割し、`notify.sendDiscord` 側でも**安全網として切り詰める**
+    （title 256 / description 4096）。
+  - **配送はイベント単位で追跡する**（`e.notified`）。成功したカテゴリ／チャンクは
+    **再送しない**（部分失敗で全部が再送され「毎回通知」になるのを防ぐ）。
+  - **同じイベントは既定 24 時間は再通知しない**（`state.recent` の重複抑制。
+    key = `kind|ip|path|status`、`HONEY_DEDUPE_HOURS` で変更可）。
+    同じスキャナが同じファイルを何度も取りに来るのは「新規」ではない。
+    ※ **`canary_used` だけは重複抑制しない**（追跡 URL の使用は最も重要な証拠で、
+      2 回目以降も通知する価値がある。頻度も低い）。
   - **fail-closed**: 通知に失敗したイベントは `pending` に保持して**次回に再送**する。
     読み取り位置は進めてよいが、通知できたイベントだけ `pending` から外す
   - `--dry-run` は**状態を一切書き換えない**（読むだけ。イベントを消費すると
@@ -406,7 +420,7 @@
     LAN 直叩き（`ip=192.168.1.x` 相当）は自機扱いせず**通知する**
     （LAN 内の端末が侵害されている可能性）。`--include-local` で含められる
   - **自機テストは `curl http://127.0.0.1:1717/.env` で行う**（公開 URL 経由だと
-    Cloudflare を通るので`cf=`  들어가**攻撃者と区別できない**ため通知される）
+    Cloudflare を通るので `cf=` が入り**攻撃者と区別できない**ため通知される）
   - 通知の**表示 IP** は `cf=`（Cloudflare 経由）か実 peer（`$remote_addr`）。
     `X-Forwarded-For` は攻撃者が set できるので表示には**使わない**
 - **安全の鉄則**:
@@ -722,7 +736,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   ※ 旧「EMBEDDING_ENDPOINT（ollama bge-m3）停止で `/api/ask` が 503」の記述は**失効（解消済み）**。
   ※ `pi-vector-service/` は 32bit Pi 向け依存ゼロ実装を母艦へ移設したもので**削除禁止**。
     unit は `~/.config/systemd/user/pi-vector.service`（`Restart=always`・enabled）。
-    `ExecStart` は Node v24.22.1（§5 のとおり全プロセス統一）。依存ゼロコードのため実害は 없었으나、
+    `ExecStart` は Node v24.22.1（§5 のとおり全プロセス統一）。依存ゼロコードのため実害はなかったが、
     EOL 版（v20）を掴んでいたので 2026-10-21 に更新した。
   ※ 「ローカルLLM運用は不可（ユーザー指示）」は**回答生成LLMに限る**。埋め込みは上記の通り
     ローカル（llama.cpp）で稼働しており、この指示の対象外。

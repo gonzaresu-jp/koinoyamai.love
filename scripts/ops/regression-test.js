@@ -673,7 +673,7 @@ async function main() {
     // 11-4. nginx パッチは 1717 の vhost だけを対象にする
     ok("apply-honeypot.js: 1717 + koinoyamai.love の vhost のみ対象",
       /listen\\s\+1717/.test(hpPatch) && /koinoyamai/.test(hpPatch));
-    // 11-5. 正規表現 location は出現順で評価される → PHP location より前に挿入해야機能する
+    // 11-5. 正規表現 location は出現順で評価される → PHP location より前に挿入しないと機能しない
     ok("apply-honeypot.js: 最初の location の直前に挿入する",
       /最初の location の直前/.test(hpPatch) && /const locRe/.test(hpPatch));
     // 11-6. 機密拡張子の deny ルールがある（.zip はアプリの配布物なので除外されている）
@@ -714,6 +714,57 @@ async function main() {
         shouldNotMatch.every((p) => !hpRe.test(p)),
         shouldNotMatch.filter((p) => hpRe.test(p)).join(", "));
     }
+    // 11-9b. 通知の分割・重複抑制（2026-10-23 追加）
+    //    Discord の embed description は 4096 文字上限。超えると**通知全体が 400 で落ちる**。
+    //    実事故: 37 件の窃取を 1 通に詰めて落ち、窃取の通知が届かないうえ
+    //    失敗ループで偵察が 5 分おきに再送された（「新規ないのに毎回通知」）。
+    const chunkMod = require(path.join(projectDir, "scripts", "security", "discord-chunk.js"));
+    const longUa = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    const ev37 = Array.from({ length: 37 }, (_, i) => ({
+      time: "2026-10-23T05:58:21+09:00", ip: "203.0.113.5", path: `/.env.test${i}`, bytes: 1040, ua: longUa,
+    }));
+    const stealFmt = (e) => `• \`${e.time}\` **${e.ip}** が \`${e.path}\`（${e.bytes} bytes）を取得\n  UA: \`${e.ua}\``;
+    const oneShot = ev37.map(stealFmt).join("\n");
+    const chunks37 = chunkMod.chunkLines(ev37, stealFmt);
+    ok("discord-chunk: 大きい通知を 4096 文字以内の複数メッセージへ分割する",
+      oneShot.length > chunkMod.DISCORD_DESCRIPTION_LIMIT &&
+      chunks37.length > 1 &&
+      chunks37.every((c) => c.text.length <= chunkMod.BODY_LIMIT));
+    ok("discord-chunk: 分割してもイベントを落とさない",
+      chunks37.reduce((n, c) => n + c.items.length, 0) === ev37.length);
+    ok("discord-chunk: 1 行が上限を超える場合は行を切り詰める",
+      chunkMod.chunkLines([{ ua: "u".repeat(9000) }], (e) => `• ${e.ua}`)[0].text.length
+        <= chunkMod.BODY_LIMIT);
+    ok("discord-chunk: truncate は embed 上限以内に収める",
+      chunkMod.truncate("x".repeat(9000), chunkMod.DISCORD_DESCRIPTION_LIMIT - 20).length
+        <= chunkMod.DISCORD_DESCRIPTION_LIMIT - 20);
+    ok("honeypot-watch: 通知を分割する（1 通に詰め込まない）",
+      /chunkLines/.test(hpWatch) && !/probes\.slice\(-10\)/.test(hpWatch));
+    ok("honeypot-watch: イベント単位で配送を追跡する（失敗分だけ再送）",
+      /e\.notified\s*=\s*!!ok/.test(hpWatch) && /filter\(\(e\)\s*=>\s*!e\.notified\)/.test(hpWatch));
+    ok("honeypot-watch: 同じイベントを一定期間は再通知しない（state.recent）",
+      /function eventKey/.test(hpWatch) && /state\.recent/.test(hpWatch) && /DEDUPE_HOURS/.test(hpWatch));
+    ok("honeypot-watch: canary_used は重複抑制しない（最も重要な証拠）",
+      /e\.kind !== "canary_used"/.test(hpWatch));
+    // 11-9c. 通数の上限・UA 長・state のアトミック性（独立レビュー B-1 / N-1 / N-4 の恒久化）
+    ok("honeypot-watch: 1 カテゴリの送信通数に上限がある（UA 長での通知爆発を防ぐ）",
+      /MAX_CHUNKS_PER_CATEGORY\s*=\s*\d+/.test(hpWatch) &&
+      /\.slice\(0,\s*MAX_CHUNKS_PER_CATEGORY\)/.test(hpWatch) &&
+      /e\.summarized\s*=\s*true/.test(hpWatch));
+    ok("honeypot-watch: 通知に載せる UA を切り詰める",
+      /MAX_UA_CHARS\s*=\s*\d+/.test(hpWatch) && /clip\(e\.ua, MAX_UA_CHARS\)/.test(hpWatch));
+    ok("honeypot-watch: state をアトミックに書く（壊れると全件再通知になる）",
+      /renameSync\(tmp, file\)/.test(hpWatch));
+    ok("honeypot-watch: 重複キーからクエリ文字列を落とす",
+      /split\("\?"\)\[0\]/.test(hpWatch));
+    ok("honeypot-watch: HONEY_DEDUPE_HOURS の不正値は既定 24h に倒す",
+      /Number\.isFinite\(DEDUPE_HOURS_RAW\)/.test(hpWatch));
+    ok("honeypot-watch: --dry-run は状態報告もしない",
+      /if \(DRY_RUN\) \{\s*\n\s*log\("\(dry-run\) 状態報告はスキップします/.test(hpWatch));
+    ok("notify.sendDiscord: description を上限で切り詰める（安全網）",
+      /truncate\(payload\.description/.test(
+        fs.readFileSync(path.join(projectDir, "scripts", "security", "notify.js"), "utf8")));
+
     // 11-9. 自機リクエストを通知しない仕組み（ノイズ防止）があること
     ok("honeypot-watch: 自機リクエストを判定して通知対象から外す",
       /isLocalSelfTest/.test(hpWatch) && /include-local/.test(hpWatch));
