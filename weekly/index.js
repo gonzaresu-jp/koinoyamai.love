@@ -265,4 +265,40 @@ async function upsertEvent(ev) {
     });
 }
 
-module.exports = { updateSchedule, upsertEvent };
+/**
+ * 事前告知（event_pre_*）を送り済みかどうか。
+ *
+ * 配信開始通知のチャネル選択（`src/core/notify-channel.js` / AGENTS.md §10.2）で使う。
+ * 「スケジュールにあって利用者が既に知っている配信」かどうかを判定する。
+ *
+ * 判定は `external_id`（＝YouTube の videoId）と `url` の両方で行う。直近の実データでは
+ * 配信予定が **Twitter/Gemma 経由で先に作られ `platform = 'twitter'` のまま**になることが
+ * あり（2026-10-23 の配信 event #216 が該当）、`platform = 'youtube'` で絞ると取りこぼす。
+ *
+ * 取り出せない場合（DB エラー・イベント未登録）は `false`（＝アラーム側に倒す）。
+ * 突然の配信でアラームが鳴らないことを避ける優先判断（誤鳴りは不便、不鳴りは起きられない）。
+ *
+ * @param {string} videoId YouTube の videoId
+ * @returns {Promise<boolean>} 事前告知を 1 件でも送り済みなら true
+ */
+function hasSentPreNotice(videoId) {
+    return new Promise((resolve) => {
+        if (!videoId) return resolve(false);
+        const sql = `
+            SELECT 1 AS hit FROM scheduled_notifications sn
+            JOIN events e ON e.id = sn.ref_id
+            WHERE (e.external_id = ? OR e.url LIKE '%' || ? || '%')
+              AND sn.kind LIKE 'event_pre_%'
+              AND sn.sent = 1
+            LIMIT 1`;
+        db.get(sql, [videoId, videoId], (err, row) => {
+            if (err) {
+                console.error('[weekly] hasSentPreNotice err:', err.message);
+                return resolve(false);
+            }
+            resolve(!!row);
+        });
+    });
+}
+
+module.exports = { updateSchedule, upsertEvent, hasSentPreNotice };

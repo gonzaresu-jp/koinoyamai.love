@@ -12,7 +12,8 @@ const sqlite3 = require('sqlite3').verbose();
 const { parseStringPromise } = require('xml2js');
 const { deriveUploadsPlaylistId, parseRssEntries, parsePlaylistItems, decideDetectionState } = require('../core/youtube-feed');
 const { sendDiscordAlert } = require('../core/discord-alert');
-const { upsertEvent } = require('../../weekly');
+const { upsertEvent, hasSentPreNotice } = require('../../weekly');
+const { startNotificationChannel } = require('../core/notify-channel');
 
 const CHANNEL_IDS = [
     'UCElHA6-5CBmgWODVWNxS8VA',
@@ -617,6 +618,9 @@ function createWebhookApp(opts = {}) {
             // 2) ライブ中 (Live) -> 【ライブ】付けて通知。基本的に一度だけ（liveSent）
             if (isLive) {
                 if (!rec.liveSent) {
+                    // 事前告知を送り済みならアラームを鳴らさない（RSS 経路と同じ規則。
+                    // 検知経路によって挙動を変えると「突然なのに鳴らない」が起きる）。
+                    const startChannel = startNotificationChannel(await hasSentPreNotice(videoId));
                     const payload = {
                         type: 'youtube',
                         settingKey: 'youtube',
@@ -626,7 +630,8 @@ function createWebhookApp(opts = {}) {
                             url,
                             icon: ICON_URL,
                             image: thumbnail,
-                            published: publishedStr || null
+                            published: publishedStr || null,
+                            ...(startChannel ? { channel: startChannel } : {})
                         }
                     };
                     const ok = await sendNotifyApi(payload);
@@ -1009,6 +1014,12 @@ async function notifyLiveFromRss(item, title) {
         item.snippet?.thumbnails?.medium?.url ||
         `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 
+    // 事前告知（30分前/3分前）を送り済みの配信は、開始通知でアラームを鳴らさない。
+    // 予定どおりの配信では利用者は既に目を覚ましており、もう一度鳴ると二度鳴りになる
+    // （2026-10-23 の利用者報告）。事前告知が無い突然の配信だけアラーム用チャネルを使う。
+    const preNoticeSent = await hasSentPreNotice(videoId);
+    const startChannel = startNotificationChannel(preNoticeSent);
+
     const payload = {
         type: 'youtube',
         settingKey: 'youtube',
@@ -1019,11 +1030,11 @@ async function notifyLiveFromRss(item, title) {
             icon: ICON_URL,
             image: thumbnail,
             published: null,
-            // ★ 配信開始の通知は「アラーム用チャネル」で配信する。
+            // 配信開始の通知はアラーム用チャネル（事前告知が無い突然の開始のみ）。
             //   事前告知が無い突然の開始でも、端末の中でアラームと同じ音で起きれるようにする
             //   （通常の mai_default チャネルでは「音は鳴るが画面は起こらない」）。
             //   チャネルが無い環境（未設定・古い APK）は FCM SDK が既定チャネルへフォールバックする。
-            channel: 'mai_stream_alarm'
+            ...(startChannel ? { channel: startChannel } : {})
         }
     };
     const ok = await sendNotifyApi(payload);

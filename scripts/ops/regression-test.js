@@ -1131,6 +1131,62 @@ async function main() {
     ok("Android: バージョンが 1.7.4 / versionCode 12",
       /versionName\s*=\s*"1\.7\.4"/.test(gradleKt) && /versionCode\s*=\s*12/.test(gradleKt));
 
+    // 12-7. 配信開始通知のチャネル選択（2026-10-24 追加・アラームの二度鳴り防止）
+    // 事前告知（30分前/3分前）を送り済みの配信では、開始通知でアラームを鳴らさない
+    // （利用者は既に目を覚ましており、開始 15 分前の端末内アラームと二度鳴りになる）。
+    // 事前告知が無い突然の配信だけアラーム用チャネルを使う。
+    const notifyChannel = require(path.join(projectDir, "src", "core", "notify-channel.js"));
+    ok("サーバー: 事前告知あり → 開始通知は通常チャネル（アラームを付けない）",
+      notifyChannel.startNotificationChannel(true) === undefined);
+    ok("サーバー: 事前告知なし → 開始通知はアラーム用チャネル",
+      notifyChannel.startNotificationChannel(false) === "mai_stream_alarm");
+    ok("サーバー: アラーム用チャネル名がアプリ側と一致する",
+      notifyChannel.START_ALARM_CHANNEL === "mai_stream_alarm");
+    // 検知経路（webhook / RSS フォールバック）で挙動が分かれると
+    // 「突然なのに鳴らない」「予定通りなのに二度鳴る」の両方が起きる。
+    const ytScraperSrc = fs.readFileSync(path.join(projectDir, "src", "scrapers", "youtube.js"), "utf8");
+    const schedulerSrc = fs.readFileSync(path.join(projectDir, "services", "scheduler.js"), "utf8");
+    ok("サーバー: ライブ通知の 2 経路（webhook / RSS）が同じ判断関数を使う",
+      (ytScraperSrc.match(/startNotificationChannel\(/g) || []).length === 2);
+    ok("サーバー: スケジューラは送信直前にアラーム要否を再判定する（生成時だと誤判定）",
+      /hasSentPreNoticeForEvent/.test(schedulerSrc) &&
+      /payload\.data\.channel === START_ALARM_CHANNEL/.test(schedulerSrc));
+
+    // 12-8. hasSentPreNotice の判定（一時 DB）
+    // 直近の実データでは予定が Twitter/Gemma 経由で先に作られ platform='twitter' のまま
+    // になることがあるため、platform では絞らず external_id / url で拾えること。
+    const preNoticeDbRel = path.join("tmp", `mai-pre-notice-${process.pid}.db`);
+    const preNoticeDb = path.join(projectDir, preNoticeDbRel);
+    const prevDbFileEnv = process.env.DB_FILE_NAME;
+    // weekly/index.js は DB_FILE_NAME を「weekly/ の 1 つ上」に繋げて開く（path.join）。
+    // 絶対パスを渡すと projectDir 配下に繋がって別ファイルになるため、相対パスで渡す。
+    process.env.DB_FILE_NAME = preNoticeDbRel;
+    // ここより前の [8] で src/scrapers/youtube.js → weekly を読み込んでいる（＝require キャッシュに
+    // 残っている）。キャッシュを外して読み直さないと、テスト用一時DB ではなく別の DB を見に行く。
+    const weeklyPath = require.resolve(path.join(projectDir, "weekly", "index.js"));
+    delete require.cache[weeklyPath];
+    const weeklyMod = require(weeklyPath);
+    process.env.DB_FILE_NAME = prevDbFileEnv; // 後続テストへ影響しないよう戻す
+    const pnConn = new sqlite3.Database(preNoticeDb);
+    await new Promise((resolve) => pnConn.serialize(() => {
+        pnConn.run("CREATE TABLE events (id INTEGER PRIMARY KEY, title TEXT, start_time TEXT, url TEXT, platform TEXT, external_id TEXT)");
+        pnConn.run("CREATE TABLE scheduled_notifications (id INTEGER PRIMARY KEY, run_at INTEGER, payload_json TEXT, kind TEXT, ref_id INTEGER, sent INTEGER DEFAULT 0, sent_at TEXT)");
+        pnConn.run("INSERT INTO events (id, title, start_time, url, platform, external_id) VALUES (1, '配信', '2026-10-23T23:00:00', 'https://www.youtube.com/watch?v=VID000000001', 'twitter', 'VID000000001')");
+        pnConn.run("INSERT INTO scheduled_notifications (run_at, payload_json, kind, ref_id, sent) VALUES (1, '{}', 'event_pre_180000', 1, 1)", () => resolve());
+    }));
+    ok("hasSentPreNotice: 事前告知済みの videoId は true（platform が twitter でも拾える）",
+      (await weeklyMod.hasSentPreNotice("VID000000001")) === true);
+    ok("hasSentPreNotice: 事前告知が無い videoId は false（＝アラーム側に倒す）",
+      (await weeklyMod.hasSentPreNotice("VID000000002")) === false);
+    ok("hasSentPreNotice: 未送信（sent=0）の事前告知は数えない",
+      await new Promise((resolve) => {
+        pnConn.run("UPDATE scheduled_notifications SET sent = 0", () => {
+          weeklyMod.hasSentPreNotice("VID000000001").then((v) => resolve(v === false));
+        });
+      }));
+    await new Promise((resolve) => pnConn.close(() => resolve()));
+    fs.rmSync(preNoticeDb, { force: true });
+
     // --- 13. Discord 専用メディア（/dmedia/）の tunnel 限定（2026-10-22 追加） ---
     // 「UA 判定だけで守っている」状態へ戻らないことを固定する。
     //  - nginx 側は cloudflared（127.0.0.1）経由のみ許可する

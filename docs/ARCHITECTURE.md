@@ -144,6 +144,7 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 | `user-routes.js` | ユーザー系ルーター束ね（`register(app, db, authLimiter)`） |
 | `auth.js` | 認証ヘルパー（`routes/user-*.js`・`routes/android.js` が使用） |
 | `youtube-feed.js` | YouTube フィードの純粋ロジック（RSS/プレイリスト解析・プレイリストID導出。ネットワーク・DB 非依存で回帰テストから require できる） |
+| `notify-channel.js` | 配信開始通知のチャネル選択（**事前告知を送り済みなら通常チャネル／突然の配信だけアラーム用チャネル**。2026-10-24 追加・`AGENTS.md §10.2`） |
 
 ### 4.2 `routes/`（Express ルーター。登録形は3種: `register(app)` / `register(app, db)` / `register(app, db, authLimiter)`）
 | ファイル | 主なエンドポイント |

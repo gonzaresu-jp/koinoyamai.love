@@ -990,6 +990,23 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     `setStreamAlarmOffsetMin` / `openExactAlarmSettings` / `getNextStreamStartAt` /
     `openSystemAlarmSetScreen`
 - **配信開始の通知はアラーム用チャネルで配信する**（`channel: "mai_stream_alarm"`）:
+  - **ただし事前告知を送り済みの配信では鳴らさない（2026-10-24 追加）**:
+    - 症状: 元々スケジュールにあった配信で「15 分前にアラームが鳴ったのに、開始でもう一度鳴った」
+      （2026-10-23 の利用者報告）。開始 15 分前の端末内アラームと**二度鳴り**になり、
+      逆に目覚めにくい。
+    - 判定: **事前告知（`event_pre_*`）を 1 件でも送り済みかどうか**。送り済み＝予定どおりの配信
+      → 通常チャネル。未送信＝事前告知が無い突然の配信 → アラーム用チャネル。
+    - 実装は `src/core/notify-channel.js`（`startNotificationChannel(preNoticeSent)`・純関数）と
+      `weekly/index.js` の `hasSentPreNotice(videoId)`（`events` × `scheduled_notifications`）。
+    - **判定は送信直前に行う**。スケジューラ側は生成時に payload を JSON 化して保存するため、
+      生成時に判定すると事前告知がまだ未送信の段階で「突然」に誤判定してアラームが付く
+      （`dispatchDueEventNotifications` が送信直前に外す）。
+    - `hasSentPreNotice` は **`platform` で絞らない**（`external_id` / `url` で照合）。予定が
+      Twitter/Gemma 経由で先に作られ `platform='twitter'` のまま YouTube 配信と紐づく実データが
+      ある（2026-10-23 の配信）。取り出せないときは **false（アラーム側）** に倒す
+      （不鳴りは起きられないことにつながるため）。
+    - 判断関数は **webhook / RSS フォールバック / スケジューラの 3 経路で共通**。経路で挙動を
+      分けると「突然なのに鳴らない」が起きる（検知の勝敗は毎回変わる）。
   - 突然に始まる配信（事前告知が無い）でも、**アラームと同じ音で起きれる**ようにする。
   - 通常のチャネル（`mai_default`）では「音は鳴るが画面は起こらない」だけだった。
   - 公式仕様: チャネルが未作成なら FCM はマニフェストの既定チャネルへフォールバックする
