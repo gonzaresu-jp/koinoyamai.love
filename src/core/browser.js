@@ -24,7 +24,7 @@ function scheduleIdleClose(key) {
 
   entry.idleTimer = setTimeout(async () => {
     const e = _pool.get(key);
-    if (!e || !e.browser || !e.browser.isConnected()) {
+    if (!e || !e.browser || !e.browser.connected) {
       // ブラウザが既に切れているならプールから削除だけする
       if (e) {
         if (e.idleTimer) clearTimeout(e.idleTimer);
@@ -108,7 +108,7 @@ async function getSharedBrowser(options = {}) {
   const entry = _pool.get(key);
 
   // 接続済みのブラウザがあればそのまま返す
-  if (entry && entry.browser && entry.browser.isConnected()) {
+  if (entry && entry.browser && entry.browser.connected) {
     scheduleIdleClose(key); // 利用したのでアイドルタイマーを延長
     return entry.browser;
   }
@@ -247,7 +247,7 @@ async function closeAllBrowsers() {
 function cleanupDisconnected() {
   let removed = 0;
   for (const [key, entry] of _pool.entries()) {
-    if (entry.browser && !entry.browser.isConnected()) {
+    if (entry.browser && !entry.browser.connected) {
       if (entry.idleTimer) clearTimeout(entry.idleTimer);
       _pool.delete(key);
       removed++;
@@ -269,7 +269,7 @@ function getPoolStatus() {
   for (const [key, entry] of _pool.entries()) {
     entries.push({
       key,
-      connected: entry.browser ? entry.browser.isConnected() : false,
+      connected: entry.browser ? entry.browser.connected : false,
       pending:   !entry.browser && !!entry.initPromise
     });
   }
