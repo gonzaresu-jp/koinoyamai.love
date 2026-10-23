@@ -1414,6 +1414,17 @@ async function main() {
 
       ok("型を書いたファイルが実際に型エラーを検出すること（構造の確認）",
         fs.readFileSync(path.join(projectDir, "src", "core", "notify-sign.js"), "utf8").includes("@param {string|null|undefined} secret"));
+
+      // 14-11. ヘッダーのアバターが「壊れた画像」にならない
+      // （Google アカウントにプロフィール写真が無いと avatar_url が空になり、
+      //   フォールバック先のファイルが無いと 404 の破損アイコンが出ていた / 2026-10-23）
+      ok("webui: デフォルトアバター画像が実在する（未設定ユーザーが壊れたアイコンにならない）",
+        fs.existsSync(path.join(projectDir, "webui", "default-avatar.webp")));
+      ok("webui: アバター読込失敗時のフォールバックがある（外部ホスト不通・欠品）",
+        (() => {
+          const src = fs.readFileSync(path.join(projectDir, "webui", "js", "header-auth.js"), "utf8");
+          return /addEventListener\(['"]error['"]/.test(src) && /default-avatar\.webp/.test(src);
+        })());
     }
 
     // --- 15. iPhone の通知登録: 案内が必ず呼ばれるか（2026-10-23 追加） ---
