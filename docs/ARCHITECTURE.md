@@ -151,6 +151,7 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 | `notify.js` | `POST /api/notify`, `/api/internal/twitter/analysis`（認証中核） |
 | `admin.js` | `/api/admin/login|logout|verify|notify` |
 | `admin-archive.js` | `/api/admin/archive/*`（nassy 管理・編集/削除/要約） |
+| `admin-honeypot.js` | `GET /api/admin/honeypot`（ハニーポットの可視化。管理専用・集計は `services/honeypot-report.js`） |
 | `admin-twitter-stats.js` | `/api/admin/mai-state`, `/api/admin/twitter/stats` |
 | `archive.js` | `/api/archive/*`（videos/search/transcript/chapters/minutes/buzzwords…） |
 | `ai-usage.js` | `/api/ai-usage` |
@@ -194,6 +195,8 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 | `system-cpu.js` | CPU/リソース計測 |
 | `ai-quota.js` | AI 呼び出しのクォータ/使用量 |
 | `db-guard.js` | sqlite3 の保護（コールバックなし文のエラーでプロセスを落とさない） |
+| `honeypot-report.js` | ハニーポットの集計（`honey.log` → 国/パス/日別/直近イベント。HTTP 非依存＝テスト可能） |
+| `geoip.js` | IP → 国/ASN/組織名（Team Cymru の DNS + JSON キャッシュ。mmdb・CLI・外部 HTTP API 不要） |
 
 ### 4.4 `lib/`・`weekly/`
 | ファイル | 役割 |
@@ -225,6 +228,8 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 | `firebase-messaging-sw.js` | FCM バックグラウンド通知用SW（サイトルート `/firebase-messaging-sw.js` に置く）。**現在 apps 側は `/service-worker.js` を登録しており、この SW は未登録・未使用**（2026-10-20 追跡漏れの発見時に git 追跡対象へ） |
 | `manifest.json` | PWA manifest |
 
+- 管理画面の「ハニーポット」タブは `webui/js/admin-honeypot.js`（`GET /api/admin/honeypot` を描画）。
+  攻撃元の IP・UA・国を扱うため**管理画面専用**（`AGENTS.md §5.3`）。
 - **CSP は `script-src 'self'`**（nginx `scripts/nginx/mai-test.conf` 等）。インライン JS 不可 → 新規 JS は `/js/*.js` に置く。
 - 公開 HTML の反映は `bash scripts/deploy/verify-deploy.sh webui/<file>` でバイト比較（`open_file_cache` 切詰め検出、`AGENTS.md §7.1`）。同スクリプトは配信ファイルが other 読み取り可か（php-fpm から読めるか）も検査する。
 - **PHP 実行時ハードニング（`AGENTS.md §5.1`）**: `disable_functions` / `open_basedir` / `ffi.enable=preload` /
@@ -284,6 +289,8 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 - 通知 API 認証: **token + HMAC v2 + timestamp（±300秒）**。比較は `timingSafeEqual`。
 - 管理画面: 正規は **Tailnet（`elza.poitou-mora.ts.net`）で自動認証**。公開ドメインの `/admin*` は ts.net へ 302、`/api/admin` は 403（`AGENTS.md §6.7`）。
 - TZ は `Asia/Tokyo` 固定（`server.js`/`main.js` 冒頭）。
+- ハニーポット可視化の任意 env（未設定で既定値）: `HONEY_LOG_PATH` / `HONEY_CANARY_STATE` /
+  `GEOIP_CACHE_FILE` / `GEOIP_TIMEOUT_MS` / `GEOIP_BUDGET_MS`（`AGENTS.md §5.3`）。
 
 ---
 
@@ -304,6 +311,7 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 | フロント UI | `webui/*.php`, `webui/js/`, `webui/css/` |
 | DB スキーマ | `services/database.js`（`initDatabase()` がテーブル・索引・カラム追加まで担う） |
 | デプロイ/検証/回帰 | `scripts/*`, `AGENTS.md §6-7`, `docs/DEVELOPMENT-WORKFLOW.md` |
+| ハニーポット（偽物ファイル・可視化） | `scripts/security/honeypot-*.js`, `scripts/nginx/apply-honeypot.sh`, `services/honeypot-report.js`, `services/geoip.js`, `routes/admin-honeypot.js`, `AGENTS.md §5.3` |
 | セキュリティ | `docs/SECURITY.md`, `AGENTS.md §2-3,§6.6-6.7` |
 
 ---
