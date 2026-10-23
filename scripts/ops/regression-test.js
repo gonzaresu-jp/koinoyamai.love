@@ -1157,6 +1157,9 @@ async function main() {
     // になることがあるため、platform では絞らず external_id / url で拾えること。
     const preNoticeDbRel = path.join("tmp", `mai-pre-notice-${process.pid}.db`);
     const preNoticeDb = path.join(projectDir, preNoticeDbRel);
+    // CI の fresh checkout には tmp/ が無い（gitignore 対象）。作ってから開く
+    // （無いと sqlite3 が SQLITE_CANTOPEN でプロセスごと落ちる＝CI 実測）。
+    fs.mkdirSync(path.dirname(preNoticeDb), { recursive: true });
     const prevDbFileEnv = process.env.DB_FILE_NAME;
     // weekly/index.js は DB_FILE_NAME を「weekly/ の 1 つ上」に繋げて開く（path.join）。
     // 絶対パスを渡すと projectDir 配下に繋がって別ファイルになるため、相対パスで渡す。
@@ -1166,26 +1169,48 @@ async function main() {
     const weeklyPath = require.resolve(path.join(projectDir, "weekly", "index.js"));
     delete require.cache[weeklyPath];
     const weeklyMod = require(weeklyPath);
-    process.env.DB_FILE_NAME = prevDbFileEnv; // 後続テストへ影響しないよう戻す
-    const pnConn = new sqlite3.Database(preNoticeDb);
-    await new Promise((resolve) => pnConn.serialize(() => {
-        pnConn.run("CREATE TABLE events (id INTEGER PRIMARY KEY, title TEXT, start_time TEXT, url TEXT, platform TEXT, external_id TEXT)");
-        pnConn.run("CREATE TABLE scheduled_notifications (id INTEGER PRIMARY KEY, run_at INTEGER, payload_json TEXT, kind TEXT, ref_id INTEGER, sent INTEGER DEFAULT 0, sent_at TEXT)");
-        pnConn.run("INSERT INTO events (id, title, start_time, url, platform, external_id) VALUES (1, '配信', '2026-10-23T23:00:00', 'https://www.youtube.com/watch?v=VID000000001', 'twitter', 'VID000000001')");
-        pnConn.run("INSERT INTO scheduled_notifications (run_at, payload_json, kind, ref_id, sent) VALUES (1, '{}', 'event_pre_180000', 1, 1)", () => resolve());
-    }));
-    ok("hasSentPreNotice: 事前告知済みの videoId は true（platform が twitter でも拾える）",
-      (await weeklyMod.hasSentPreNotice("VID000000001")) === true);
-    ok("hasSentPreNotice: 事前告知が無い videoId は false（＝アラーム側に倒す）",
-      (await weeklyMod.hasSentPreNotice("VID000000002")) === false);
-    ok("hasSentPreNotice: 未送信（sent=0）の事前告知は数えない",
-      await new Promise((resolve) => {
-        pnConn.run("UPDATE scheduled_notifications SET sent = 0", () => {
-          weeklyMod.hasSentPreNotice("VID000000001").then((v) => resolve(v === false));
-        });
-      }));
-    await new Promise((resolve) => pnConn.close(() => resolve()));
-    fs.rmSync(preNoticeDb, { force: true });
+    // 後続テストへ影響しないよう戻す（undefined のとき `= undefined` は文字列 "undefined" になる）
+    if (prevDbFileEnv === undefined) delete process.env.DB_FILE_NAME;
+    else process.env.DB_FILE_NAME = prevDbFileEnv;
+    // エラーハンドラが無いと「開けない」が unhandled 'error' としてプロセスごと落ちる。
+    const pnConn = new sqlite3.Database(preNoticeDb, (openErr) => {
+        if (openErr) console.error("[12-8] 一時DB を開けない:", openErr.message);
+    });
+    pnConn.on("error", (e) => console.error("[12-8] 一時DB error:", e.message));
+    try {
+        await new Promise((resolve) => pnConn.serialize(() => {
+            pnConn.run("CREATE TABLE events (id INTEGER PRIMARY KEY, title TEXT, start_time TEXT, url TEXT, platform TEXT, external_id TEXT)");
+            pnConn.run("CREATE TABLE scheduled_notifications (id INTEGER PRIMARY KEY, run_at INTEGER, payload_json TEXT, kind TEXT, ref_id INTEGER, sent INTEGER DEFAULT 0, sent_at TEXT)");
+            pnConn.run("INSERT INTO events (id, title, start_time, url, platform, external_id) VALUES (1, '配信', '2026-10-23T23:00:00', 'https://www.youtube.com/watch?v=VID000000001', 'twitter', 'VID000000001')");
+            pnConn.run("INSERT INTO scheduled_notifications (run_at, payload_json, kind, ref_id, sent) VALUES (1, '{}', 'event_pre_180000', 1, 1)", () => resolve());
+        }));
+        ok("hasSentPreNotice: 事前告知済みの videoId は true（platform が twitter でも拾える）",
+            (await weeklyMod.hasSentPreNotice("VID000000001")) === true);
+        ok("hasSentPreNotice: 事前告知が無い videoId は false（＝アラーム側に倒す）",
+            (await weeklyMod.hasSentPreNotice("VID000000002")) === false);
+        ok("hasSentPreNotice: 未送信（sent=0）の事前告知は数えない",
+            await new Promise((resolve) => {
+                pnConn.run("UPDATE scheduled_notifications SET sent = 0", () => {
+                    weeklyMod.hasSentPreNotice("VID000000001").then((v) => resolve(v === false));
+                });
+            }));
+    } finally {
+        await new Promise((resolve) => pnConn.close(() => resolve()));
+        for (const suffix of ["", "-wal", "-shm"]) {
+            try { fs.rmSync(preNoticeDb + suffix, { force: true }); } catch (e) { /* best-effort */ }
+        }
+    }
+
+    // 12-9. アラーム用チャネル名を定数で統一する（定数とリテラルがずれると、
+    // dispatch の再判定が常に false になり「二度鳴り」が無音で復帰する）。
+    const schedulerSrc2 = fs.readFileSync(path.join(projectDir, "services", "scheduler.js"), "utf8");
+    const notifSrc2 = fs.readFileSync(path.join(projectDir, "services", "notification.js"), "utf8");
+    const stripComments = (src) => src.replace(/^\s*\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    ok("サーバー: 生成・再判定・FCM 分岐が START_ALARM_CHANNEL を使う（コードにリテラルを残さない）",
+        /channel: START_ALARM_CHANNEL/.test(schedulerSrc2) &&
+        /data\.channel === START_ALARM_CHANNEL/.test(notifSrc2) &&
+        !/mai_stream_alarm/.test(stripComments(schedulerSrc2)) &&
+        !/mai_stream_alarm/.test(stripComments(notifSrc2)));
 
     // --- 13. Discord 専用メディア（/dmedia/）の tunnel 限定（2026-10-22 追加） ---
     // 「UA 判定だけで守っている」状態へ戻らないことを固定する。

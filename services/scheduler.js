@@ -11,7 +11,12 @@ async function hasSentPreNoticeForEvent(db, eventId) {
     db.get(
       "SELECT 1 AS hit FROM scheduled_notifications WHERE ref_id = ? AND kind LIKE 'event_pre_%' AND sent = 1 LIMIT 1",
       [eventId],
-      (err, r) => resolve(err ? null : r),
+      (err, r) => {
+        // err 時は null（＝アラーム側に倒す）。ただし黙って倒すと DB 障害時に
+        // 「常にアラーム」が続くので、原因を残す。
+        if (err) console.error("[Event Notify Dispatch] preNotice query err:", err.message);
+        resolve(err ? null : r);
+      },
     );
   });
   return !!row;
@@ -110,7 +115,8 @@ function buildEventNotificationPayload(event, phase) {
   // **ただし送信直前に外すことがある**: 事前告知（event_pre_*）を送り済みの配信では、
   // 利用者は既に目を覚ましており（開始 15 分前に端末内アラームが鳴っている）、
   // 開始時にもう一度鳴ると二度鳴りになる（2026-10-23 の利用者報告）。
-  // `preNoticeSent` は生成時点の値であり、最終判定は `dispatchDueEventNotifications` が行う。
+  // 生成時点では事前告知がまだ未送信の可能性があるため、この関数では**無条件**で付け、
+  // 送信直前の `dispatchDueEventNotifications` が事前告知の送信有無を見て外す。
   // 事前告知の通知（event_pre_*）は情報通知のままにする。
   const isStart = phase === "event_start";
   return {
@@ -122,7 +128,7 @@ function buildEventNotificationPayload(event, phase) {
       image: toHttpsThumb(event.thumbnail_url),
       // 配信開始時刻（ISO）。Android アプリが端末内アラームを予約する時に使う。
       start_time: event.start_time || null,
-      ...(isStart ? { channel: "mai_stream_alarm" } : {}),
+      ...(isStart ? { channel: START_ALARM_CHANNEL } : {}),
     },
   };
 }
