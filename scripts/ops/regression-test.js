@@ -1175,6 +1175,16 @@ async function main() {
       ok("notify 検証: title が上限超過なら 400", rLong.status === 400, `status=${rLong.status}`);
       const rType = await postNotify({ type: "x".repeat(51), data: { title: "t" } });
       ok("notify 検証: type が上限超過なら 400", rType.status === 400, `status=${rType.status}`);
+      const rNullData = await postNotify({ type: "regression", data: null });
+      ok("notify 検証: data が null なら 400", rNullData.status === 400, `status=${rNullData.status}`);
+      const rStrData = await postNotify({ type: "regression", data: "x" });
+      ok("notify 検証: data が文字列なら 400", rStrData.status === 400, `status=${rStrData.status}`);
+      const rObjTweet = await postNotify({ type: "regression", data: { title: "t", tweet_id: { a: 1 } } });
+      ok("notify 検証: tweet_id がオブジェクトなら 400", rObjTweet.status === 400, `status=${rObjTweet.status}`);
+      const rArrSetting = await postNotify({ type: "regression", data: { title: "t" }, settingKey: ["x"] });
+      ok("notify 検証: settingKey が配列なら 400", rArrSetting.status === 400, `status=${rArrSetting.status}`);
+      const rNumType = await postNotify({ type: 123, data: { title: "t" } });
+      ok("notify 検証: type が数値なら 400", rNumType.status === 400, `status=${rNumType.status}`);
       const rNoData = await postNotify({ type: "regression", data: [] });
       ok("notify 検証: data がオブジェクトでなければ 400",
         rNoData.status === 400 && /data must be an object/.test(rNoData.raw || ""), `status=${rNoData.status}`);
@@ -1238,6 +1248,30 @@ async function main() {
         throws(() => v.publicHttpUrl("http://224.0.0.1/", { field: "u" })) &&
         throws(() => v.publicHttpUrl("http://255.255.255.255/", { field: "u" })) &&
         throws(() => v.publicHttpUrl("http://0.0.0.0/", { field: "u" })));
+      // IPv6 は `URL.hostname` が**角括弧付き**で返る。括弧を外して nibble 列で判定すること
+      // （geoip.isPrivateIp は圧縮表記しか見ていないため、ここでは使わない）。
+      ok("validate: IPv6 の loopback / unspecified / link-local / unique-local / multicast を拒否する",
+        throws(() => v.publicHttpUrl("http://[::1]/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://[0:0:0:0:0:0:0:1]/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://[::]/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://[fe80:0:0:0:0:0:0:1]/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://[fd00::1]/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://[ff02::1]/", { field: "u" })));
+      ok("validate: IPv4-mapped の 16 進表記も IPv4 として判定する（メタデータ・loopback の迂回を塞ぐ）",
+        throws(() => v.publicHttpUrl("http://[::ffff:a9fe:a9fe]/", { field: "u" })) && // 169.254.169.254
+        throws(() => v.publicHttpUrl("http://[::ffff:7f00:1]/", { field: "u" })) &&     // 127.0.0.1
+        throws(() => v.publicHttpUrl("http://[::ffff:a01:1]/", { field: "u" })) &&      // 10.0.0.1
+        v.publicHttpUrl("http://[2606:4700::1111]/", { field: "u" }) === "http://[2606:4700::1111]/");
+      // WHATWG パーサの正規化に頼っていることを明示的に固定（hex/8進/10進/短縮表記）
+      ok("validate: WHATWG URL パーサが IPv4 の変則表記を正規化する前提を確認",
+        new URL("http://0x7f000001/").hostname === "127.0.0.1" &&
+        new URL("http://2130706433/").hostname === "127.0.0.1" &&
+        new URL("http://0177.0.0.1/").hostname === "127.0.0.1" &&
+        throws(() => v.publicHttpUrl("http://0x7f000001/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://2130706433/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://0177.0.0.1/", { field: "u" })) &&
+        throws(() => v.publicHttpUrl("http://127.1/", { field: "u" })));
+
       ok("validate: 非 http（デスクトップアプリの偽エンドポイント）は httpUrl で拒否される",
         throws(() => v.publicHttpUrl("webview2://fake", { field: "u" })) &&
         v.isRoutableHost("100.128.0.1") === true); // CGNAT の外側は通す

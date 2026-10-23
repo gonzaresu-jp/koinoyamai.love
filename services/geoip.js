@@ -231,11 +231,6 @@ async function resolveOne(ip) {
 }
 
 /**
- * IP を 1 つ引く（キャッシュ優先）。
- * @param {string} ip
- * @returns {Promise<{cc: string|null, country: string, asn: string|null, org: string|null, ok: boolean, private?: boolean}>}
- */
-/**
  * IP を 1 つ引く（キャッシュ優先・fail-soft）。
  * @param {string} ip
  * @returns {Promise<GeoInfo>}

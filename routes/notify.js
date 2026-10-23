@@ -66,8 +66,11 @@ function register(app, db) {
         data[key] = str(v, { field: `data.${key}`, max });
       }
       // tweet_id は Twitter の snowflake が number で来る（文字列も許容）
-      if (data.tweet_id != null && typeof data.tweet_id !== "number" && typeof data.tweet_id !== "string") {
-        throw new ValidationError("data.tweet_id must be a string or a number");
+      if (data.tweet_id != null) {
+        const t = typeof data.tweet_id;
+        // NaN/Infinity は JSON に表現できないが、`typeof` だけでは通るため明示的に弾く
+        if (t === "number" && !Number.isFinite(data.tweet_id)) throw new ValidationError("data.tweet_id must be finite");
+        if (t !== "number" && t !== "string") throw new ValidationError("data.tweet_id must be a string or a number");
       }
     } catch (e) {
       if (e instanceof ValidationError) {
