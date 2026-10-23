@@ -746,6 +746,21 @@ async function main() {
       /function eventKey/.test(hpWatch) && /state\.recent/.test(hpWatch) && /DEDUPE_HOURS/.test(hpWatch));
     ok("honeypot-watch: canary_used は重複抑制しない（最も重要な証拠）",
       /e\.kind !== "canary_used"/.test(hpWatch));
+    // 11-9c. 通数の上限・UA 長・state のアトミック性（独立レビュー B-1 / N-1 / N-4 の恒久化）
+    ok("honeypot-watch: 1 カテゴリの送信通数に上限がある（UA 長での通知爆発を防ぐ）",
+      /MAX_CHUNKS_PER_CATEGORY\s*=\s*\d+/.test(hpWatch) &&
+      /\.slice\(0,\s*MAX_CHUNKS_PER_CATEGORY\)/.test(hpWatch) &&
+      /e\.summarized\s*=\s*true/.test(hpWatch));
+    ok("honeypot-watch: 通知に載せる UA を切り詰める",
+      /MAX_UA_CHARS\s*=\s*\d+/.test(hpWatch) && /clip\(e\.ua, MAX_UA_CHARS\)/.test(hpWatch));
+    ok("honeypot-watch: state をアトミックに書く（壊れると全件再通知になる）",
+      /renameSync\(tmp, file\)/.test(hpWatch));
+    ok("honeypot-watch: 重複キーからクエリ文字列を落とす",
+      /split\("\?"\)\[0\]/.test(hpWatch));
+    ok("honeypot-watch: HONEY_DEDUPE_HOURS の不正値は既定 24h に倒す",
+      /Number\.isFinite\(DEDUPE_HOURS_RAW\)/.test(hpWatch));
+    ok("honeypot-watch: --dry-run は状態報告もしない",
+      /if \(DRY_RUN\) \{\s*\n\s*log\("\(dry-run\) 状態報告はスキップします/.test(hpWatch));
     ok("notify.sendDiscord: description を上限で切り詰める（安全網）",
       /truncate\(payload\.description/.test(
         fs.readFileSync(path.join(projectDir, "scripts", "security", "notify.js"), "utf8")));

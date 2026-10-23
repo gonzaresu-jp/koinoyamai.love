@@ -5,7 +5,7 @@
  *
  * 何を検知するか:
  *   1. **stolen（窃取）**: ハニーファイルが 200 で配信された
- *      → 攻撃者が偽物拿到了（= 攻撃が実在した証拠）
+ *      → 攻撃者が偽物を持ち去った（= 攻撃が実在した証拠）
  *   2. **canary_used（窃取後の使用）**: `/_canary/<token>` へのリクエスト
  *      → 盗んだ情報（中身を実際に使った）= 窃取確定
  *   3. **probe（偵察）**: ハニーパスに 404 が返った
@@ -25,7 +25,7 @@
  *   - **UA 文字列に解析を騙されない**。判定は `uri=` と `st=` だけを使う
  *     （UA は honeyfmt の**最後**に置き、先頭の固定フィールドから読む）。
  *   - **検知経路は状態を報告する**（AGENTS.md §11）。
- *     監視が静かに死んでも察觉できるよう `/api/internal/scraper-status` へ報告する。
+ *     監視が静かに死んでも気づけるよう `/api/internal/scraper-status` へ報告する。
  *   - **自機からのリクエストは通知しない**（ノイズ防止）。
  *     `ip=127.0.0.1` かつ `cf=-` かつ `xff=-` ＝ **Cloudflare を通っていない自機からの
  *     確認・テスト**（= 運用者本人のテスト）。
@@ -58,9 +58,17 @@ const LOG_FILE = path.join(REPO_ROOT, "logs", "honeypot.log");
 const PENDING_LIMIT = 200;
 // 同じイベント（種別・IP・パス・status）を再通知しない期間。
 // 「新規がないのに毎回通知が来る」を防ぐ（2026-10-23 ユーザー報告）。
-const DEDUPE_HOURS = Number(process.env.HONEY_DEDUPE_HOURS || 24);
+// 不正値（NaN / 0 以下）は既定 24 時間に倒す（黙って抑制が無効化されるのを防ぐ）。
+const DEDUPE_HOURS_RAW = Number(process.env.HONEY_DEDUPE_HOURS);
+const DEDUPE_HOURS = Number.isFinite(DEDUPE_HOURS_RAW) && DEDUPE_HOURS_RAW > 0 ? DEDUPE_HOURS_RAW : 24;
 const DEDUPE_MS = DEDUPE_HOURS * 3600 * 1000;
 const RECENT_LIMIT = 2000;
+// 1 回の実行で送るメッセージの上限（カテゴリごと）。
+// UA は攻撃者が自由に送れる（nginx 既定 8k）ので、行数だけでは通数を抑えられない。
+// 例: UA 3,000 文字 × 200 イベント = 200 通（5 通/5 秒で最低 200 秒、障害時は最大 67 分）。
+const MAX_CHUNKS_PER_CATEGORY = 6;
+// 通知に載せる UA の最大長（長大な UA で 1 通 1 件になるのを防ぐ）
+const MAX_UA_CHARS = 160;
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
@@ -101,8 +109,13 @@ function readJson(file, fallback) {
 }
 
 function writeJson(file, obj) {
+  // **アトミックに書く**。途中で落ちて JSON が壊れると readJson が既定値
+  // （offset:0 / pending:[] / recent:{}）に倒れ、ログを先頭から読み直して
+  // **全件再通知**になる（今回直した症状の再発）。tmp + rename で防ぐ。
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(obj, null, 2));
+  const tmp = `${file}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, JSON.stringify(obj, null, 2));
+  fs.renameSync(tmp, file);
 }
 
 /** honeyfmt の 1 行をパースする。
@@ -165,7 +178,20 @@ const HONEY_PATH_RE = HONEY_BODY
 
 /** 重複判定のキー。**時刻は含めない**（同じ相手・同じ要求を一定期間は再通知しない）。 */
 function eventKey(e) {
-  return `${e.kind}|${e.ip}|${e.path}|${e.status}`;
+  // クエリ文字列は落とす（`/.env?a=1` と `/.env?a=2` を別イベント扱いにしない）。
+  const p = String(e.path || "").split("?")[0];
+  return `${e.kind}|${e.ip}|${p}|${e.status}`;
+}
+
+/** 1 行に埋め込む値を上限で切る（UA は攻撃者が制御できる＝長さを信用しない）。 */
+function clip(s, n) {
+  const v = String(s == null ? "" : s);
+  return v.length > n ? v.slice(0, n) + "…" : v;
+}
+
+/** 同一実行内で同じイベントが複数回来たことを示す（件数の過少表示を防ぐ）。 */
+function dupSuffix(e) {
+  return e.dupCount > 1 ? `（×${e.dupCount}）` : "";
 }
 
 /** 古い重複記録を落とす（無制限に育つと状態ファイルが肥大する） */
@@ -318,7 +344,7 @@ function selftest() {
   check("canary パスは canary_used", c3 && c3.kind === "canary_used");
 
   fs.rmSync(tmp, { recursive: true, force: true });
-  console.log(fails === 0 ? "  セルftest: すべて PASS" : `  セルftest: ${fails} 件失敗`);
+  console.log(fails === 0 ? "  セルフテスト: すべて PASS" : `  セルフテスト: ${fails} 件失敗`);
   return fails === 0 ? 0 : 1;
 }
 
@@ -385,6 +411,8 @@ async function main() {
   const localEvents = [];
   const deduped = [];
   const seenKey = new Set(Object.keys(state.recent));
+  // 同一実行内の重複を数えるための参照（キー → 最初のイベント）
+  const keyToEvent = new Map();
   for (const line of r.lines) {
     const ev = parseLine(line);
     const c = classify(ev, canaryPaths);
@@ -402,10 +430,14 @@ async function main() {
     //   最も重要な証拠で、2 回目以降も「使った」事実は通知する価値がある（頻度も低い）。
     const k = eventKey(e);
     if (e.kind !== "canary_used" && seenKey.has(k)) {
+      // 同じ実行内の重複なら回数を数える（「窃取 1 件」の過少表示を防ぐ）
+      const prev = keyToEvent.get(k);
+      if (prev) prev.dupCount = (prev.dupCount || 1) + 1;
       deduped.push(e);
       continue;
     }
     seenKey.add(k);
+    keyToEvent.set(k, e);
     fresh.push(e);
   }
   if (deduped.length) {
@@ -462,8 +494,14 @@ async function main() {
   if (!state.pending.length) {
     if (!fresh.length) log("新しいイベントはありません");
   } else {
+    // Discord のレート制限（5 通/5 秒）を避けるため**送信間隔**を空ける。
+    // チャンク間だけでなくカテゴリ間（canary → 窃取 → 偵察）にも効かせる。
+    let lastSendAt = 0;
     const send = async (title, description, color) => {
       if (DRY_RUN) { log(`(dry-run) 通知: ${title}`); return true; }
+      const wait = 1200 - (Date.now() - lastSendAt);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      lastSendAt = Date.now();
       const res = await notify.sendDiscord(
         { token: process.env.DISCORD_BOT_TOKEN, channelId: process.env.DISCORD_CHANNEL_ID },
         { title, description, color }
@@ -476,17 +514,26 @@ async function main() {
     // 1 カテゴリを、上限以内の複数メッセージに分けて送る。
     // 送れたイベントだけ `notified = true` にし、失敗分は pending に残す。
     const sendEvents = async (items, title, color, fmt, footer) => {
-      const chunks = chunkLines(items, fmt);
+      const all = chunkLines(items, fmt);
+      // **通数**にも上限を設ける（UA を長くすると 1 件 1 通になり得るため）
+      const chunks = all.slice(0, MAX_CHUNKS_PER_CATEGORY);
+      const rest = all.length > chunks.length ? all.slice(chunks.length).flatMap((c) => c.items) : [];
       let allOk = true;
       for (let i = 0; i < chunks.length; i++) {
         const c = chunks[i];
         const head = i === 0 ? "" : `（続き ${i + 1}/${chunks.length}）\n`;
-        const tail = i === chunks.length - 1 ? (footer || "") : "";
-        const ok = await send(i === 0 ? title : `${title}（続き）`, head + c.text + tail, color);
+        const isLast = i === chunks.length - 1;
+        const restNote = isLast && rest.length ? `\n…他 ${rest.length} 件（詳細は logs/honeypot.log）` : "";
+        const tail = isLast ? (footer || "") : "";
+        const ok = await send(i === 0 ? title : `${title}（続き）`, head + c.text + restNote + tail, color);
         if (!ok) allOk = false;
         for (const e of c.items) e.notified = !!ok;
-        // Discord のレート制限（5 通/5 秒）を避ける
-        if (i < chunks.length - 1) await new Promise((r) => setTimeout(r, 1200));
+      }
+      if (rest.length) {
+        // 上限を超えた分は「全件をログに記録済み」として通知対象から外す。
+        // pending に残すと毎回同じ超過分を再送し続ける（今回直した症状の再発）ため。
+        log(`${rest.length} 件はメッセージ上限(${MAX_CHUNKS_PER_CATEGORY} 通/カテゴリ)のためサマリに集約しました（詳細は logs/honeypot.log）`);
+        for (const e of rest) { e.notified = true; e.summarized = true; }
       }
       return allOk;
     };
@@ -501,7 +548,7 @@ async function main() {
         used,
         "重大: ハニーポットの canary が使われました（窃取後の使用）",
         notify.SEVERITY_COLOR.critical,
-        (e) => `• \`${e.time}\` **${e.ip}** が \`${e.path}\` にアクセス\n  UA: \`${e.ua}\``,
+        (e) => `• \`${e.time}\` **${e.ip}** が \`${e.path}\`${dupSuffix(e)} にアクセス\n  UA: \`${clip(e.ua, MAX_UA_CHARS)}\``,
         "\n\n偽物の設定ファイルに埋め込んだ追跡 URL にアクセスされています。\n" +
           "**偽物の中身を知っている（＝ファイルを取得した）**ことを意味します。"
       )) && okAll;
@@ -511,7 +558,7 @@ async function main() {
         stolen,
         `重大: ハニーファイルが取得されました（窃取 ${stolen.length} 件）`,
         notify.SEVERITY_COLOR.critical,
-        (e) => `• \`${e.time}\` **${e.ip}** が \`${e.path}\`（${e.bytes} bytes）を取得\n  UA: \`${e.ua}\``,
+        (e) => `• \`${e.time}\` **${e.ip}** が \`${e.path}\`${dupSuffix(e)}（${e.bytes} bytes）を取得\n  UA: \`${clip(e.ua, MAX_UA_CHARS)}\``,
         "\n\n返したのは**偽物**です（実物の秘密値は含まれません）。\n" +
           "次の段階（canary の使用）まで来ると窃取が確定します。"
       )) && okAll;
@@ -521,10 +568,12 @@ async function main() {
         probes,
         `情報: 秘密ファイルの探索 ${probes.length} 件（偵察）`,
         notify.SEVERITY_COLOR.info,
-        (e) => `• \`${e.time}\` \`${e.ip}\` \`${e.path}\` → ${e.status}`,
+        (e) => `• \`${e.time}\` \`${e.ip}\` \`${e.path}\`${dupSuffix(e)} → ${e.status}`,
         "\n\n" + (stolen.length || used.length
           ? "※ 同時に**取得（窃取）**も検知しています（上の通知）。"
-          : "まだ何も取れていません（偽物もまだ配信されていません）。")
+          : (Object.keys(state.recent).some((k) => k.startsWith("stolen|"))
+            ? `※ 過去 ${DEDUPE_HOURS} 時間以内に**取得（窃取）**を検知しています（詳細は logs/honeypot.log）。`
+            : "まだ何も取れていません（偽物もまだ配信されていません）。"))
       )) && okAll;
     }
     notifiedAll = okAll;
@@ -558,9 +607,16 @@ async function main() {
   }
 
   // --- 状態報告（AGENTS.md §11）---
+  // dry-run は「状態を一切書き換えない」約束（§5.3）なので、公開の監視ステータスにも
+  // 書き込まない（本番の管理画面の「最終実行」を動かしてしまうため）。
+  if (DRY_RUN) {
+    log("(dry-run) 状態報告はスキップします（状態を書き換えない）");
+    return notifiedAll ? 0 : 2;
+  }
   const summary = state.pending.length
     ? `未通知 ${state.pending.length} 件（通知に失敗しています）`
     : `最新イベント: ${fresh.length} 件` +
+      (deduped.length ? ` / 重複抑制 ${deduped.length} 件（${DEDUPE_HOURS}h）` : "") +
       (localEvents.length ? `（自機 ${localEvents.length} 件は通知対象外）` : "");
   const reportOk = await reportStatus(notifiedAll ? "success" : "degraded", `${summary}（監視実行: ${new Date().toISOString()}）`);
   if (!notifiedAll) {

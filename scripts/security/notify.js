@@ -181,7 +181,7 @@ async function sendDiscord(cfg, payload) {
   const body = {
     embeds: [{
       title: String(payload.title == null ? "" : payload.title).slice(0, 256),
-      description: truncate(payload.description, DISCORD_DESCRIPTION_LIMIT - 20),
+      description: truncate(payload.description, DISCORD_DESCRIPTION_LIMIT - 24),
       color: payload.color || SEVERITY_COLOR.warning,
       fields: (payload.fields || []).map((f) => ({
         name: String(f.name == null ? "" : f.name).slice(0, 256),

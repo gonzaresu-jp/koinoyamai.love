@@ -298,7 +298,7 @@ bash scripts/php/verify-php-security-patch.sh
   4. `scripts/security/honeypot-watch.js`（5 分ごとの cron）が `honey.log` を見て通知する。
      - `stolen` = 偽物が 200 で取得された（＝窃取の証拠）
      - `canary_used` = canary にアクセスされた（＝**盗んだ情報を使った**＝窃取確定）
-     - `probe` = 404 の偵察（集約して 1 通）
+     - `probe` = 404 の偵察（3,200 文字を超える場合は分割して送る）
 - **遺留リスク / 注意点**:
   - 偽物は**すべて偽**。実物の `.env`・鍵・DB は置かない（実物の `.env` は mode 600・webroot 外のまま）
   - `honey.log` は**時刻・UA・クライアント IP** を含む（メインの `access.log` は

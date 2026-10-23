@@ -381,7 +381,7 @@
     ハニー location グループ（honey / named / canary / deny）を**まとめて差し替える**
 - **監視**: `scripts/security/honeypot-watch.js`（5 分ごとの cron）
   - `stolen`（偽物が 200 で取得された）/ `canary_used`（canary アクセス）= 重大で個別通知
-  - `probe`（404 の偵察）= 情報を 1 通に集約
+  - `probe`（404 の偵察）= 情報（3,200 文字を超える場合は分割して送る）
   - 通知は既存の `scripts/security/notify.js`（Discord Bot API）を再利用
   - **通知は 4096 文字で分割する**（`scripts/security/discord-chunk.js`）:
     Discord の embed description の上限は 4096 文字で、**超えるとメッセージ全体が 400 で落ちる**
