@@ -35,7 +35,7 @@
 
 ## 5. 依存関係
 - **sqlite3 は 6.0.1 に昇格済み（2026-09-22 本番反映）**。npm audit critical は解消。
-  依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト(83/83) → smoke」を通すこと。
+  依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト(186/186) → smoke」を通すこと。
 - **依存更新の反映は `scripts/deploy/npm-deploy.sh` で行う（2026-10-21 追加）**:
   - `git pull` は **package-lock.json しか更新しない**。node_modules が旧版のままでは
     「lockfile 上は安全 / 実際のコードは脆弱」という食い違いが起きる。
@@ -60,7 +60,7 @@
   | **firebase（クライアント SDK）** | **削除** | **未使用だった**（Node 側は firebase-admin のみ。webui は gstatic の CDN 版）。削除で advisory 3 件と推移 45 パッケージが消えた |
   | gaxios | 6.7.1 → 6.3.0 | **ダウングレード**。gaxios 6.4.0+ が脆弱な uuid を依存し 6.x に修正版が無いための意図的な pin 解決 |
   - 監査結果: **total 28 → 17**（critical **1 → 0** / high 18 → 10 / moderate 7 → 6 / low 2 → 1）
-  - 残 17 件は direct 依存の更新が必要 → **2026-10-23 に解消（下記）**。
+  - 残 17 件のうち **16 件を 2026-10-23 に解消**（下記。残るのは `@simplewebauthn/server` の low 1 件）。
 - **2026-10-23 の依存更新（direct 2 件のメジャー更新を含む）**:
   | パッケージ | 変更 | 備考 |
   |---|---|---|
@@ -85,6 +85,7 @@
   - Chrome の実体は共有キャッシュ `~/.cache/puppeteer/chrome/linux-<ver>/`。**旧版の Chrome を消すと
     ロールバックできなくなる**ので、ディスクが厳しいとき以外は残す（puppeteer の postinstall は
     既にキャッシュがあればダウンロードしない＝本番デプロイでネットワークに依存しない）。
+  - ⚠️ **puppeteer 25 は ESM のみで、Node 22.12 未満では `require()` が `ERR_REQUIRE_ESM` で即死する**（puppeteer の engines は `>=22.12`、firebase-admin 14 は `>=22`）。`main.js` はスクレイパー経由で `src/core/browser.js` を**最初に読み込む**ため、interpreter を間違えると**ワーカーだけ起動不能**になる（API は動く＝部分障害で気づきにくい）。`ecosystem.config.js` の `interpreter` を絶対パスで明示すること（§5 冒頭）。
   - **コードと依存は同時に反映する**（`scripts/deploy/npm-deploy.sh --apply`）。今回のように API 移行を
     伴う更新を片方だけ反映すると、起動しない／静かに壊れる。
 - **`npm audit fix --force` は禁止**。npm の `fixAvailable` は信用せず、
@@ -531,7 +532,7 @@
   `lib/` に移動（nginx の alias も同dir直配信のため、移動が必須）。
 - `/api/system-info` は公開（CPU%・メモリ%・loadavg・稼働時間・RSSのみ。**ホスト名/ディスク/OS詳細は返さない**）。status ページのリソース欄は誰でも閲覧可能。
 - `/api/ask`（公開）は 5回/分＋質問500文字上限。管理者用 `/api/admin/ask` は対象外。
-- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 35 項目）に接続済み。
+- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 186 項目・2026-10-23 時点）に接続済み。
 - pm2-logrotate 導入済み（20M・10世代・圧縮）。
 
 ## 6.7 admin は Tailnet 専用（2026-10-10 追加）
@@ -703,7 +704,7 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 - ステージ・コミット対象の `.js` に対し `node --check`
 - `.php` に対し `php -l`
 - アプリバージョンの3箇所整合（`scripts/ops/check-app-version.sh`・`SKIP_PREPUSH_VERSION=1` でスキップ可）
-- 回帰テスト `npm test`（35項目、約5秒）
+- 回帰テスト `npm test`（186項目・2026-10-23 時点、約6秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
 ### 7.4 staging/本番のドリフト検出
@@ -1190,7 +1191,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - [ ] 上の表に該当するドキュメントを更新した（該当なしなら不要）
 - [ ] ユーザーに見える変更なら `webui/updatelogs.php` を更新した（`lines` を `count-lines.sh` の実測値で）
 - [ ] `node --check <file>` / `php -l <file>`（pre-push でも自動実行, `§7.3`）
-- [ ] `npm test`（回帰テスト 35 項目）
+- [ ] `npm test`（回帰テスト 186 項目）
 - [ ] 本番操作の前に `bash scripts/deploy/assert-port.sh prod|staging`（`§7.2`）
 - [ ] 感度の高い変更なら PR＋別エージェントの独立レビューを通した（`§13`）
 - [ ] 秘密情報・DB・`webui/data` を不用意にコミットしていない

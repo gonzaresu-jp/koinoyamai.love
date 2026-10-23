@@ -418,7 +418,8 @@ upstream の changelog に CVE がある ＝ この環境（noble の php8.3）�
 - **取得失敗・`php8.3` の記載なし → critical**（fail-closed。隠さない）
 
 実装は `scripts/security/checks.js` の `ubuntuTrackerStatus` / `isUbuntuNotAffected` /
-`splitPhpTrackerView`（すべて純関数。回帰テスト `[9]` に 11 件）。tracker は CVE ごとに並列取得
+`splitPhpTrackerView`（純関数）。回帰テスト `[9]` に **18 件**追加（純関数 11 件＋`checkPhp` 本体の統合 7 件。
+統合側は `changelogHtml` / `trackerStatus` を注入して php.net と ubuntu.com に依存しない）。tracker は CVE ごとに並列取得
 （timeout 30 秒 / retry 2）。ubuntu.com は応答が遅いことがあり、直列だとタイムアウトが積み上がるため。
 
 ⚠️ **`php8.3` の記載が無い CVE は critical のまま残る**（例: CVE-2026-9672 は libgd の更新で
@@ -519,7 +520,7 @@ bash scripts/php/verify-php-hardening.sh            # 実測検証（root 不要
 - 適用スクリプトは **fail-closed**：`webui/*.php` に `$_POST`/`$_FILES`/`$_REQUEST` を読む処理、
   method=post のフォームがある、`mb_*` 呼び出しがある、を検出したら**適用せず exit 1** する
   （`enable_post_data_reading=Off` がアプリを壊す状況を先に止める）。
-- **前提条件は回帰テスト [10] で固定**（`npm test` / 96 項目）。
+- **前提条件は回帰テスト [10] で固定**（`npm test` / 186 項目・2026-10-23 時点）。
   POST を読まない / method=post フォームなし / `mb_*` を使わない / eval・exec 等を使わない /
   動的 include なし / `archive.php` の `global $domain` あり。
 - 適用前の確認（いずれも実測）:
@@ -684,8 +685,8 @@ UA 判定は「公式のクローラしか来ない」程度の補助にすぎ�
   移設先と重複するものは削除**した。
 - `.env` は**重複キーが先頭勝ち**なので、パスを直すときは**既存行を書き換える**
   （末尾に追記すると無視される）。
-- 確認手段: `initFcm()` が `FCM initialized` を返すこと＋`admin.messaging().send(msg, true)`
-  （`validate_only`）が成功すること。**実配信のテスト送信は本番で行わない**（`AGENTS.md §2`）。
+- 確認手段: `initFcm()` が `FCM initialized` を返すこと＋`getMessaging().send(msg, true)`
+  （`validate_only`、**v14 はモジュラー API のみ**）が成功すること。**実配信のテスト送信は本番で行わない**（`AGENTS.md §2`）。
 - 教訓: 「設定が無い＝機能が静かに無効」になる経路は、**ログを見ても気づけない**。
   通知の履歴（`notifications` テーブル）に `android=0` が続いていないかを監視する余地がある（未実装）。
 

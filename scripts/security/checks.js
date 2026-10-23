@@ -443,7 +443,9 @@ async function checkPhp(opts) {
 
   let upstream;
   try {
-    const html = await fetchText(PHP_CHANGELOG_URL, 60000);
+    // 回帰テストでは o.changelogHtml に HTML を渡すと php.net へのアクセスを省略できる
+    // （テストをネットワーク非依存にするため。実運用では渡さない）。
+    const html = o.changelogHtml !== undefined ? o.changelogHtml : await fetchText(PHP_CHANGELOG_URL, 60000);
     upstream = parsePhpChangelog(html);
   } catch (e) {
     return {

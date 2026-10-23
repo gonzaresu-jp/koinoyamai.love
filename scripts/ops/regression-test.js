@@ -621,6 +621,50 @@ async function main() {
     ok("splitPhpTrackerView: 対象外の key が正しい",
       split.excluded.map((e) => e.cve).join(",") === "CVE-1,CVE-2");
 
+    // 9-17. checkPhp 本体の統合（changelogHtml / trackerStatus を注入してネットワーク非依存に）
+    // 純関数だけでは「summary / status / findings の分岐」が壊れても検出できない。
+    // php.net と ubuntu.com を注入で差し替え、判定ロジックそのものを固定する。
+    const phpLogFixture = path.join(os.tmpdir(), `mai-php-changelog-${process.pid}.gz`);
+    fs.writeFileSync(phpLogFixture, require("zlib").gzipSync(Buffer.from(
+      "php8.3 (1:8.3.6-0ubuntu0.24.04.13) noble-security; urgency=medium\n\n" +
+      "  * SECURITY UPDATE: CVE-2020-1234（365日窓の外なので対象外）\n\n" +
+      " -- Ubuntu <sec@ubuntu.com>  Mon, 21 Oct 2026 00:00:00 +0900\n")));
+    const phpFixtureBase = {
+      pkgVersion: "8.3.6-0ubuntu0.24.04.13",
+      debianChangelog: phpLogFixture,
+      changelogHtml: [
+        "<h3>Version 8.3.32</h3><p datetime='2026-07-02'>CVE-2026-12184</p>",
+        "<h3>Version 8.3.33</h3><p datetime='2026-07-30'>CVE-2026-9672</p>",
+      ].join("\n"),
+      ubuntuCodename: "noble",
+    };
+    const phpAllExcluded = await secChecks.checkPhp(Object.assign({}, phpFixtureBase, {
+      trackerStatus: async () => ({ status: "not-affected" }),
+    }));
+    ok("checkPhp: tracker がすべて「対象外」なら ok", phpAllExcluded.status === "ok");
+    ok("checkPhp: summary に「対象外 2 件」が出る（要対応は無い）",
+      /対象外 2 件/.test(phpAllExcluded.summary) && !/要対応/.test(phpAllExcluded.summary));
+    ok("checkPhp: findings はすべて info に落ちる",
+      phpAllExcluded.findings.length === 2 && phpAllExcluded.findings.every((f) => f.severity === "info"));
+
+    const phpTrackerDown = await secChecks.checkPhp(Object.assign({}, phpFixtureBase, {
+      trackerStatus: async () => { throw new Error("tracker down"); },
+    }));
+    ok("checkPhp: tracker が全滅しても degraded（fail-closed）", phpTrackerDown.status === "degraded");
+    ok("checkPhp: tracker 失敗の 2 件は critical のまま",
+      phpTrackerDown.findings.filter((f) => f.severity === "critical").length === 2);
+    ok("checkPhp: tracker の失敗理由が detail に入る",
+      phpTrackerDown.findings.every((f) => /tracker down/.test(f.detail || "")));
+
+    const phpMixed = await secChecks.checkPhp(Object.assign({}, phpFixtureBase, {
+      trackerStatus: async (cve) => (
+        cve === "CVE-2026-12184" ? { status: "not-affected" } : { status: "needed" }
+      ),
+    }));
+    ok("checkPhp: 混在時は「要対応 1 件（対象外 1 件）」",
+      phpMixed.status === "degraded" && /要対応 1 件（対象外 1 件）/.test(phpMixed.summary));
+    fs.unlinkSync(phpLogFixture);
+
     // --- 10. PHP 実行時ハードニングの不変条件（2026-10-21 追加） ---
     // php-fpm は `enable_post_data_reading=Off` / `disable_functions` / `open_basedir` で
     // 実行時を制限する（scripts/php/apply-php-hardening.sh）。
