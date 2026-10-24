@@ -870,6 +870,7 @@ public sealed partial class MainWindow : Window
             if (string.IsNullOrEmpty(code))
             {
                 Diagnostics.Log("DesktopLogin", "ブラウザでのログインが完了しませんでした（タイムアウト）");
+                FailToast("ログインが完了しませんでした", "ブラウザでログインをやり直してください");
                 return;
             }
 
@@ -877,19 +878,30 @@ public sealed partial class MainWindow : Window
             if (string.IsNullOrEmpty(token))
             {
                 Diagnostics.Log("DesktopLogin", "token-exchange に失敗しました");
+                FailToast("ログインに失敗しました", "もう一度お試しください");
                 return;
             }
 
             var core = wv.CoreWebView2;
-            if (core == null) return;
-
-            // Cookie 期限はサーバー側の maxAge（JWT_EXPIRES_IN=30d）に合わせる
-            var cookie = new CoreWebView2Cookie("session", token!, "koinoyamai.love", "/",
-                DateTime.Now.AddDays(30))
+            if (core == null)
             {
-                Secure = true,
-                HttpOnly = true,
-            };
+                // タブが閉じられていた場合。CookieManager はプロファイル共通だが、
+                // ここでは参照できないため失敗として扱う（レビュー指摘 M3）。
+                FailToast("ログインを反映できませんでした", "タブが閉じられたためです。もう一度お試しください");
+                return;
+            }
+
+            // Cookie 期限はサーバー側の maxAge（JWT_EXPIRES_IN=30d）に合わせる。
+            // ※ CoreWebView2Cookie に 5 引数のコンストラクタは**無い**（2026-10-24 独立レビューで
+            //   NuGet 実物のメタデータを照合して確認）。CookieManager.CreateCookie を使う。
+            //   Expires は **UNIX エポックからの秒（double）**（DateTime ではない）。
+            //   SameSite は既定の Lax のまま（アプリ内は全て同一サイトなので実害なし。
+            //   Strict にするには CoreWebView2CookieSameSiteMode が要るが、種名の確証が
+            //   取れないためコンパイルリスクを避けて未指定）。
+            var cookie = core.CookieManager.CreateCookie("session", token!, "koinoyamai.love", "/");
+            cookie.Expires = (DateTime.UtcNow - DateTime.UnixEpoch).TotalSeconds + 30 * 24 * 3600;
+            cookie.IsSecure = true;
+            cookie.IsHttpOnly = true;
             core.CookieManager.AddOrUpdateCookie(cookie);
             Diagnostics.Log("DesktopLogin", "セッションを注入しました（再読込します）");
             DispatcherQueue.TryEnqueue(() => { try { core.Reload(); } catch { } });
@@ -897,7 +909,14 @@ public sealed partial class MainWindow : Window
         catch (Exception ex)
         {
             Diagnostics.Log("DesktopLogin", ex);
+            FailToast("ログインに失敗しました", "もう一度お試しください");
         }
+    }
+
+    /// <summary>ログイン失敗を通知で知らせる（黙って失敗させない）。</summary>
+    private void FailToast(string title, string body)
+    {
+        DispatcherQueue.TryEnqueue(() => NotificationHelper.ShowToast(title, body));
     }
 
     // ---- V2: タブごとの WebView2 初期化 ----

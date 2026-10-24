@@ -31,6 +31,14 @@ namespace MaiPushWinUI;
 ///
 /// ループバックは TcpListener で実装する（HttpListener は非管理者での URL ACL 問題を
 /// 避けるため使わない）。1 回限り・180 秒で失効。
+///
+/// 受け入れ済みのリスク（レビュー M2・2026-10-24）:
+///   ポートはエフェメラルで事前予測はできないが、ローカルの別プロセスがスキャンして
+///   偽のコード（書式だけ正しい）を送ると、この 1 回限りの受信が消費されて
+///   **ログインが失敗する**（DoS のみ。セッションの盗難は起きない: 交換先は本番固定で、
+///   サーバーが発行した 60 秒の単発コードでなければ 400 になる）。
+///   同じ経路で攻撃者自身のコードを差し込む**ログイン CSRF** も理論上ありうるが、
+///   単一ユーザーのデスクトップ用途として受け入れる。恒久久対策はサーバー側の PKCE 対応。
 /// </summary>
 internal static class DesktopLogin
 {
@@ -114,11 +122,21 @@ internal static class DesktopLogin
         {
             client.ReceiveTimeout = ReceiveTimeoutMs;
             using var stream = client.GetStream();
-            var buf = new byte[2048];
-            var read = stream.Read(buf, 0, buf.Length);
-            if (read <= 0) return null;
 
-            var firstLine = Encoding.ASCII.GetString(buf, 0, read).Split('\n')[0].Trim();
+            // 1 行目が分割されて届く場合もあるため、"\n" が揃うまで読む
+            // （分割読み込みでコードが途中で切れて黙って失敗するのを防ぐ / レビュー指摘 M1）
+            var buf = new byte[2048];
+            var total = 0;
+            while (total < buf.Length)
+            {
+                var read = stream.Read(buf, total, buf.Length - total);
+                if (read <= 0) break;
+                total += read;
+                if (Array.IndexOf(buf, (byte)'\n', 0, total) >= 0) break;
+            }
+            if (total <= 0) return null;
+
+            var firstLine = Encoding.ASCII.GetString(buf, 0, total).Split('\n')[0].Trim();
             var parts = firstLine.Split(' ');
             if (parts.Length < 2) { Respond(stream, 400, "不正なリクエストです"); return null; }
 
