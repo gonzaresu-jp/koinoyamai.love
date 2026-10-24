@@ -1572,8 +1572,12 @@ async function main() {
       const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), "drift-deploy-"));
       try {
         fs.writeFileSync(path.join(tmp2, "package-lock.json"), "{ broken json ");
+        // NODE_BIN を明示する（CI には /home/yuzuki/.nvm/... が無く、
+        // npm-deploy.sh の既定値だと「node が見つかりません」で
+        // ロックファイルの検査より前に exit 1 して乖離チェックの文言が出てこない＝誤検知）
         const r4 = spawnSync("bash", [path.join(projectDir, "scripts", "deploy", "npm-deploy.sh")], {
-          cwd: tmp2, encoding: "utf8", env: { ...process.env, ROOT: tmp2 },
+          cwd: tmp2, encoding: "utf8",
+          env: { ...process.env, ROOT: tmp2, NODE_BIN: process.execPath },
         });
         const all4 = (r4.stdout || "") + (r4.stderr || "");
         ok("lockfile 破損時は npm-deploy.sh が pm2 を触らず exit 1（fail-closed）",
