@@ -4,6 +4,9 @@ const webpush = require("web-push");
 // v12 の `admin.messaging()` に戻すと FCM 初期化が静かに失敗する（実測: 2026-10-23）。
 const { initializeApp, getApps, cert } = require("firebase-admin/app");
 const { getMessaging } = require("firebase-admin/messaging");
+// 配信開始通知のアラーム用チャネル名（生成側 scheduler.js / 判断側 notify-channel.js と
+// 値がずれると、dispatch の再判定が常に false になり二度鳴りが無音で復帰する）。
+const { START_ALARM_CHANNEL } = require("../src/core/notify-channel");
 const ctx = require("./context");
 const { publicHttpUrl } = require("../lib/validate");
 
@@ -151,7 +154,7 @@ async function sendFcmNotification(messaging, token, payload, type, settingKey, 
     //   描画して `onMessageReceived` が呼ばれない** → アプリ側の
     //   「ループするアラーム音（フォアグラウンドサービス）」に到達できない。
     //   data-only なら（priority: high のため）アプリが起きて処理する。
-    const isAlarmChannel = data.channel === "mai_stream_alarm";
+    const isAlarmChannel = data.channel === START_ALARM_CHANNEL;
     const message = {
       token,
       data,

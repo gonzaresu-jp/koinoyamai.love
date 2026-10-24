@@ -1,5 +1,26 @@
 const ctx = require("./context");
 const notifier = require("./notification");
+const { START_ALARM_CHANNEL } = require("../src/core/notify-channel");
+
+/**
+ * そのイベントの事前告知（event_pre_*）を 1 件でも送り済みなら true。
+ * 配信開始通知のアラーム要否（`dispatchDueEventNotifications`）で使う。
+ */
+async function hasSentPreNoticeForEvent(db, eventId) {
+  const row = await new Promise((resolve) => {
+    db.get(
+      "SELECT 1 AS hit FROM scheduled_notifications WHERE ref_id = ? AND kind LIKE 'event_pre_%' AND sent = 1 LIMIT 1",
+      [eventId],
+      (err, r) => {
+        // err 時は null（＝アラーム側に倒す）。ただし黙って倒すと DB 障害時に
+        // 「常にアラーム」が続くので、原因を残す。
+        if (err) console.error("[Event Notify Dispatch] preNotice query err:", err.message);
+        resolve(err ? null : r);
+      },
+    );
+  });
+  return !!row;
+}
 
 const EVENT_PRE_OFFSETS_MS = [30 * 60 * 1000, 3 * 60 * 1000];
 const EVENT_NOTIFY_GRACE_MS = 2 * 60 * 1000;
@@ -90,7 +111,12 @@ function buildEventNotificationPayload(event, phase) {
   const mm = String(startDate.getMinutes()).padStart(2, "0");
   const isPre = phase.startsWith("event_pre");
   const offsetMin = isPre ? Math.round(parseInt(phase.split("_")[2], 10) / 60000) : 0;
-  // 開始の通知（event_start）のみアラーム用チャネルで配信する。
+  // 開始の通知（event_start）はアラーム用チャネルを入れる候補にする。
+  // **ただし送信直前に外すことがある**: 事前告知（event_pre_*）を送り済みの配信では、
+  // 利用者は既に目を覚ましており（開始 15 分前に端末内アラームが鳴っている）、
+  // 開始時にもう一度鳴ると二度鳴りになる（2026-10-23 の利用者報告）。
+  // 生成時点では事前告知がまだ未送信の可能性があるため、この関数では**無条件**で付け、
+  // 送信直前の `dispatchDueEventNotifications` が事前告知の送信有無を見て外す。
   // 事前告知の通知（event_pre_*）は情報通知のままにする。
   const isStart = phase === "event_start";
   return {
@@ -102,7 +128,7 @@ function buildEventNotificationPayload(event, phase) {
       image: toHttpsThumb(event.thumbnail_url),
       // 配信開始時刻（ISO）。Android アプリが端末内アラームを予約する時に使う。
       start_time: event.start_time || null,
-      ...(isStart ? { channel: "mai_stream_alarm" } : {}),
+      ...(isStart ? { channel: START_ALARM_CHANNEL } : {}),
     },
   };
 }
@@ -219,7 +245,7 @@ async function dispatchDueEventNotifications() {
     [now, now - EVENT_NOTIFY_MAX_LATE_MS], function () { r(); }));
 
   const due = await new Promise(r => db.all(
-    "SELECT id, payload_json FROM scheduled_notifications WHERE sent = 0 AND run_at <= ? ORDER BY run_at ASC LIMIT 50",
+    "SELECT id, ref_id, payload_json FROM scheduled_notifications WHERE sent = 0 AND run_at <= ? ORDER BY run_at ASC LIMIT 50",
     [now], (err, rows) => { if (err) console.error("[Event Notify Dispatch] load err:", err.message); r(err ? [] : (rows || [])); }));
 
   for (const row of due) {
@@ -233,6 +259,19 @@ async function dispatchDueEventNotifications() {
     try { payload = JSON.parse(row.payload_json); } catch (e) {
       console.error("[Event Notify Dispatch] bad payload id=", row.id);
       continue; // 壊れた行は既読のまま放置（無限リトライ防止）
+    }
+    // 事前告知（event_pre_*）を送り済みなら、開始通知からアラームを外す。
+    // 予定どおりの配信では利用者は既に知っているうえ、開始 15 分前に端末内アラームが
+    // 鳴っているため、開始時にもう一度鳴ると二度鳴りになる（2026-10-23 の利用者報告）。
+    // 事前告知が無い突然の開始（例: 直前に予定が追加された配信）だけアラームを残す。
+    // ※ **送信直前に判定する**（生成時に判定すると、事前告知がまだ未送信の段階で
+    //   「事前告知なし＝突然」と誤判定してアラームが付いてしまう）。
+    if (payload && payload.data && payload.data.channel === START_ALARM_CHANNEL && row.ref_id) {
+      try {
+        if (await hasSentPreNoticeForEvent(db, row.ref_id)) delete payload.data.channel;
+      } catch (e) {
+        console.error("[Event Notify Dispatch] preNotice check failed id=", row.id, e?.message);
+      }
     }
     try {
       await notifier.handleAdminNotify(payload, "event-scheduler");
