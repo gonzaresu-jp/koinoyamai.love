@@ -44,6 +44,14 @@ QUIET=0
 [ "${1:-}" = "--quiet" ] && QUIET=1
 
 say() { [ $QUIET -eq 1 ] || echo "$@"; }
+# 警告は --quiet（cron）でも stderr に残す。say() だけだと乖離が logs/drift.log に
+# 1 文字も残らず「静かに死ぬ」（2026-10-24 レビュー指摘）。
+notice() { if [ $QUIET -eq 1 ]; then echo "$@" >&2; else echo "$@"; fi; }
+
+# cron の PATH は /usr/bin/node（v18 EOL）を掴むため明示指定を優先する（AGENTS §5/§7.6）。
+# 見つからなければ PATH 解決にフォールバックする（cron 以外の手動実行を壊さない）。
+NODE_BIN="${NODE_BIN:-$HOME/.nvm/versions/node/v24.22.1/bin/node}"
+[ -x "$NODE_BIN" ] || NODE_BIN="node"
 drift=0
 
 [ -d "$PROD_DIR/.git" ] || [ -f "$PROD_DIR/.git" ] || { echo "ERROR: 本番ツリーが見つかりません: $PROD_DIR" >&2; exit 2; }
@@ -129,22 +137,15 @@ say "[3.5] node_modules と package-lock.json の乖離"
 NM_DRIFT=0
 for d in "$PROD_DIR" "$STG_DIR"; do
   who=$(basename "$d")
-  out=$(cd "$d" && node -e '
-const lock = require("./package-lock.json");
-const pkgs = ["proxy-addr","sharp","esbuild","undici","follow-redirects","firebase-admin","puppeteer","sqlite3","bcrypt"];
-const out = [];
-for (const name of pkgs) {
-  const locked = lock.packages && lock.packages["node_modules/"+name] && lock.packages["node_modules/"+name].version;
-  let installed = null;
-  try { installed = require("./node_modules/"+name+"/package.json").version; } catch (e) {}
-  if (locked && installed && locked !== installed) out.push(`${name} lock=${locked} installed=${installed}`);
-  else if (locked && !installed) out.push(`${name} lock=${locked} installed=(未インストール)`);
-}
-console.log(out.join("\n"));
-' 2>/dev/null || echo "")
-  if [ -n "$out" ]; then
-    say "  ⚠ $who : node_modules が lockfile に追随していません"
-    echo "$out" | sed 's/^/       /' | while IFS= read -r line; do say "$line"; done
+  # 全パッケージ比較（固定リストだと依存を足したときに漏れる。2026-10-24 実測）
+  out=$(cd "$d" && "$NODE_BIN" scripts/deploy/check-node-modules-drift.js 2>/dev/null)
+  rc=$?
+  if [ "$rc" -eq 10 ]; then
+    notice "  ⚠ $who : node_modules が lockfile に追随していません"
+    echo "$out" | sed 's/^/       /' | while IFS= read -r line; do notice "$line"; done
+    NM_DRIFT=1
+  elif [ "$rc" -ne 0 ]; then
+    notice "  ⚠ $who : node_modules の乖離チェックに失敗しました（監視できていません・rc=$rc）"
     NM_DRIFT=1
   else
     say "  ✓ $who : 乖離なし"
