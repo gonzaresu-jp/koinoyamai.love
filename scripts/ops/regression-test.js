@@ -1506,6 +1506,26 @@ async function main() {
           const src = fs.readFileSync(path.join(projectDir, "webui", "js", "header-auth.js"), "utf8");
           return /addEventListener\(['"]error['"]/.test(src) && /default-avatar\.webp/.test(src);
         })());
+
+      // 14-12. Windows アプリの Google ログインは「システムブラウザ＋ループバック」
+      // （Google は埋め込みブラウザでのサインインをポリシーで止める＝WebView2 内では
+      //   戻ってこない。2026-10-24 実測: アプリからの開始7回・コールバック0回）
+      ok("winui: OAuth はシステムブラウザへ委譲する実装がある（DesktopLogin）",
+        (() => {
+          const p = path.join(projectDir, "Windows", "mai-push-winui", "DesktopLogin.cs");
+          if (!fs.existsSync(p)) return false;
+          const src = fs.readFileSync(p, "utf8");
+          // サーバーが loopback の returnTo に載せる単発コードを /auth/token-exchange に送る
+          return src.includes("/auth/token-exchange") && src.includes("127.0.0.1");
+        })());
+      ok("winui: NavigationStarting が /auth/google をアプリ内遷移させない",
+        (() => {
+          const src = fs.readFileSync(
+            path.join(projectDir, "Windows", "mai-push-winui", "MainWindow.xaml.cs"), "utf8");
+          return src.includes('uri.AbsolutePath != "/auth/google"') &&
+                 src.includes('uri.AbsolutePath != "/auth/discord"') &&
+                 src.includes("TryStartDesktopOAuth");
+        })());
     }
 
     // --- 15. iPhone の通知登録: 案内が必ず呼ばれるか（2026-10-23 追加） ---
