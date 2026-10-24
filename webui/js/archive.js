@@ -276,86 +276,85 @@
   }
 
   /** 表示中のカードについて、要約・字幕の有無を判定してバッジを表示する */
+  // バッジ判定を「画面に表示されたカードだけ」に遅延する。
+  // 以前はページ内の全カード（最大 PAGE_SIZE 本）の字幕/チャプターを即座に問い合わせていたため、
+  // 1ページで 200 本の上流リクエストが発生し SQLite/Python サーバが詰まっていた。
+  // IntersectionObserver で可視になったカードだけ判定するようにし、上流負荷を 1/5 以下に抑える。
+  var badgeObserver = null;
   function applyBadges() {
+    if (badgeObserver) { try { badgeObserver.disconnect(); } catch (e) {} badgeObserver = null; }
     var cards = el.results.querySelectorAll('.ar-card[data-video]');
-    var ids = [];
+    var pending = [];
     var seen = {};
     cards.forEach(function (card) {
       var id = card.getAttribute('data-video');
       if (!id || seen[id]) return;
       seen[id] = 1;
-      // 上流APIへの負荷を避けるため判定対象は1画面分（PAGE_SIZE）に制限する
-      if (ids.length >= PAGE_SIZE) return;
-      if (!badgeRendered[id] && !badgeDecided(id)) ids.push(id);
+      if (badgeRendered[id] || badgeDecided(id)) return;
+      pending.push({ id: id, card: card });
     });
-    if (!ids.length) return;
+    if (!pending.length) return;
 
-    // 要約（ローカルDB一括判定）
-    fetch('/api/archive/minutes?ids=' + encodeURIComponent(ids.join(',')))
+    // minutes はローカルDB一括判定（安価なので全カード分をまとめて1リクエスト）
+    var allIds = pending.map(function (p) { return p.id; });
+    fetch('/api/archive/minutes?ids=' + encodeURIComponent(allIds.join(',')))
       .then(function (r) { return r.json(); })
       .then(function (data) {
         var flags = (data && data.flags) || {};
-        ids.forEach(function (id) { badgeMark(id, 'has_minutes', !!(flags[id] && flags[id].has_minutes)); });
+        allIds.forEach(function (id) { badgeMark(id, 'has_minutes', !!(flags[id] && flags[id].has_minutes)); });
         renderBadgeLine();
       })
       .catch(function () {
-        ids.forEach(function (id) { badgeMark(id, 'has_minutes', false); });
+        allIds.forEach(function (id) { badgeMark(id, 'has_minutes', false); });
         renderBadgeLine();
       });
 
-    // 字幕（アーカイブAPIから動画単位で判定）。並列数4で順に消化する。
-    var queue = ids.slice();
-    var active = 0;
-    function checkTranscript() {
-      while (active < 4 && queue.length) {
-        var id = queue.shift();
-        active++;
-        (function (vid) {
-          fetch('/api/archive/transcript/' + encodeURIComponent(vid))
-            .then(function (r) { return r.json().catch(function () { return {}; }); })
-            .then(function (data) {
-              badgeMark(vid, 'has_transcript', !!(data && data.has_transcript));
-              badgeMark(vid, 'transcript_source', (data && data.source) || null);
-            })
-            .catch(function () {
-              badgeMark(vid, 'has_transcript', false);
-              badgeMark(vid, 'transcript_source', null);
-            })
-            .then(function () {
-              active--;
-              renderBadgeLine();
-              checkTranscript();
-            });
-        })(id);
-      }
+    // 可視になったカードだけ判定する（字幕・チャプターは上流APIなので遅延）
+    if (!('IntersectionObserver' in window)) {
+      // フォールバック: 全部判定（旧挙動）
+      pending.forEach(function (p) { checkOneBadge(p.id); });
+      return;
     }
-    checkTranscript();
+    badgeObserver = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        var card = entry.target;
+        var id = card.getAttribute('data-video');
+        if (!id || badgeRendered[id] || badgeDecided(id)) return;
+        badgeObserver.unobserve(card);
+        checkOneBadge(id);
+      });
+    }, { root: el.results, rootMargin: '200px', threshold: 0.01 });
+    pending.forEach(function (p) { badgeObserver.observe(p.card); });
+  }
 
-    // タイムスタンプ（チャプター txt）の有無を判定。並列数4。実データはポップアップ表示時に取得する。
-    var chapQueue = ids.slice();
-    var chapActive = 0;
-    function checkChapters() {
-      while (chapActive < 4 && chapQueue.length) {
-        var id = chapQueue.shift();
-        chapActive++;
-        (function (vid) {
-          fetch('/api/archive/chapters/' + encodeURIComponent(vid))
-            .then(function (r) { return { status: r.status }; })
-            .then(function (r) {
-              badgeMark(vid, 'has_chapters', r.status === 200);
-            })
-            .catch(function () {
-              badgeMark(vid, 'has_chapters', false);
-            })
-            .then(function () {
-              chapActive--;
-              renderBadgeLine();
-              checkChapters();
-            });
-        })(id);
-      }
-    }
-    checkChapters();
+  /** 1本分のバッジ判定（minutes は applyBadges で一括バッチ済み） */
+  function checkOneBadge(id) {
+    if (badgeRendered[id] || badgeDecided(id)) return;
+
+    // 字幕（上流API。遅延ロードで可視カードだけ問い合わせる）
+    (function (vid) {
+      fetch('/api/archive/transcript/' + encodeURIComponent(vid))
+        .then(function (r) { return r.json().catch(function () { return {}; }); })
+        .then(function (data) {
+          badgeMark(vid, 'has_transcript', !!(data && data.has_transcript));
+          badgeMark(vid, 'transcript_source', (data && data.source) || null);
+        })
+        .catch(function () {
+          badgeMark(vid, 'has_transcript', false);
+          badgeMark(vid, 'transcript_source', null);
+        })
+        .then(function () { renderBadgeLine(); });
+    })(id);
+
+    // チャプター
+    (function (vid) {
+      fetch('/api/archive/chapters/' + encodeURIComponent(vid))
+        .then(function (r) { return { status: r.status }; })
+        .then(function (r) { badgeMark(vid, 'has_chapters', r.status === 200); })
+        .catch(function () { badgeMark(vid, 'has_chapters', false); })
+        .then(function () { renderBadgeLine(); });
+    })(id);
   }
 
   // ------------------------------------------------ タイムスタンプ ポップアップ

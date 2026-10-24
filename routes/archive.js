@@ -208,9 +208,21 @@ function register(app) {
   // 一覧の各カードで表示対象だけをチェックするため、ビデオ単体の有無判定に特化する。
   // source は「その動画で実際に使われている字幕」（whisper 優先、なければ youtube_auto）。
   // フルの字幕は1本400KB超あるため from_ms/to_ms で meta のみを取りに行く（約500B）。
+  // 字幕の有無と出自は動画ごとに不変なので、上流への問い合わせをキャッシュする
+  // （ページ送りのたびに N 本分のリクエストが飛ぶのを防ぐ）
+  const TRANSCRIPT_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+  const transcriptCache = new Map();
   app.get("/api/archive/transcript/:id", async (req, res) => {
     const id = req.params.id;
     if (!VIDEO_ID_RE.test(id)) return res.status(400).json({ error: "invalid video_id" });
+
+    const cacheKey = `/api/archive/transcript/${id}`;
+    const cached = transcriptCache.get(cacheKey);
+    if (cached && Date.now() < cached.expires) {
+      res.set("X-Archive-Cache", "HIT");
+      return res.json(cached.value);
+    }
+
     let upstream;
     try {
       upstream = await fetchUpstream(`/api/transcript/${id}?from_ms=1&to_ms=2`, JSON_TIMEOUT_MS);
@@ -218,17 +230,18 @@ function register(app) {
       markUpstream(false, err);
       return res.status(504).json({ error: "アーカイブAPIに接続できません", has_transcript: null, source: null });
     }
+    let value;
     if (upstream.status !== 200) {
-      return res.json({ video_id: id, has_transcript: false, source: null });
+      value = { video_id: id, has_transcript: false, source: null };
+    } else {
+      let body = null;
+      try { body = await upstream.json(); } catch { body = null; }
+      const source = (body && body.meta && body.meta.source) || null;
+      value = { video_id: id, has_transcript: true, source };
     }
-    let body = null;
-    try {
-      body = await upstream.json();
-    } catch (err) {
-      body = null;
-    }
-    const source = (body && body.meta && body.meta.source) || null;
-    return res.json({ video_id: id, has_transcript: true, source });
+    transcriptCache.set(cacheKey, { value, expires: Date.now() + TRANSCRIPT_CACHE_TTL_MS });
+    res.set("X-Archive-Cache", "MISS");
+    return res.json(value);
   });
 
   // チャプター（タイムスタンプ txt）を取得する。上流が 404 ならそのまま 404 を返す。
