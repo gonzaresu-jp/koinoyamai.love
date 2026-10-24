@@ -834,6 +834,72 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    // ---- システムブラウザでの OAuth（Google / Discord）----
+    // WebView2 内でのサインインは Google に止められるため、既定ブラウザでログインさせ、
+    // セッションは DesktopLogin（ループバック）でアプリへ持ち帰す。詳細は DesktopLogin.cs。
+
+    /// <summary>
+    /// OAuth の開始 URL（/auth/google・/auth/discord）なら true。
+    /// その場合、既定ブラウザでログインを開始する（アプリ内遷移は止める）。
+    /// </summary>
+    private bool TryStartDesktopOAuth(string url, WebView2 wv)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !IsOwnSiteHost(uri.Host)) return false;
+        if (uri.AbsolutePath != "/auth/google" && uri.AbsolutePath != "/auth/discord") return false;
+        _ = RunDesktopOAuthAsync(uri, wv);
+        return true;
+    }
+
+    private async Task RunDesktopOAuthAsync(Uri startUri, WebView2 wv)
+    {
+        try
+        {
+            var waiter = DesktopLogin.StartWaiter();
+
+            // returnTo をループバックに差し替える（client_id 等の既存クエリは残す）
+            var pairs = startUri.Query.TrimStart('?')
+                .Split('&', StringSplitOptions.RemoveEmptyEntries)
+                .Where(kv => !kv.StartsWith("returnTo=", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            pairs.Add("returnTo=" + Uri.EscapeDataString($"http://127.0.0.1:{waiter.Port}/callback"));
+            var browserUrl = $"{startUri.Scheme}://{startUri.Host}{startUri.AbsolutePath}?{string.Join("&", pairs)}";
+
+            OpenExternal(browserUrl);
+
+            var code = await waiter.Code;
+            if (string.IsNullOrEmpty(code))
+            {
+                Diagnostics.Log("DesktopLogin", "ブラウザでのログインが完了しませんでした（タイムアウト）");
+                return;
+            }
+
+            var token = await DesktopLogin.ExchangeCodeAsync(code, CancellationToken.None);
+            if (string.IsNullOrEmpty(token))
+            {
+                Diagnostics.Log("DesktopLogin", "token-exchange に失敗しました");
+                return;
+            }
+
+            var core = wv.CoreWebView2;
+            if (core == null) return;
+
+            // Cookie 期限はサーバー側の maxAge（JWT_EXPIRES_IN=30d）に合わせる
+            var cookie = new CoreWebView2Cookie("session", token!, "koinoyamai.love", "/",
+                DateTime.Now.AddDays(30))
+            {
+                Secure = true,
+                HttpOnly = true,
+            };
+            core.CookieManager.AddOrUpdateCookie(cookie);
+            Diagnostics.Log("DesktopLogin", "セッションを注入しました（再読込します）");
+            DispatcherQueue.TryEnqueue(() => { try { core.Reload(); } catch { } });
+        }
+        catch (Exception ex)
+        {
+            Diagnostics.Log("DesktopLogin", ex);
+        }
+    }
+
     // ---- V2: タブごとの WebView2 初期化 ----
 
     private async Task InitWebViewAsync(TabViewItem tab, WebView2 wv, string url)
@@ -934,6 +1000,13 @@ public sealed partial class MainWindow : Window
         // のため、埋め込み表示には影響しない。
         core.NavigationStarting += (_, e2) =>
         {
+            // OAuth の開始（自サイト /auth/google・/auth/discord）は**アプリ内では進めない**。
+            // Google は「埋め込みブラウザでのサインイン」をポリシーで止めており、
+            // WebView2 内では Google のページで止まって戻ってこない
+            // （2026-10-24 実測: アプリからの開始 7 回・コールバック 0 回／通常ブラウザでは成功）。
+            // → 既定ブラウザでログインさせ、セッションはループバックで持ち帰る（DesktopLogin）。
+            if (TryStartDesktopOAuth(e2.Uri, wv)) { e2.Cancel = true; return; }
+
             if (IsInternalUri(e2.Uri)) return;
             e2.Cancel = true;
             OpenExternal(e2.Uri);

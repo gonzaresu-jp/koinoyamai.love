@@ -892,6 +892,23 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - `_appWindow.Changed`（.AppWindow イベント）も UI スレッドのコールバック。例外境界を置き、
     `UpdateCaptionPadding` のように **最小化/復帰で不正値になり得る値**（`TitleBar.RightInset` は
     NaN/Infinity になり得る）を UI に代入する前に弾くこと（v1.8.5 教訓）。
+  - **Google / Discord ログインは「システムブラウザ＋ループバック」で行う**（v1.8.8・2026-10-24 実測）:
+    - Google は**埋め込みブラウザ（WebView）でのサインインをポリシーで止めている**。
+      WebView2 内で `/auth/google` を進めると Google のページで止まって戻ってこない
+      （実測: アプリからの開始 **7 回**・コールバック **0 回**／通常ブラウザでは成功）。
+      UA を Chrome に偽装しても通らない。**WebView2 内で OAuth を進めようとしないこと**。
+    - → `MainWindow.NavigationStarting` が `/auth/google`・`/auth/discord` を**キャンセル**し、
+      **既定ブラウザ**で開く（`returnTo` を `http://127.0.0.1:&lt;空きポート&gt;/callback` に差し替え）。
+    - サーバーは `returnTo` が loopback のとき **Cookie ではなく単発コード**（60 秒）を返す
+      （`routes/user-auth.js` の `isAllowedDesktopCallback`。**サーバー側はもともと対応済み**）。
+      アプリはそのコードを `POST /auth/token-exchange` でセッショントークンに交換し、
+      `CoreWebView2.CookieManager.AddOrUpdateCookie` で WebView2 に注入して再読込する
+      （実装は `Windows/mai-push-winui/DesktopLogin.cs`）。
+    - **GCP 側の登録変更は不要**（`redirect_uri` は常に
+      `https://koinoyamai.love/auth/google/callback`。loopback は `returnTo` にしか使わない）。
+    - ループバックは **`TcpListener`**（`HttpListener` は非管理者での URL ACL 問題を避けるため使わない）。
+      1 回限り・180 秒で失効。コードは base64url の書式チェックしてから交換する。
+    - Cookie 期限は `JWT_EXPIRES_IN`（30d）に合わせる。Cookie 名は `AUTH_COOKIE_NAME`（既定 `session`）。
   - **通知をタップしたら「既定ブラウザ」で中身を開く**（v1.8.7 教訓・2026-10-22 実測）:
     - Windows アプリは web push / SSE を **ネイティブトースト**へ変換して表示する
       （`core.NotificationReceived` → `NotificationHelper.ShowToast`）。
