@@ -100,6 +100,17 @@
   - ⚠️ **puppeteer 25 は ESM のみで、Node 22.12 未満では `require()` が `ERR_REQUIRE_ESM` で即死する**（puppeteer の engines は `>=22.12`、firebase-admin 14 は `>=22`）。`main.js` はスクレイパー経由で `src/core/browser.js` を**最初に読み込む**ため、interpreter を間違えると**ワーカーだけ起動不能**になる（API は動く＝部分障害で気づきにくい）。`ecosystem.config.js` の `interpreter` を絶対パスで明示すること（§5 冒頭）。
   - **コードと依存は同時に反映する**（`scripts/deploy/npm-deploy.sh --apply`）。今回のように API 移行を
     伴う更新を片方だけ反映すると、起動しない／静かに壊れる。
+- **2026-10-24 の依存更新（security-watch が当日検出した high 2 件を即日修正）**:
+  | パッケージ | 変更 | 備考 |
+  |---|---|---|
+  | body-parser | 2.3.0 → 2.4.0 | high 解消（GHSA-27r3-jxmh-p828・圧縮リクエスト本体の後ろの余分なバイト列による DoS）。`express@5.1.0` が `^2.2.0` を要求しており範囲内＝非破壊 |
+  | undici（入れ子 3 箇所） | 6.28.1 → 6.29.1 | **high 1 + moderate 1** 解消（GHSA-xjj6-f33q-929c = 過大な content-encoding でエラー未処理 / **high**、GHSA-4qv8-2p9j-2685 = EventSource パーサのメモリ無制限 DoS / **moderate**。npm はパッケージ単位で最大深刻度を採るため `undici` は high と表示される）。`discord.js` / `@discordjs/rest` / `node-gyp` の入れ子。親の要求は `^6.27.0` / `^6.25.0` で範囲内。**ルートの `undici@7.30.1`（cheerio 経由）は元から脆弱範囲外** |
+  - 連鎖更新: **qs 6.16.0 → 6.16.1**（body-parser 2.4.0 が `qs: ^6.16.1` を要求）。advisory は無く、parse/stringify の不具合修正。
+    このほかのノードは変化なし（追加・削除 0 件。`node_modules` は公開 tarball とバイト一致を確認）。
+  - `npm audit fix`（**--force なし**）で解消。監査結果 total 3 → **1**（残るのは `@simplewebauthn/server` の low 1 件のみ）。
+  - 検証: staging で実 `npm install` → `npm test` 245 passed → staging API 再起動して `/api/health` 200・`/api/notify` が **plain も gzip も 401（認証で停止＝body パースは正常）** → **マージ後**に本番で `scripts/deploy/npm-deploy.sh --apply`（pm2 停止→`npm install`→ロード検証→再起動）で反映する（`git pull` だけでは node_modules は旧版のまま残る）。
+  - ⚠️ `npm audit fix --force` は `@simplewebauthn/server@14.0.3` への**メジャー更新**を提案するが、`lib/webauthn.js` は attestation 経路を使っておらず low のため**実行しない**。
+  - security-watch の cron は **04:30**（06:30 は check-drift）。**04:30 より後に公開された advisory は翌朝 04:30 まで通知されない**（実例: 2026-10-24 の本 2 件は JST 05:53 / 07:13 公開）。疑わしい時は `node scripts/security/security-watch.js --dry-run` で再判定する（通知・状態更新はしない）。
 - **`npm audit fix --force` は禁止**。npm の `fixAvailable` は信用せず、
   ダウングレード提案（例: `firebase` → 9.14.0）はセキュリティ後退なので却下する。
 - **Node.js は v24.22.1 に統一（2026-10-21 反映）**。全プロセスで同じ版を使う。
