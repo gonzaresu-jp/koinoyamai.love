@@ -1583,6 +1583,93 @@ async function main() {
       }
     }
 
+    // --- 17. push エンドポイントの送信前 DNS 検証（2026-10-24 / issue #76） ---
+    //  publicHttpUrl はホスト名の**文字列**しか見ないため「ホスト名が内部 IP に解決される」
+    //  経路（DNS rebinding）が残っていた。送信直前に dns.lookup して、解決先がすべて
+    //  公開 IP でなければ送信しない（fail-closed・既存の登録行は壊さない）。
+    console.log("\n[17] push エンドポイントの送信前 DNS 検証");
+    {
+      // scripts/ops/ からの相対パスではない（projectDir を使う他セクションと同じ）
+      const guardMod = require(path.join(projectDir, "lib", "push-endpoint-guard"));
+      const { createPushEndpointGuard, pushGuard } = guardMod;
+      /** テスト用ガード（lookup を差し替え、cacheTtlMs はケースごとに指定） */
+      const mk = (map, o) => createPushEndpointGuard({
+        cacheTtlMs: (o && o.cacheTtlMs) || 0,
+        timeoutMs: (o && o.timeoutMs) || 1000,
+        lookup: async (h) => {
+          const hits = map[h];
+          if (hits === undefined) { const e = new Error("ENOTFOUND"); e.code = "ENOTFOUND"; throw e; }
+          if (hits === "never") return new Promise(() => {});
+          return hits.map((a) => ({ address: a, family: a.includes(":") ? 6 : 4 }));
+        },
+      });
+
+      ok("公開 IP に解決するホストは送信を許可する",
+        (await mk({ "ok.example.com": ["93.184.216.34"] }).check("https://ok.example.com/push")).ok === true);
+      const loop = await mk({ "evil.example.com": ["127.0.0.1"] }).check("https://evil.example.com/push");
+      ok("loopback に解決するホストは拒否する（DNS rebinding）",
+        loop.ok === false && /non-public-ip\(127\.0\.0\.1\)/.test(loop.reason || ""));
+      ok("private 帯域（10.0.0.5）に解決するホストは拒否する",
+        (await mk({ "a.example.com": ["10.0.0.5"] }).check("https://a.example.com/push")).ok === false);
+      ok("CGNAT / Tailscale 帯域（100.64.0.1）に解決するホストは拒否する",
+        (await mk({ "a.example.com": ["100.64.0.1"] }).check("https://a.example.com/push")).ok === false);
+      ok("link-local / メタデータ（169.254.169.254）に解決するホストは拒否する",
+        (await mk({ "a.example.com": ["169.254.169.254"] }).check("https://a.example.com/push")).ok === false);
+      ok("IPv6 ULA（fd00::1）に解決するホストは拒否する",
+        (await mk({ "a.example.com": ["fd00::1"] }).check("https://a.example.com/push")).ok === false);
+      const mixed = await mk({ "a.example.com": ["93.184.216.34", "10.0.0.5"] }).check("https://a.example.com/push");
+      ok("公開 IP が混ざっていても 1 つでも内部宛なら拒否する", mixed.ok === false);
+      const noDns = await mk({}).check("https://gone.example.com/push");
+      ok("解決できない（ENOTFOUND）ときは拒否する（fail-closed）",
+        noDns.ok === false && /dns-failure\(ENOTFOUND\)/.test(noDns.reason || ""));
+      const slow = await mk({ "slow.example.com": "never" }, { timeoutMs: 30 }).check("https://slow.example.com/push");
+      ok("解決が時間切れ（30ms）なら拒否する（fail-closed）",
+        slow.ok === false && /dns-timeout/.test(slow.reason || ""));
+      // キャッシュ: TTL 内は lookup を 1 回しか呼ばない（DNS 負荷と遅延を抑える）
+      let calls = 0;
+      const cached = createPushEndpointGuard({
+        cacheTtlMs: 60_000,
+        lookup: async () => { calls++; return [{ address: "93.184.216.34", family: 4 }]; },
+      });
+      const c1 = await cached.check("https://cache.example.com/push");
+      const c2 = await cached.check("https://cache.example.com/push");
+      ok("TTL 内は 2 回目をキャッシュから返す（lookup は 1 回）",
+        c1.ok === true && c2.ok === true && c2.cached === true && calls === 1);
+      // IP リテラルは DNS を呼ばずに同じ基準で判定する（lookup が呼ばれたら失敗させる）
+      const literal = createPushEndpointGuard({
+        cacheTtlMs: 0,
+        lookup: async () => { throw new Error("lookup は呼ばれるべきではない"); },
+      });
+      ok("IP 直書き（192.168.1.9）は DNS を呼ばずに拒否する",
+        (await literal.check("http://192.168.1.9/x")).ok === false);
+      ok("IPv6 リテラル（[fd00::1]）も DNS を呼ばずに拒否する",
+        (await literal.check("http://[fd00::1]/x")).ok === false);
+      ok("非 http（webview2://）は non-http を返す（デスクトップ版は従来どおり別経路でスキップ）",
+        (await literal.check("webview2://app/push")).reason === "non-http");
+      // 呼び出し側（2 経路）が「送信より前」にガードを通ること（順序固定）
+      const notifSrc = fs.readFileSync(path.join(projectDir, "services", "notification.js"), "utf8");
+      ok("notification.js が webpush.sendNotification より先に pushGuard.check を呼ぶ",
+        /pushGuard\.check\(/.test(notifSrc) &&
+        notifSrc.indexOf("pushGuard.check") < notifSrc.indexOf("webpush.sendNotification"));
+      const msSrc = fs.readFileSync(path.join(projectDir, "src", "core", "milestone.js"), "utf8");
+      ok("milestone.js が webpush.sendNotification より先に pushGuard.check を呼ぶ",
+        /pushGuard\.check\(/.test(msSrc) &&
+        msSrc.indexOf("pushGuard.check") < msSrc.indexOf("webpush.sendNotification"));
+      // 既定インスタンスのキャッシュ経路（呼び出し側が使う同じオブジェクト）で拒否できること
+      if (typeof pushGuard.primeForTest === "function" && process.env.PUSH_GUARD_DISABLED !== "1") {
+        pushGuard.primeForTest("primed.example.com", false, "non-public-ip(127.0.0.1)");
+        const primed = await pushGuard.check("https://primed.example.com/x");
+        ok("既定インスタンスでも DNS なしで拒否できる（キャッシュ経路）",
+          primed.ok === false && primed.cached === true);
+      }
+      // 無効化は opt-in（既定で有効）。設定し忘れても外れないことを保証する
+      ok("検証の無効化は PUSH_GUARD_DISABLED=1 のときだけ（既定は有効）",
+        /PUSH_GUARD_DISABLED\s*===\s*"1"/.test(fs.readFileSync(path.join(projectDir, "lib", "push-endpoint-guard.js"), "utf8")) &&
+        process.env.PUSH_GUARD_DISABLED !== "1");
+      ok("登録側（routes/subscriptions.js）は登録時にもホスト名検証を残している",
+        /publicHttpUrl\(/.test(fs.readFileSync(path.join(projectDir, "routes", "subscriptions.js"), "utf8")));
+    }
+
     console.log(`\n結果: ${passed} passed, ${failed} failed`);
   } catch (e) {
     failed++;

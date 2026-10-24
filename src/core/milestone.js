@@ -4,6 +4,7 @@
 const sqlite3 = require('sqlite3').verbose();
 const webpush = require('web-push');
 const { publicHttpUrl } = require('../../lib/validate');
+const { pushGuard } = require('../../lib/push-endpoint-guard');
 const path = require('path');
 
 class MilestoneScheduler {
@@ -193,6 +194,15 @@ class MilestoneScheduler {
     } catch (e) {
       console.log('[milestone] Skip non-public endpoint (SSRF guard)');
       return false;
+    }
+    // 🔒 送信直前の DNS 解決検証（2026-10-24・issue #76 / option A）。
+    //  ホスト名の文字列検証だけでは「内部 IP に解決されるドメイン」を塞げない（DNS rebinding）。
+    {
+      const verdict = await pushGuard.check(subscription && subscription.endpoint);
+      if (!verdict.ok) {
+        console.warn('[milestone] [push-guard] 送信を拒否', JSON.stringify({ reason: verdict.reason, host: verdict.hostname, addresses: verdict.addresses }));
+        return false; // 登録行は残す
+      }
     }
     try {
       await webpush.sendNotification(subscription, JSON.stringify(payload));
