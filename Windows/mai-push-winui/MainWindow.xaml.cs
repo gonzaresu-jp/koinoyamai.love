@@ -870,13 +870,23 @@ public sealed partial class MainWindow : Window
             }
             catch { }
         }
-        core.NavigationCompleted += (_, _) => AllowNotifications();
+        core.NavigationCompleted += (_, _) =>
+        {
+            AllowNotifications();
+            // touchpad precision scroll は WebView2 がフォーカスを持っている前提で
+            // 動作する。ナビゲーション完了時にフォーカスを渡しておく。
+            DispatcherQueue.TryEnqueue(() => { try { wv.Focus(FocusState.Programmatic); } catch { } });
+        };
         core.SourceChanged += (_, _) => AllowNotifications();
 
         await core.AddScriptToExecuteOnDocumentCreatedAsync("""
             document.addEventListener('DOMContentLoaded', () => {
                 const s = document.createElement('style');
-                s.textContent = '::-webkit-scrollbar { display: none; width: 0; height: 0 }';
+                // display:none は Chromium の touchpad precision-scroll gesture の
+                // 認識を壊すことがある（スクロールバー要素がレンダーツリーから
+                // 除去されるとジェスチャー検出が変わることがある）。
+                // width:0 + 標準プロパティで「見えないが存在する」状態にする。
+                s.textContent = 'html { scrollbar-width: none; } ::-webkit-scrollbar { width: 0; height: 0; }';
                 document.head.appendChild(s);
             });
             """);

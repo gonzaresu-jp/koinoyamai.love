@@ -929,6 +929,18 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - framework-dependent publish でインストールすると、グローバル .NET 構成が揃わない環境・
     InstallDelete 後のタイミングで「No frameworks were found」で自動起動失敗する。
 - **待ちタイマーは連打で延長しないこと（v1.8.5 教訓, Issue #14）**
+- **タッチパッドスクロールが効かない問題（v1.8.8 で修正）**:
+  - **原因1（最有力）**: 注入 CSS の `::-webkit-scrollbar { display: none }` が
+    Chromium の precision touchpad gesture 認識を壊す。`display: none` はスクロールバー要素を
+    レンダーツリーから除去するため、スクロールコンテナのジェスチャー検出が変わることがある。
+    → `html { scrollbar-width: none; } ::-webkit-scrollbar { width: 0; height: 0; }` に変更
+    （要素は残るが幅 0 で見えない）。
+  - **原因2**: touchpad precision scroll は WebView2 がキーボードフォーカスを持っている前提で動作する。
+    ナビゲーション完了時に `wv.Focus(FocusState.Programmatic)` を呼んでフォーカスを渡す。
+  - **原因3（副次的）**: タブドラッグ用のポインター捕捉（`_tabStripPointerPressed`）が
+    タッチパッドの誤判定で残り、後続スクロールが飲み込まれる。`ResetTabStripHidden` で畳む対策済み。
+    感度の高いタッチパッドでは誤判定が起きやすいため、`PointerCaptureLost` のハンドリングを強化する。
+  - 修正箇所: `InitWebViewAsync` の CSS injection + `core.NavigationCompleted` ハンドラ。
   - `DispatcherQueueTimer` を**毎回作り直して** `Stop()`→`Start()` すると、80ms 周期のポーリング
     （`OnHoverTick`）や `WM_NCMOUSEMOVE` から毎フレーム要求された場合に、待ちが 400ms を超えて
     永久に延長され、**折りたたみなどが一生起きない**（タブバーが出たままで問題）。
