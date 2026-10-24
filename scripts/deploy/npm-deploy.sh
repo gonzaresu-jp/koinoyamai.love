@@ -33,30 +33,33 @@ NPM_BIN="$(dirname "$NODE_BIN")/npm"
 APPLY=0
 [[ "${1:-}" == "--apply" ]] && APPLY=1
 
-# 監視対象にする主要パッケージ（lockfile と node_modules の両方で版を見る）
-KEY_PACKAGES=(proxy-addr sharp esbuild undici follow-redirects firebase-admin puppeteer sqlite3 bcrypt)
+# 乖離判定は scripts/deploy/check-node-modules-drift.js（全パッケージ比較）に委譲する。
+# 2026-10-24 実測: 以前は監視対象が固定 9 個だったため、body-parser 2.3.0→2.4.0 /
+# 入れ子 undici 6.28.1→6.29.1 / qs 6.16.0→6.16.1 の更新を「乖離なし」と誤判定し、
+# install をスキップした（lockfile だけ新しく実体は脆弱なまま＝偽の安全感）。
+# ヘルパは「このスクリプトの隣」から解決する（cwd は $ROOT のままなので lockfile は $ROOT を読む）。
+# $ROOT 相対にすると、pull 前のツリーで MODULE_NOT_FOUND のスタックトレースになり
+# 「lockfile が読めない」と誤読される（2026-10-24 レビュー指摘）。
+DRIFT_CHECK="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-node-modules-drift.js"
 
 cd "$ROOT" || { echo "error: $ROOT に移動できません" >&2; exit 1; }
 [ -x "$NODE_BIN" ] || { echo "error: node が見つかりません: $NODE_BIN" >&2; exit 1; }
 [ -f package-lock.json ] || { echo "error: package-lock.json がありません" >&2; exit 1; }
+[ -f "$DRIFT_CHECK" ] || { echo "error: 乖離チェックのヘルパが見つかりません: $DRIFT_CHECK" >&2; exit 1; }
 
 echo "=== node_modules の同期（$ROOT） ==="
 
-# --- 1. 乖離検出 ---
-DIFF_OUT="$("$NODE_BIN" -e '
-const lock = require("./package-lock.json");
-const pkgs = process.argv.slice(1);
-const out = [];
-for (const name of pkgs) {
-  const key = "node_modules/" + name;
-  const locked = lock.packages && lock.packages[key] && lock.packages[key].version;
-  let installed = null;
-  try { installed = require("./node_modules/" + name + "/package.json").version; } catch (e) {}
-  if (locked && installed && locked !== installed) out.push(`${name}: lock=${locked} installed=${installed}`);
-  else if (locked && !installed) out.push(`${name}: lock=${locked} installed=(未インストール)`);
-}
-console.log(out.join("\n"));
-' "${KEY_PACKAGES[@]}")"
+# --- 1. 乖離検出（全パッケージ） ---
+# exit 0=乖離なし / 10=乖離あり / 1=判定不能。判定不能は「正常」に倒さない（fail-closed）。
+DIFF_OUT=""
+set +e
+DIFF_OUT="$("$NODE_BIN" "$DRIFT_CHECK")"
+DRIFT_RC=$?
+set -e
+if [ "$DRIFT_RC" -ne 0 ] && [ "$DRIFT_RC" -ne 10 ]; then
+  echo "[NG] 乖離チェック自体に失敗しました（lockfile を読めない等）。install も再起動も行いません。" >&2
+  exit 1
+fi
 
 if [ -z "$DIFF_OUT" ]; then
   echo "✓ 乖離なし（node_modules は package-lock.json と一致）"
@@ -124,24 +127,15 @@ if ! npm install 2>&1 | tail -5; then
 fi
 
 # --- 4. 検証 ---
-echo "==> 乖離の再検証"
-DIFF2="$("$NODE_BIN" -e '
-const lock = require("./package-lock.json");
-const pkgs = process.argv.slice(1);
-const out = [];
-for (const name of pkgs) {
-  const key = "node_modules/" + name;
-  const locked = lock.packages && lock.packages[key] && lock.packages[key].version;
-  let installed = null;
-  try { installed = require("./node_modules/" + name + "/package.json").version; } catch (e) {}
-  if (locked && installed && locked !== installed) out.push(`${name}: lock=${locked} installed=${installed}`);
-  else if (locked && !installed) out.push(`${name}: lock=${locked} installed=(未インストール)`);
-}
-console.log(out.join("\n"));
-' "${KEY_PACKAGES[@]}")"
-if [ -n "$DIFF2" ]; then
-  echo "[NG] 更新後も乖離が残っています:" >&2
-  echo "$DIFF2" | sed 's/^/  /' >&2
+echo "==> 乖離の再検証（全パッケージ）"
+DIFF2=""
+set +e
+DIFF2="$("$NODE_BIN" "$DRIFT_CHECK")"
+DRIFT2_RC=$?
+set -e
+if [ "$DRIFT2_RC" -ne 0 ]; then
+  echo "[NG] 更新後も乖離が残っています（または判定不能）:" >&2
+  [ -n "$DIFF2" ] && echo "$DIFF2" | sed 's/^/  /' >&2
   exit 1
 fi
 echo "  ✓ node_modules は package-lock.json と一致"

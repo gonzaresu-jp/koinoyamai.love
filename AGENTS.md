@@ -35,7 +35,7 @@
 
 ## 5. 依存関係
 - **sqlite3 は 6.0.1 に昇格済み（2026-09-22 本番反映）**。npm audit critical は解消。
-  依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト(186/186) → smoke」を通すこと。
+  依存を触る際は必ず staging で「実体 node_modules の npm install → 回帰テスト（`npm test`） → smoke」を通すこと。
 - **依存更新の反映は `scripts/deploy/npm-deploy.sh` で行う（2026-10-21 追加）**:
   - `git pull` は **package-lock.json しか更新しない**。node_modules が旧版のままでは
     「lockfile 上は安全 / 実際のコードは脆弱」という食い違いが起きる。
@@ -58,8 +58,17 @@
       smoke も同時に更新する**（2026-10-23 は CI の smoke も同じ箇所で赤になった）。
   - `npm ci` は node_modules を全削除するため**本番では使わない**（レジストリ障害時に
     依存ごと無くなる）。`npm install` を使う。
-  - `check-drift.sh` が `package-lock.json` の md5 と node_modules の主要パッケージの
-    バージョンを照合して乖離を検出する（`[3]` / `[3.5]`）。
+  - **乖離判定は `scripts/deploy/check-node-modules-drift.js`（全パッケージ比較）に集約**（2026-10-24）:
+    `npm-deploy.sh` の install 判定と `check-drift.sh` の `[3.5]` が同じヘルパを使う。
+    lockfile の全 `node_modules/*` をディスクの `package.json` と照合し、
+    **exit 0=乖離なし / 10=乖離あり / 1=判定不能（fail-closed）**・0 件なら無出力。
+    optional / dev / peer は「無くてよい」が、**必須の欠損は報告**する。
+    ※ 以前は固定 9 パッケージ（`proxy-addr` 等）だけを見ていたため、`body-parser` / `qs` /
+    入れ子 `undici` の更新を「乖離なし」と誤判定し install をスキップした（2026-10-24 実測）。
+    監視対象を列挙する方式は依存を足すたびに漏れるので、**新規に固定リストを足さないこと**。
+    判定不能（lockfile 破損・ヘルパ不在）は install も再起動もしない（回帰テスト [16] で固定）。
+  - `check-drift.sh` は `package-lock.json` の md5（`[3]`）と上記ヘルパ（`[3.5]`）で乖離を検出する。
+    `--quiet`（cron）でも **乖離・判定不能は stderr に残す**（`notice()`。無言で死なせない）。
 - **2026-10-21 の依存更新（npm audit fix・force なし）**:
   | パッケージ | 変更 | 備考 |
   |---|---|---|
@@ -555,7 +564,7 @@
   `lib/` に移動（nginx の alias も同dir直配信のため、移動が必須）。
 - `/api/system-info` は公開（CPU%・メモリ%・loadavg・稼働時間・RSSのみ。**ホスト名/ディスク/OS詳細は返さない**）。status ページのリソース欄は誰でも閲覧可能。
 - `/api/ask`（公開）は 5回/分＋質問500文字上限。管理者用 `/api/admin/ask` は対象外。
-- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 234 項目・2026-10-23 時点）に接続済み。
+- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 252 項目・2026-10-24 時点）に接続済み。
 - pm2-logrotate 導入済み（20M・10世代・圧縮）。
 
 ## 6.7 admin は Tailnet 専用（2026-10-10 追加）
@@ -727,7 +736,7 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 - ステージ・コミット対象の `.js` に対し `node --check`
 - `.php` に対し `php -l`
 - アプリバージョンの3箇所整合（`scripts/ops/check-app-version.sh`・`SKIP_PREPUSH_VERSION=1` でスキップ可）
-- 回帰テスト `npm test`（234項目・2026-10-23 時点、約6秒）
+- 回帰テスト `npm test`（252項目・2026-10-24 時点、約6秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
 ### 7.4 staging/本番のドリフト検出
@@ -1263,7 +1272,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 
 - `$updateLogs` の**先頭（新しい順）**に当日分のエントリを追加（同日内は既存先頭エントリへ追記）。
 - 分類キー `fix` / `add` / `change` に、利用者目線の日本語で1行ずつ書く（内部実装の話は書かない）。
-- `lines` は `bash scripts/ops/count-lines.sh` の実測 `SUM code` を**その日の絶対値**として記録する（前日に増分を足す等の累積計算は禁止）。集計対象・除外・過去値の扱いは `docs/DEVELOPMENT-WORKFLOW.md` の「コード行数集計方法（updateLogs の "lines"）」節。
+- `lines` は `bash scripts/ops/count-lines.sh` の実測 `SUM code` を**その日の絶対値**として記録する（**集計対象は git 追跡ファイルのみ**なので、新規ファイルを追加した日は `git add` 後＝HEAD の状態で測る。未追跡のままだと過小値になる）（前日に増分を足す等の累積計算は禁止）。集計対象・除外・過去値の扱いは `docs/DEVELOPMENT-WORKFLOW.md` の「コード行数集計方法（updateLogs の "lines"）」節。
 - フッターの「Last updated」は最新日付から自動表示のため、追記のみで反映される。
 - 対象外（更新不要）: 内部リファクタのみ・ドキュメントのみ・テストのみ・データ更新のみ。
 
@@ -1271,7 +1280,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - [ ] 上の表に該当するドキュメントを更新した（該当なしなら不要）
 - [ ] ユーザーに見える変更なら `webui/updatelogs.php` を更新した（`lines` を `count-lines.sh` の実測値で）
 - [ ] `node --check <file>` / `php -l <file>`（pre-push でも自動実行, `§7.3`）
-- [ ] `npm test`（回帰テスト 234 項目）
+- [ ] `npm test`（回帰テスト 252 項目）
 - [ ] 本番操作の前に `bash scripts/deploy/assert-port.sh prod|staging`（`§7.2`）
 - [ ] 感度の高い変更なら PR＋別エージェントの独立レビューを通した（`§13`）
 - [ ] 秘密情報・DB・`webui/data` を不用意にコミットしていない
