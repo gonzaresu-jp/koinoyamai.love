@@ -204,6 +204,7 @@ fanbox は `startPolling`、bilibili-live は `startBilibiliWatcher`。
 |---|---|
 | `lib/admin.js` | 管理者認証（`requireAuth`/`isAdminRequest`/tailnet 自動認証）。`@ts-check` 導入済み |
 | `lib/validate.js` | 外部入力の境界バリデーション（依存ゼロ・fail-closed）。**認証の後に使う**（`AGENTS.md §11`） |
+| `lib/push-endpoint-guard.js` | push エンドポイントの**送信前 DNS 解決検証**（DNS rebinding 対策・`AGENTS.md §11`）。解決先が内部 IP なら送信しない |
 | `lib/webauthn.js` | パスキー(WebAuthn)ログイン。**`/admin` 外に配置**（ソース露出防止） |
 | `weekly/index.js` | `updateSchedule`/`upsertEvent` |
 | `weekly/{youtube,twitch,twitcasting}.js` | プラットフォーム別 予定取得 |

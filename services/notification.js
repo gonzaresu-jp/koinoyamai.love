@@ -9,6 +9,7 @@ const { getMessaging } = require("firebase-admin/messaging");
 const { START_ALARM_CHANNEL } = require("../src/core/notify-channel");
 const ctx = require("./context");
 const { publicHttpUrl } = require("../lib/validate");
+const { pushGuard } = require("../lib/push-endpoint-guard");
 
 // --- VAPID ---
 function loadVapid() {
@@ -91,6 +92,18 @@ async function sendPushNotification(subscription, payload, isTest = false) {
   } catch (e) {
     console.log("Skip non-public endpoint (SSRF guard)");
     return false;
+  }
+  // 🔒 送信直前に **DNS 解決**も検証する（2026-10-24・issue #76 / option A）。
+  //  上の publicHttpUrl はホスト名の文字列しか見ておらず、「ホスト名が内部 IP に解決される」
+  //  経路（DNS rebinding）は塞げていない。解決先が private / loopback / link-local / CGNAT 等なら
+  //  **送信しない**（web-push は独自エージェントのため接続 pin は不可。検査で閾値を上げる）。
+  //  失敗時は黙って消さず、理由と解決先をログに出す（可視化が条件）。
+  {
+    const verdict = await pushGuard.check(subscription.endpoint);
+    if (!verdict.ok) {
+      console.warn("[push-guard] 送信を拒否", JSON.stringify({ reason: verdict.reason, host: verdict.hostname, addresses: verdict.addresses }));
+      return false; // DB 行は残す（404/410 の削除とは別経路）
+    }
   }
   try {
     await webpush.sendNotification(subscription, JSON.stringify(payload), isTest ? { TTL: 60 } : {});
