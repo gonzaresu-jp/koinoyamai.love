@@ -1686,7 +1686,60 @@ async function main() {
         ok("既定インスタンスでも DNS なしで拒否できる（キャッシュ経路）",
           primed.ok === false && primed.cached === true);
       }
-      // 無効化は opt-in（既定で有効）。設定し忘れても外れないことを保証する
+      // --- レビュー指摘（2026-10-24）への対応の固定 ---
+      // B-1: 無効化インスタンスは「実際に呼んで動く」こと。過去にここが ReferenceError で
+      //  全通知が黙って全滅するバグがあった（正規表現の存在確認だけでは検出できない）。
+      {
+        const guardPath = path.join(projectDir, "lib", "push-endpoint-guard.js");
+        const dis = spawnSync(process.execPath, ["-e", `
+          process.env.PUSH_GUARD_DISABLED = "1";
+          const g = require(${JSON.stringify(guardPath)});
+          g.pushGuard.check("https://evil.example.com/push")
+            .then((r) => console.log(JSON.stringify({ ok: r.ok, reason: r.reason })))
+            .catch((e) => { console.error("THREW:" + e.message); process.exit(2); });
+        `], { encoding: "utf8" });
+        ok("PUSH_GUARD_DISABLED=1 のときも check() は例外を出さず許可する（緊急無効化が実際に使える）",
+          dis.status === 0 && /"ok":true/.test(dis.stdout || "") && !/THREW/.test(dis.stderr || ""));
+        // N-1: env のチューニング（PUSH_GUARD_TIMEOUT_MS）が実際に効くこと
+        const savedTtl = process.env.PUSH_GUARD_CACHE_TTL_MS;
+        const savedTimeout = process.env.PUSH_GUARD_TIMEOUT_MS;
+        try {
+          delete require.cache[require.resolve(guardPath)];
+          process.env.PUSH_GUARD_TIMEOUT_MS = "30";
+          const fresh = require(guardPath);
+          const g = fresh.createPushEndpointGuard({ lookup: () => new Promise(() => {}) });
+          const t0 = Date.now();
+          const r = await g.check("https://env.example.com/x");
+          ok("PUSH_GUARD_TIMEOUT_MS が効く（30ms で dns-timeout になる）",
+            r.ok === false && /dns-timeout/.test(r.reason || "") && (Date.now() - t0) < 2000);
+        } finally {
+          if (savedTtl === undefined) delete process.env.PUSH_GUARD_CACHE_TTL_MS; else process.env.PUSH_GUARD_CACHE_TTL_MS = savedTtl;
+          if (savedTimeout === undefined) delete process.env.PUSH_GUARD_TIMEOUT_MS; else process.env.PUSH_GUARD_TIMEOUT_MS = savedTimeout;
+          delete require.cache[require.resolve(guardPath)];
+        }
+        // N-2: 成功時にもタイマーを片付ける（clearTimeout がないとプロセスが timeoutMs 掴まれ続ける）
+        const t0 = Date.now();
+        const fast = spawnSync(process.execPath, ["-e", `
+          const g = require(${JSON.stringify(guardPath)}).createPushEndpointGuard({
+            cacheTtlMs: 0, timeoutMs: 3000,
+            lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+          });
+          g.check("https://fast.example.com/x").then(() => {});
+        `], { encoding: "utf8" });
+        ok("成功時もタイマーを片付け、プロセスを timeoutMs 掴み続けない（clearTimeout）",
+          fast.status === 0 && (Date.now() - t0) < 1500);
+        // N-3: lookup が同期 throw しても inflight に詰まらない（2 回目も必ず lookup する）
+        let syncCalls = 0;
+        const syncThrow = createPushEndpointGuard({
+          cacheTtlMs: 0,
+          lookup: () => { syncCalls++; throw new Error("boom"); },
+        });
+        const s1 = await syncThrow.check("https://sync.example.com/x");
+        const s2 = await syncThrow.check("https://sync.example.com/x");
+        ok("lookup が同期 throw しても再解決できる（inflight に詰まらない）",
+          s1.ok === false && s2.ok === false && syncCalls === 2);
+      }
+            // 無効化は opt-in（既定で有効）。設定し忘れても外れないことを保証する
       ok("検証の無効化は PUSH_GUARD_DISABLED=1 のときだけ（既定は有効）",
         /PUSH_GUARD_DISABLED\s*===\s*"1"/.test(fs.readFileSync(path.join(projectDir, "lib", "push-endpoint-guard.js"), "utf8")) &&
         process.env.PUSH_GUARD_DISABLED !== "1");
