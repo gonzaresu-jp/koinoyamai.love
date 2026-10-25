@@ -739,6 +739,17 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 - 回帰テスト `npm test`（276項目・2026-10-24 時点、約6秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
+### 7.3.10 Node.js バージョン追従の自動化（2026-10-25 追加）
+```bash
+bash scripts/ops/node-version-check.sh     # nodejs.org から最新 security release を検出 → nvm ダウンロード → dry-run
+```
+- nodejs.org の index.json から最新の security release を取得。
+- 新版があれば nvm で自動ダウンロード。
+- migrate-node-patch.sh の dry-run を実行。
+- Discord に dry-run 結果と手動対応手順を通知。
+- 実際の移行（--apply）と systemd unit の更新は手動。
+- cron: 毎日 05:00。
+
 ### 7.3.9 Android/Windows アプリの CI/CD（2026-10-25 追加）
 - `.github/workflows/build-android.yml`: ubuntu-latest + JDK 21 + Gradle で APK ビルド
 - `.github/workflows/build-windows.yml`: windows-latest + MSBuild + Inno Setup でインストーラ生成
@@ -832,6 +843,7 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 30 4 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/security-watch-cron.sh
 35 4 * * *  mkdir -p /var/www/html/koinoyamai.love/logs && /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/php/check-ubuntu-backport.js >> /var/www/html/koinoyamai.love/logs/php-backport-watch.log 2>&1
 30 5 * * *   /var/www/html/koinoyamai.love/scripts/ops/dep-update-pr.sh >> /var/www/html/koinoyamai.love/logs/dep-update-pr.log 2>&1
+0 5 * * *   /var/www/html/koinoyamai.love/scripts/ops/node-version-check.sh >> /var/www/html/koinoyamai.love/logs/node-version-check.log 2>&1
 0 6 * * *   /var/www/html/koinoyamai.love/scripts/ops/log-anomaly.sh >> /var/www/html/koinoyamai.love/logs/log-anomaly.log 2>&1
 0 4 * * 0   /var/www/html/koinoyamai.love/scripts/ops/verify-backup.sh >> /var/www/html/koinoyamai.love/logs/verify-backup.log 2>&1
 15 4 * * 0  /var/www/html/koinoyamai.love/scripts/ops/db-maintenance.sh >> /var/www/html/koinoyamai.love/logs/db-maintenance.log 2>&1
