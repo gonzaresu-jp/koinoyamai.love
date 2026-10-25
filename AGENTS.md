@@ -739,6 +739,16 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 - 回帰テスト `npm test`（276項目・2026-10-24 時点、約6秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
+### 7.3.7 依存更新の自動 PR 作成（2026-10-25 追加）
+```bash
+bash scripts/ops/dep-update-pr.sh     # npm audit fix → npm test → PR 作成 → Discord 通知
+```
+- security-watch の検出後に実行（cron: 毎日 05:30）。
+- high/critical 脆弱性を `npm audit fix`（--force なし）で修正。
+- npm test が pass したらブランチ作成 → commit → push → PR 作成 → Discord 通知。
+- 既にオープンな dep-update PR がある場合はスキップ。
+- npm audit fix で変更が無い場合は手動対応が必要と Discord 通知。
+
 ### 7.3.6 自動デプロイパイプライン（2026-10-25 追加）
 ```bash
 bash scripts/ops/auto-deploy.sh     # main の新コミットを検知 → staging → smoke test → 本番
@@ -809,6 +819,7 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 15 4 * * 0  /var/www/html/koinoyamai.love/scripts/ops/db-maintenance.sh >> /var/www/html/koinoyamai.love/logs/db-maintenance.log 2>&1
 */5 * * * *  mkdir -p /var/www/html/koinoyamai.love/logs && /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/security/honeypot-watch.js >> /var/www/html/koinoyamai.love/logs/honeypot-cron.log 2>&1
 */5 * * * *  /var/www/html/koinoyamai.love/scripts/ops/auto-deploy.sh >> /var/www/html/koinoyamai.love/logs/auto-deploy.log 2>&1
+30 5 * * *   /var/www/html/koinoyamai.love/scripts/ops/dep-update-pr.sh >> /var/www/html/koinoyamai.love/logs/dep-update-pr.log 2>&1
 ```
 - いずれも `crontab -l`（yuzuki ユーザー）で確認済み。ログは `logs/`（gitignore 対象）。
   ※ **honeypot-watch の行は §5.3 の適用手順で登録する**（それまでは動かない）。
