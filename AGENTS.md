@@ -1377,7 +1377,7 @@ PR に無関係なコミットが混入する）。以後、物理的に分離�
 - **すべての作業（エージェント含む）は per-session worktree で行う**。
   作成: `bash scripts/ops/new-worktree.sh <slug>` → `/tmp/opencode/<slug>/worktree` に作成され、
   `agent/<slug>` ブランチが切られる。`source /tmp/opencode/<slug>/env.sh` してから作業する。
-- **ブランチ命名**: `agent/<session-id>/<slug>` / `feature/<slug>` / `fix/<slug>`。
+- **ブランチ命名**: `agent/<slug>`（new-worktree.sh が作成）/ `feature/<slug>` / `fix/<slug>`。
   `main` / `staging` への直接コミット・push は禁止（pre-push フックが拒否）。
 - **node_modules は canonical staging ツリーから symlink（読み取り専用）**。
   `npm install` は canonical ツリーで 1 回だけ実行する（worktree で実行すると canonical を汚す）。

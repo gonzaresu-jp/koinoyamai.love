@@ -34,7 +34,7 @@ if [ -d "$WT" ]; then echo "[new-worktree] 既に存在します: $WT" >&2; exit
 # 失敗時は空の /tmp/opencode/<slug> を残さない（後始末）
 trap 'if [ ! -d "$WT" ]; then rmdir "/tmp/opencode/$SLUG" 2>/dev/null || true; fi' EXIT
 mkdir -p "/tmp/opencode/$SLUG"
-git -C "$ROOT" worktree add "$WT" -b "agent/$SLUG" "$BASE" >/dev/null
+git -C "$ROOT" worktree add "$WT" -b "agent/$SLUG" "$BASE" >/dev/null || { rmdir "/tmp/opencode/$SLUG" 2>/dev/null || true; exit 2; }
 if [ -d "$STAGING/node_modules" ] && [ ! -e "$WT/node_modules" ]; then
   ln -s "$STAGING/node_modules" "$WT/node_modules"
 fi
