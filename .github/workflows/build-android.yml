@@ -1,0 +1,73 @@
+name: build-android
+
+# Android APK のビルド（AGENTS.md §10.1）
+# 手動トリガー or mai_notification/ の変更時に自動実行
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'バージョン (例: 1.7.4)'
+        required: true
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'mai_notification/**'
+      - '.github/workflows/build-android.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Android APK ビルド
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Gradle キャッシュ
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('mai_notification/**/*.gradle*', 'mai_notification/**/gradle-wrapper.properties') }}
+          restore-keys: gradle-
+
+      - name: local.properties を生成
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > mai_notification/local.properties
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > /tmp/keystore.jks
+          echo "storeFile=/tmp/keystore.jks" > mai_notification/keystore.properties
+          echo "storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}" >> mai_notification/keystore.properties
+          echo "keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}" >> mai_notification/keystore.properties
+          echo "keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}" >> mai_notification/keystore.properties
+
+      - name: Gradle ビルド
+        working-directory: mai_notification
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: APK をアップロード
+        uses: actions/upload-artifact@v4
+        with:
+          name: mai-notification-apk
+          path: mai_notification/app/build/outputs/apk/release/*.apk
+          retention-days: 30
+
+      - name: GitHub Release を作成（タグ付きの場合）
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: mai_notification/app/build/outputs/apk/release/*.apk
