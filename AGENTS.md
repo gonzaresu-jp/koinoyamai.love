@@ -564,7 +564,7 @@
   `lib/` に移動（nginx の alias も同dir直配信のため、移動が必須）。
 - `/api/system-info` は公開（CPU%・メモリ%・loadavg・稼働時間・RSSのみ。**ホスト名/ディスク/OS詳細は返さない**）。status ページのリソース欄は誰でも閲覧可能。
 - `/api/ask`（公開）は 5回/分＋質問500文字上限。管理者用 `/api/admin/ask` は対象外。
-- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 270 項目・2026-10-24 時点）に接続済み。
+- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 276 項目・2026-10-24 時点）に接続済み。
 - pm2-logrotate 導入済み（20M・10世代・圧縮）。
 
 ## 6.7 admin は Tailnet 専用（2026-10-10 追加）
@@ -736,7 +736,7 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 - ステージ・コミット対象の `.js` に対し `node --check`
 - `.php` に対し `php -l`
 - アプリバージョンの3箇所整合（`scripts/ops/check-app-version.sh`・`SKIP_PREPUSH_VERSION=1` でスキップ可）
-- 回帰テスト `npm test`（270項目・2026-10-24 時点、約6秒）
+- 回帰テスト `npm test`（276項目・2026-10-24 時点、約6秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
 ### 7.3.5 バックアップ復元検証・DB メンテナンス（2026-10-25 追加）
@@ -903,6 +903,23 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - `_appWindow.Changed`（.AppWindow イベント）も UI スレッドのコールバック。例外境界を置き、
     `UpdateCaptionPadding` のように **最小化/復帰で不正値になり得る値**（`TitleBar.RightInset` は
     NaN/Infinity になり得る）を UI に代入する前に弾くこと（v1.8.5 教訓）。
+  - **Google / Discord ログインは「システムブラウザ＋ループバック」で行う**（v1.8.8・2026-10-24 実測）:
+    - Google は**埋め込みブラウザ（WebView）でのサインインをポリシーで止めている**。
+      WebView2 内で `/auth/google` を進めると Google のページで止まって戻ってこない
+      （実測: アプリからの開始 **7 回**・コールバック **0 回**／通常ブラウザでは成功）。
+      UA を Chrome に偽装しても通らない。**WebView2 内で OAuth を進めようとしないこと**。
+    - → `MainWindow.NavigationStarting` が `/auth/google`・`/auth/discord` を**キャンセル**し、
+      **既定ブラウザ**で開く（`returnTo` を `http://127.0.0.1:&lt;空きポート&gt;/callback` に差し替え）。
+    - サーバーは `returnTo` が loopback のとき **Cookie ではなく単発コード**（60 秒）を返す
+      （`routes/user-auth.js` の `isAllowedDesktopCallback`。**サーバー側はもともと対応済み**）。
+      アプリはそのコードを `POST /auth/token-exchange` でセッショントークンに交換し、
+      `CoreWebView2.CookieManager.AddOrUpdateCookie` で WebView2 に注入して再読込する
+      （実装は `Windows/mai-push-winui/DesktopLogin.cs`）。
+    - **GCP 側の登録変更は不要**（`redirect_uri` は常に
+      `https://koinoyamai.love/auth/google/callback`。loopback は `returnTo` にしか使わない）。
+    - ループバックは **`TcpListener`**（`HttpListener` は非管理者での URL ACL 問題を避けるため使わない）。
+      1 回限り・180 秒で失効。コードは base64url の書式チェックしてから交換する。
+    - Cookie 期限は `JWT_EXPIRES_IN`（30d）に合わせる。Cookie 名は `AUTH_COOKIE_NAME`（既定 `session`）。
   - **通知をタップしたら「既定ブラウザ」で中身を開く**（v1.8.7 教訓・2026-10-22 実測）:
     - Windows アプリは web push / SSE を **ネイティブトースト**へ変換して表示する
       （`core.NotificationReceived` → `NotificationHelper.ShowToast`）。
@@ -940,18 +957,6 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - framework-dependent publish でインストールすると、グローバル .NET 構成が揃わない環境・
     InstallDelete 後のタイミングで「No frameworks were found」で自動起動失敗する。
 - **待ちタイマーは連打で延長しないこと（v1.8.5 教訓, Issue #14）**
-- **タッチパッドスクロールが効かない問題（v1.8.8 で修正）**:
-  - **原因1（最有力）**: 注入 CSS の `::-webkit-scrollbar { display: none }` が
-    Chromium の precision touchpad gesture 認識を壊す。`display: none` はスクロールバー要素を
-    レンダーツリーから除去するため、スクロールコンテナのジェスチャー検出が変わることがある。
-    → `html { scrollbar-width: none; } ::-webkit-scrollbar { width: 0; height: 0; }` に変更
-    （要素は残るが幅 0 で見えない）。
-  - **原因2**: touchpad precision scroll は WebView2 がキーボードフォーカスを持っている前提で動作する。
-    ナビゲーション完了時に `wv.Focus(FocusState.Programmatic)` を呼んでフォーカスを渡す。
-  - **原因3（副次的）**: タブドラッグ用のポインター捕捉（`_tabStripPointerPressed`）が
-    タッチパッドの誤判定で残り、後続スクロールが飲み込まれる。`ResetTabStripHidden` で畳む対策済み。
-    感度の高いタッチパッドでは誤判定が起きやすいため、`PointerCaptureLost` のハンドリングを強化する。
-  - 修正箇所: `InitWebViewAsync` の CSS injection + `core.NavigationCompleted` ハンドラ。
   - `DispatcherQueueTimer` を**毎回作り直して** `Stop()`→`Start()` すると、80ms 周期のポーリング
     （`OnHoverTick`）や `WM_NCMOUSEMOVE` から毎フレーム要求された場合に、待ちが 400ms を超えて
     永久に延長され、**折りたたみなどが一生起きない**（タブバーが出たままで問題）。
@@ -1137,7 +1142,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     ⚠️ **非 http（デスクトップアプリの `webview2://` 等）は従来どおり受理する**
     （送信時にスキップされ HTTP は一切飛ばない。400 にすると WinUI 版が壊れる）。
     ⚠️ 残る限界: ホスト名が公開 IP に**解決されるか**までは見ない（DNS rebinding）。
-    本番の登録 6 件は影響 0 件（http 4 件は公開 push サービス / 残り 2 件は `webview2://` の偽）。
+    本番の登録 7 件は影響 0 件（http 5 件＝公開 push サービス 3 ホスト / 残り 2 件は `webview2://` の偽＝ガードより先にスキップ）。
     - **送信前の DNS 解決検証（2026-10-24・issue #76）**: `lib/push-endpoint-guard.js`（`pushGuard.check()`）
       が **送信直前**に `dns.promises.lookup(..., { all: true })` で解決し、**すべての解決先**が
       `isRoutableHost` を通らなければ**送信しない**（`services/notification.js` と `src/core/milestone.js` の
@@ -1151,6 +1156,12 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
       - 30 秒の DNS キャッシュ（既定。`PUSH_GUARD_CACHE_TTL_MS`）と並行呼び出しの束ね込みあり。
       - **`PUSH_GUARD_DISABLED=1` で無効化できる**が、無効化すると issue #76 の経路が復活する。
         既定は**有効**（回帰テストで「無効化は opt-in であること」を固定）。設定したら必ず戻す。
+        - ⚠️ **無効化インスタンスは「実際に `check()` を呼んで動く」こと**を回帰テストで固定する
+          （2026-10-24 レビュー指摘 B-1: 判定関数をクロージャ内に置いていたため無効化時に
+          `ReferenceError` となり、**例外が握りつぶされて全通知が黙って全滅**する状態だった）。
+      - env のチューニング（`PUSH_GUARD_CACHE_TTL_MS` / `PUSH_GUARD_TIMEOUT_MS`）も回帰テストで確認。
+      - タイムアウトのタイマーは **`unref` しない**（unref だと「lookup が返ってこない」ときに
+        イベントループが空になりプロセスが静かに抜ける＝2026-10-24 実測）。代わりに **finally で必ず `clearTimeout`** する。
       - 接続先の pin は**不可**（web-push は独自エージェント）。検査で閾値を上げるのが目的。
   - 併せて実施: `/api/android/send-test` に 5 回/分のレート制限（**無認証の FCM リレー化**を防ぐ）と
     `deviceName` の型・上限検証 / OAuth エラー応答を `text/plain`（クエリを HTML にしない）/
@@ -1293,6 +1304,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 | 通知・認証・HMAC | `AGENTS.md §2,§3` / `docs/SECURITY.md` |
 | デプロイ/検証の作法 | `AGENTS.md §7` / `docs/DEVELOPMENT-WORKFLOW.md` |
 | webui 構成/CSP/静的配信 | `docs/ARCHITECTURE.md §4.5` / `AGENTS.md §6.6` |
+| 作業ツリー分離（worktree） | `AGENTS.md §14` / `scripts/ops/ensure-staging-tree.sh` / `scripts/ops/new-worktree.sh` / `scripts/hooks/pre-push` |
 | nginx への新ルート追加（例: `/display/`） | `AGENTS.md §6.9` / `docs/ARCHITECTURE.md §4.5b` / `docs/SECURITY.md` |
 | 外部入力の検証 / SSRF / 型の部分導入（`@ts-check`） | `AGENTS.md §11` / `docs/ARCHITECTURE.md §4.4` |
 | アーカイブ API | `docs/ARCHIVE-ADMIN-SPEC.md` |
@@ -1317,7 +1329,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - [ ] 上の表に該当するドキュメントを更新した（該当なしなら不要）
 - [ ] ユーザーに見える変更なら `webui/updatelogs.php` を更新した（`lines` を `count-lines.sh` の実測値で）
 - [ ] `node --check <file>` / `php -l <file>`（pre-push でも自動実行, `§7.3`）
-- [ ] `npm test`（回帰テスト 270 項目）
+- [ ] `npm test`（回帰テスト 276 項目）
 - [ ] 本番操作の前に `bash scripts/deploy/assert-port.sh prod|staging`（`§7.2`）
 - [ ] 感度の高い変更なら PR＋別エージェントの独立レビューを通した（`§13`）
 - [ ] 秘密情報・DB・`webui/data` を不用意にコミットしていない
@@ -1360,7 +1372,50 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
+最終更新: 2026-10-24（§11 push ガードの**独立レビュー指摘を修正**：①無効化インスタンス（`PUSH_GUARD_DISABLED=1`）が `ReferenceError` で**全通知が黙って全滅**する状態を解消（判定関数をモジュールスコープへ移動＋**実際に呼ぶ**回帰テストを追加）②env のチューニング（`PUSH_GUARD_CACHE_TTL_MS` / `PUSH_GUARD_TIMEOUT_MS`）を実装（文書には有ると書かれていたが未実装）③タイムアウトのタイマーを finally で `clearTimeout`（成功時にもプロセスを掴み続けない）④`inflight` の登録順を修正し lookup の同期 throw でも再解決できるように。回帰テスト [17] を 18 → 22 項目に拡充し 276 項目）
+最終更新: 2026-10-25（§14 作業ツリー分離の運用を新設：canonical staging tree は `staging` ブランチ固定・per-session worktree（`scripts/ops/new-worktree.sh`）・ブランチ命名規約・node_modules の symlink 共有・pre-push で `main`/`staging` への直接 push を拒否。背景は 2026-10-24 の共有ツリー事故（PR #83 のコミット混入）。§12 に更新先を追加）
 最終更新: 2026-10-24（§11 push エンドポイントの**送信前の DNS 解決検証**を追加（`lib/push-endpoint-guard.js`）。`publicHttpUrl` はホスト名の文字列しか見ないため残っていた **DNS rebinding**（ドメインで内部 IP に解決してサーバーに内部へ POST させる経路）を、送信直前の `dns.lookup` で遮断。解決先が private / loopback / link-local / CGNAT / IPv6 ULA 等なら**送信しない**（fail-closed・解決不能・時間切れも拒否）。拒否は `[push-guard]` のログで可視化し**既存の登録行は削除しない**。30 秒キャッシュ・無効化は `PUSH_GUARD_DISABLED=1` のときだけ（既定は有効）。回帰テスト [17] を追加し 270 項目）
+## 14. 作業ツリー分離（2026-10-25 追加）
+
+複数セッション（エージェント含む）が **同じ作業ツリーを共有すると、branch switch が他セッションの
+ファイルまで書き換える**。2026-10-24 に 2 回発生した（staging アプリのコードが切り替わる /
+PR に無関係なコミットが混入する）。以後、物理的に分離する。
+
+### 14.1 ルール（必須）
+
+- **canonical staging tree（`/home/yuzuki/koinoyamai.love-test`）は `staging` ブランチ固定**。
+  `git checkout` で切り替えるな（`scripts/ops/ensure-staging-tree.sh` で検査）。
+- **すべての作業（エージェント含む）は per-session worktree で行う**。
+  作成: `bash scripts/ops/new-worktree.sh <slug>` → `/tmp/opencode/<slug>/worktree` に作成され、
+  `agent/<slug>` ブランチが切られる。`source /tmp/opencode/<slug>/env.sh` してから作業する。
+- **ブランチ命名**: `agent/<slug>`（new-worktree.sh が作成）/ `feature/<slug>` / `fix/<slug>`。
+  `main` / `staging` への直接コミット・push は禁止（pre-push フックが拒否）。
+- **node_modules は canonical staging ツリーから symlink（読み取り専用）**。
+  `npm install` は canonical ツリーで 1 回だけ実行する（worktree で実行すると canonical を汚す）。
+  依存を変える作業は PR で行い、本番反映は `npm-deploy.sh` 経由。
+- **PR 本文に「この PR が含むべきファイル一覧」を書く**。レビュアーは `git diff --stat` で
+  混入を検出する（PR #83 で実際に機能した）。
+- **後始末**: `git -C /var/www/html/koinoyamai.love worktree remove <path>` で worktree を削除する。
+
+### 14.2 ツール
+
+- `scripts/ops/ensure-staging-tree.sh [dir]` … canonical ツリーが staging ブランチかを検査（exit 1 で違反）。
+  **手動で呼ぶ安全確認用**（deploy / テスト前）。cron / pre-push からは呼ばない
+  （staging ツリーが作業中ブランチ上だと毎回 fail して Cron が死ぬため）。
+- `scripts/ops/new-worktree.sh <slug> [base-ref]` … worktree を作成し、env.sh を出力する。
+- `scripts/hooks/pre-push` … `main` / `staging` への直接 push を拒否するガードを追加（§13 の運用を機械化）。
+
+### 14.3 node_modules の共有方針
+
+- symlink は読み取り専用。`npm install` は canonical ツリーでのみ実行する。
+- worktree で依存が必要になった場合は `NODE_PATH` を canonical ツリーに向ける（`env.sh` が設定）。
+- 依存を変える PR は canonical ツリーで `npm install` → テスト → commit → PR → 本番は `npm-deploy.sh`。
+
+### 14.4 staging アプリの再起動
+
+- canonical ツリーが更新されたら `mai-push-api-test` を手動で再起動する（自動化は将来の課題）。
+- 作業中は staging アプリのコードが切り替わらないよう、canonical ツリーを動かさない。
+
 最終更新: 2026-10-23（§11 外部入力の**境界バリデーション**（`lib/validate.js`・依存ゼロ）を導入し `/api/notify` の data・管理ログイン・push endpoint に入れた。**無認証 SSRF**（任意 endpoint 登録 → 内部 URL への POST）を登録時＋送信直前（`services/notification.js` / `src/core/milestone.js`）の 3 箇所で遮断（IPv6 は角括弧を外して nibble 列で判定・IPv4-mapped の 16 進表記も IPv4 として判定）／`/api/android/send-test` にレート制限／OAuth エラーを text/plain／YouTube webhook の Invalid Date／rag の video_id 検証 / 型は **TypeScript を入れず `@ts-check` + JSDoc** で部分導入（notify-sign・admin・validate・geoip）／§12 に更新先を追加）
 最終更新: 2026-10-23（§5 依存更新：`ip-address` 10.7.4 / **firebase-admin 14.5.0**（v14 は名前空間 API 廃止＝モジュラー API へ移行）/ **puppeteer 25.16.0**（`browser.isConnected()` 廃止 → `.connected`）。未使用の `puppeteer-extra` 系を削除し npm audit 17→1 / §5.2 security-watch の PHP 判定を **Ubuntu CVE トラッカー準拠**に（not-affected / ignored を対象外に・取得失敗は fail-closed）/ §5.3 ハニーポットの**可視化**を追加：管理画面「ハニーポット」タブ＋`GET /api/admin/honeypot`（`requireAuth`・公開ドメインは 403）・`services/honeypot-report.js`（honey.log を直接集計・**日次ローテートの .1/.gz も読む**・自機テスト除外・canary token はマスク・`previousCanaryPaths` も canary_used）・`services/geoip.js`（Team Cymru の DNS で国/ASN/組織名・IPv6 対応・JSON キャッシュ・合計 3 秒で打ち切り）・時刻は JST 固定 / §12 に更新先を追加）
 最終更新: 2026-10-22（§5.3 ハニーポット（偽物の秘密ファイル）を新設：scripts/security/honeypot-setup.sh で偽物を生成・scripts/nginx/apply-honeypot.sh で nginx に配信・scripts/security/honeypot-watch.js が取得/canary使用を通知 / §10.2 配信開始アラーム（Android v1.7.3）を新設：AlarmManager.setAlarmClock による端末内アラーム・exact alarm 権限・TZ 混在の扱い・標準アラームへの補助経路 / §5.1 PHP 実行時ハードニングを拡張：scripts/php/apply-php-hardening.sh（enable_post_data_reading=Off で multipart パーサ無効・ffi.enable=preload で FFI 迂回を塞ぐ・post_max_size 縮小）と scripts/php/verify-php-hardening.sh（実測検証）を追加／scripts/nginx/apply-php-exec-guard.sh で elza vhost の PHP 実行を 404 化／mbstring は意図的に未導入（webui/_mb.php で代替）／§11 に PHP の「読まない・実行しない」規約を追加／§5 のリリース時刻の誤記（23:00 UTC→14:00 UTC）を修正 / §5.1 PHP コアの緊急 RCE 期間の対応（メンテナンスモードで公開 PHP ページを 503 化・patch-and-resume.sh で復旧）を追加 / §5 Node.js を v24.22.1 に更新（2026-10-21 の security release）・パッチ版移行スクリプト scripts/deploy/migrate-node-patch.sh を追加（pm2 save 必須・旧 ~/migrate-*.sh は v24.22.0 固定で参照先ではない） / §6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
@@ -1370,3 +1425,4 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 最終更新: 2026-10-13（§10 WinUI ネットワーク起動禁止を追記）
 最終更新: 2026-10-10（§9 埋め込み停止中→稼働中に訂正 / CollabPoll 修正・md整理は別コミット）
 最終更新: 2026-10-03（チャット読み上げ追加 / TTS systemd化・int8＋ONNX高速化 / latent-sliceストリーミング・不採用レコード / AGENTS.md §9 追加）
+> detached HEAD では `git branch --show-current` が空を返すため、ガードは exit 1（fail-closed）になる。安全側に倒れるので問題ない。
