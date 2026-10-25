@@ -1,0 +1,73 @@
+name: build-windows
+
+# Windows アプリのビルド（AGENTS.md §10.1）
+# 手動トリガー or Windows/ の変更時に自動実行
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'バージョン (例: 1.8.8)'
+        required: true
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - 'Windows/mai-push-winui/**'
+      - '.github/workflows/build-windows.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Windows インストーラ ビルド
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: .NET SDK セットアップ
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Inno Setup インストール
+        run: choco install innosetup -y
+
+      - name: MSBuild でビルド
+        working-directory: Windows/mai-push-winui
+        shell: pwsh
+        run: |
+          $msbuild = "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"
+          if (-not (Test-Path $msbuild)) {
+            $msbuild = "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe"
+          }
+          if (-not (Test-Path $msbuild)) {
+            Write-Error "MSBuild not found"
+            exit 1
+          }
+          & $msbuild MaiPushWinUI.csproj /p:Configuration=Release /p:Platform=x64 /p:RuntimeIdentifier=win-x64 /p:EnableSourceControlManagerQueries=false /v:minimal
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Inno Setup でインストーラ生成
+        working-directory: Windows/mai-push-winui
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          & $iscc installer.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: インストーラをアップロード
+        uses: actions/upload-artifact@v4
+        with:
+          name: mai-push-installer
+          path: Windows/mai-push-winui/installer/*.exe
+          retention-days: 30
+
+      - name: GitHub Release を作成（タグ付きの場合）
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Windows/mai-push-winui/installer/*.exe
