@@ -739,6 +739,15 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 - 回帰テスト `npm test`（276項目・2026-10-24 時点、約6秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
+### 7.3.8 ログ異常検知（2026-10-25 追加）
+```bash
+bash scripts/ops/log-anomaly.sh     # pm2 ログのエラー率を監視し、異常があれば Discord 通知
+```
+- mai-push-api / mai-push-worker / discord-bot のエラーログを日次で分析。
+- 前日の 2 倍以上のエラー、または重大パターン（Uncaught/FATAL/SQLITE_BUSY 等）を検出。
+- 異常時は Discord 通知。初回実行時はベースライン記録のみ。
+- cron: 毎日 06:00。
+
 ### 7.3.7 依存更新の自動 PR 作成（2026-10-25 追加）
 ```bash
 bash scripts/ops/dep-update-pr.sh     # npm audit fix → npm test → PR 作成 → Discord 通知
@@ -816,6 +825,7 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 30 4 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/security-watch-cron.sh
 35 4 * * *  mkdir -p /var/www/html/koinoyamai.love/logs && /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/php/check-ubuntu-backport.js >> /var/www/html/koinoyamai.love/logs/php-backport-watch.log 2>&1
 30 5 * * *   /var/www/html/koinoyamai.love/scripts/ops/dep-update-pr.sh >> /var/www/html/koinoyamai.love/logs/dep-update-pr.log 2>&1
+0 6 * * *   /var/www/html/koinoyamai.love/scripts/ops/log-anomaly.sh >> /var/www/html/koinoyamai.love/logs/log-anomaly.log 2>&1
 0 4 * * 0   /var/www/html/koinoyamai.love/scripts/ops/verify-backup.sh >> /var/www/html/koinoyamai.love/logs/verify-backup.log 2>&1
 15 4 * * 0  /var/www/html/koinoyamai.love/scripts/ops/db-maintenance.sh >> /var/www/html/koinoyamai.love/logs/db-maintenance.log 2>&1
 */5 * * * *  mkdir -p /var/www/html/koinoyamai.love/logs && /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/security/honeypot-watch.js >> /var/www/html/koinoyamai.love/logs/honeypot-cron.log 2>&1
