@@ -1389,7 +1389,8 @@ PR に無関係なコミットが混入する）。以後、物理的に分離�
 ### 14.2 ツール
 
 - `scripts/ops/ensure-staging-tree.sh [dir]` … canonical ツリーが staging ブランチかを検査（exit 1 で違反）。
-  cron の `check-drift.sh` と pre-push フックから呼ぶ。
+  **手動で呼ぶ安全確認用**（deploy / テスト前）。cron / pre-push からは呼ばない
+  （staging ツリーが作業中ブランチ上だと毎回 fail して Cron が死ぬため）。
 - `scripts/ops/new-worktree.sh <slug> [base-ref]` … worktree を作成し、env.sh を出力する。
 - `scripts/hooks/pre-push` … `main` / `staging` への直接 push を拒否するガードを追加（§13 の運用を機械化）。
 
@@ -1413,3 +1414,4 @@ PR に無関係なコミットが混入する）。以後、物理的に分離�
 最終更新: 2026-10-13（§10 WinUI ネットワーク起動禁止を追記）
 最終更新: 2026-10-10（§9 埋め込み停止中→稼働中に訂正 / CollabPoll 修正・md整理は別コミット）
 最終更新: 2026-10-03（チャット読み上げ追加 / TTS systemd化・int8＋ONNX高速化 / latent-sliceストリーミング・不採用レコード / AGENTS.md §9 追加）
+> detached HEAD では `git branch --show-current` が空を返すため、ガードは exit 1（fail-closed）になる。安全側に倒れるので問題ない。
