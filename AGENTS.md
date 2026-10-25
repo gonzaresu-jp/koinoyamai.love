@@ -739,6 +739,15 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 - 回帰テスト `npm test`（276項目・2026-10-24 時点、約6秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
+### 7.3.5 バックアップ復元検証・DB メンテナンス（2026-10-25 追加）
+```bash
+bash scripts/ops/verify-backup.sh     # 最新バックアップを temp DB に復元し整合性を確認
+bash scripts/ops/db-maintenance.sh   # VACUUM + ANALYZE + 古いデータのクリーンアップ
+```
+- `verify-backup.sh`: 最新の `data-*.db` を temp にコピー → `PRAGMA integrity_check` → テーブル存在確認 → 行数確認。失敗時は Discord 通知。
+- `db-maintenance.sh`: 30日以上前の `scheduled_notifications` を削除 → `ANALYZE` → `VACUUM`。完了/失敗を Discord 通知。
+- cron: 週次日曜 04:00 (verify) / 04:15 (maintenance)。
+
 ### 7.4 staging/本番のドリフト検出
 ```bash
 bash scripts/deploy/check-drift.sh            # 乖離の有無と是正コマンドを表示
@@ -786,6 +795,8 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 30 9 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/minutes-gen-cron.sh
 30 4 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/security-watch-cron.sh
 35 4 * * *  mkdir -p /var/www/html/koinoyamai.love/logs && /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/php/check-ubuntu-backport.js >> /var/www/html/koinoyamai.love/logs/php-backport-watch.log 2>&1
+0 4 * * 0   /var/www/html/koinoyamai.love/scripts/ops/verify-backup.sh >> /var/www/html/koinoyamai.love/logs/verify-backup.log 2>&1
+15 4 * * 0  /var/www/html/koinoyamai.love/scripts/ops/db-maintenance.sh >> /var/www/html/koinoyamai.love/logs/db-maintenance.log 2>&1
 */5 * * * *  mkdir -p /var/www/html/koinoyamai.love/logs && /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/security/honeypot-watch.js >> /var/www/html/koinoyamai.love/logs/honeypot-cron.log 2>&1
 ```
 - いずれも `crontab -l`（yuzuki ユーザー）で確認済み。ログは `logs/`（gitignore 対象）。
