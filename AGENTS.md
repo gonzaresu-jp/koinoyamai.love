@@ -739,6 +739,13 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 - 回帰テスト `npm test`（276項目・2026-10-24 時点、約6秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
+### 7.3.9 Android/Windows アプリの CI/CD（2026-10-25 追加）
+- `.github/workflows/build-android.yml`: ubuntu-latest + JDK 21 + Gradle で APK ビルド
+- `.github/workflows/build-windows.yml`: windows-latest + MSBuild + Inno Setup でインストーラ生成
+- 手動トリガー (workflow_dispatch) または対象ディレクトリの変更で自動実行
+- ビルド成果物は GitHub Actions artifacts に 30日間保存
+- GitHub Secrets に ANDROID_KEYSTORE_BASE64 等の設定が必要
+
 ### 7.3.8 ログ異常検知（2026-10-25 追加）
 ```bash
 bash scripts/ops/log-anomaly.sh     # pm2 ログのエラー率を監視し、異常があれば Discord 通知
