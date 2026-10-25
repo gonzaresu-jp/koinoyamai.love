@@ -168,6 +168,32 @@ for d in "$PROD_DIR" "$STG_DIR"; do
   fi
 done
 
+# --- 5. ドキュメント鮮度チェック ---
+# コード（routes/ services/ src/ lib/）を変更したコミットが
+# AGENTS.md / ARCHITECTURE.md を更新していない場合に警告する。
+# 「コードを変えてドキュメントを更新し忘れる」事故を防ぐ（AGENTS.md §12）。
+say ""
+say "[5] ドキュメント鮮度"
+DOC_DRIFT=0
+# 直近 5 コミットを検査
+for commit in $(git -C "$PROD_DIR" log --format='%H' -5 2>/dev/null); do
+  changed_code=$(git -C "$PROD_DIR" diff-tree --no-commit-id --name-only -r "$commit" 2>/dev/null     | grep -E '^(routes/|services/|src/|lib/)' || true)
+  changed_docs=$(git -C "$PROD_DIR" diff-tree --no-commit-id --name-only -r "$commit" 2>/dev/null     | grep -E '^(AGENTS.md|docs/ARCHITECTURE.md)$' || true)
+  if [ -n "$changed_code" ] && [ -z "$changed_docs" ]; then
+    short=$(git -C "$PROD_DIR" log -1 --format='%h %s' "$commit" 2>/dev/null)
+    changed_code_short=$(echo "$changed_code" | tr '\n' ' ' | cut -c1-80)
+    notice "  ⚠ $short"
+    notice "     コード変更: $changed_code_short"
+    notice "     → AGENTS.md / ARCHITECTURE.md の更新を確認してください"
+    DOC_DRIFT=1
+  fi
+done
+if [ $DOC_DRIFT -eq 0 ]; then
+  say "  ✓ 直近 5 コミットでドキュメント未更新のコード変更なし"
+else
+  drift=1
+fi
+
 # --- 判定 ---
 say ""
 if [ $drift -eq 0 ]; then
