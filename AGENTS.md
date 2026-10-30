@@ -1047,6 +1047,12 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     やり直すこと。
   - インストーラ: `"C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss`
     → `Windows/mai-push-winui/installer/MaiPush-<ver>-Setup.exe`（`webui/dl/*.exe` は gitignore 対象）。
+  - ⚠️ **`X:\`（SMB）への大容量ファイルのコピーは壊れることがある（2026-10-31 実測）**:
+    `Copy-Item` で `webui/dl/MaiPush-1.8.9-Setup.exe` を置いたところ **19MB 以降が全てゼロ埋め**された
+    （サイズは一致するので気づきにくい。そのまま配信するとインストーラが壊れる）。
+    → **exe は `scp` でサーバへ送り、配置後に `sha256sum` がローカルのビルドと一致することを確認する**。
+    さらに**公開 URL からダウンロードして再ハッシュ**する（Cloudflare/SMB 経路込みの確認）。
+    一致するまで `webui/dl/desktop.json` を更新しないこと。
 - **Android ビルドはネットワークドライブ（`Q:\`）では失敗する**
   - `:app:packageReleaseResources` が `dataBindingLayoutInfoOutFolder` の MD5 を作れず失敗する。
   - → **`mai_notification/` をローカルドライブへコピーして** `gradlew.bat assembleRelease` する

@@ -100,6 +100,12 @@ public sealed partial class MainWindow : Window
 
         SetupTrayIcon();
         InstallWndProcSubclass();
+        // フォーカス復帰時にポインター捕捉の取りこぼしを回復する（タッチパッドスクロールの飲み込み対策）
+        this.Activated += (_, _) =>
+        {
+            if (_tabStripPointerPressed && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0)
+                ClearDragState();
+        };
         TabStripContainer.RenderTransform = _tabStripTransform;
         DragGhost.RenderTransform = _dragGhostTransform;
         StartHoverPoller();
@@ -195,6 +201,9 @@ public sealed partial class MainWindow : Window
     private static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll")]
     private static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
+    private const int VK_LBUTTON = 0x01;
     [DllImport("user32.dll")]
     private static extern IntPtr CreatePopupMenu();
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -411,6 +420,15 @@ public sealed partial class MainWindow : Window
             // ウィンドウ破棄後もタイマーが走り続けるケース → 参照せずに停止する
             StopHoverPoller("hwnd-invalid", null);
             return;
+        }
+        // タッチパッドスクロールが飲み込まれる原因のフェイルセーフ:
+        // OnTabItemDragPressed で立てた _tabStripPointerPressed が PointerReleased /
+        // PointerCaptureLost の取りこぼしで立ちっぱなしになると、Tabs のポインター捕捉が
+        // 解除されず、以後のポインター（スクロール）イベントが WebView2 に届かなくなる。
+        // 左ボタンが既に離されているのにフラグが立っている場合は自動回復する。
+        if (_tabStripPointerPressed && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0)
+        {
+            ClearDragState();
         }
         if (!IsWindowVisible(_hwnd) || IsIconic(_hwnd))
         {
@@ -638,6 +656,9 @@ public sealed partial class MainWindow : Window
         Tabs.AddHandler(UIElement.PointerReleasedEvent,
             new PointerEventHandler(OnTabDragReleased), handledEventsToo: true);
         Tabs.AddHandler(UIElement.PointerCaptureLostEvent,
+            new PointerEventHandler((_, _) => EndTabDrag()), handledEventsToo: true);
+        // ポインターがキャンセルされた場合もドラッグ状態を畳む（捕捉の取りこぼし対策）
+        Tabs.AddHandler(UIElement.PointerCanceledEvent,
             new PointerEventHandler((_, _) => EndTabDrag()), handledEventsToo: true);
         Tabs.PointerEntered += (_, _) => CancelCollapseTimer();
         Tabs.PointerExited += (_, _) =>
