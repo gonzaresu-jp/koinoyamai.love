@@ -592,6 +592,13 @@
 - nginx へは `~/apply-admin-tailnet.sh` と `~/apply-admin-autoauth.sh`
   （アンカー文字列カウント検証付きパッチ）で反映。
   復旧用バックアップ: `/etc/nginx/nginx.conf.bak-admin-*` / `.bak-autoauth-*`。funnel/serve は tailscale CLI（要 sudo）。
+- **まいAI チャット（`/chat.html`・`/chat.js`・`/icon.webp`・`/icon-192.webp`）も elza vhost では tailnet/LAN 限定（2026-11-06 追加）**:
+  `location = /admin.html` と同じ allowlist（`127.0.0.1` / `::1` / `192.168.0.0/16` / `100.64.0.0/10`）で
+  webui を root にする `location` を追加する。
+  適用は `sudo bash scripts/nginx/apply-mai-chat-elza.sh --apply`（dry-run なら引数なし・冪等）。
+  これが無いと elza vhost の root（`/var/www/html`）に chat 系ファイルが無く
+  **admin.html の「まいAI チャットを開く」が 404** になっていた（2026-11-06 実測）。
+  `/css/chat.css`・fontawesome・`/api/admin/chat/*` は既存の location（`/css/`・fontawesome・`/api/admin`）で配信される。
 
 ### 6.8 YouTube Webhook（PubSubHubbub）
 
@@ -1356,7 +1363,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 | デプロイ/検証の作法 | `AGENTS.md §7` / `docs/DEVELOPMENT-WORKFLOW.md` |
 | webui 構成/CSP/静的配信 | `docs/ARCHITECTURE.md §4.5` / `AGENTS.md §6.6` |
 | 作業ツリー分離（worktree） | `AGENTS.md §14` / `scripts/ops/ensure-staging-tree.sh` / `scripts/ops/new-worktree.sh` / `scripts/hooks/pre-push` |
-| nginx への新ルート追加（例: `/display/`） | `AGENTS.md §6.9` / `docs/ARCHITECTURE.md §4.5b` / `docs/SECURITY.md` |
+| nginx への新ルート追加（例: `/display/`） | `AGENTS.md §6.7`（elza vhost）/ `§6.9` / `docs/ARCHITECTURE.md §4.5b` / `docs/SECURITY.md` |
 | 外部入力の検証 / SSRF / 型の部分導入（`@ts-check`） | `AGENTS.md §11` / `docs/ARCHITECTURE.md §4.4` |
 | アーカイブ API | `docs/ARCHIVE-ADMIN-SPEC.md` |
 | ハニーポットの可視化（管理画面タブ・集計 API・GeoIP） | `AGENTS.md §5.3` / `docs/ARCHITECTURE.md §4.2, §4.3` |
@@ -1467,6 +1474,7 @@ PR に無関係なコミットが混入する）。以後、物理的に分離�
 - canonical ツリーが更新されたら `mai-push-api-test` を手動で再起動する（自動化は将来の課題）。
 - 作業中は staging アプリのコードが切り替わらないよう、canonical ツリーを動かさない。
 
+最終更新: 2026-11-06（§6.7 まいAI チャットを elza vhost で tailnet/LAN 限定配信するルールを追加：scripts/nginx/apply-mai-chat-elza.sh ＝ 2026-11-06 に admin.html の「まいAI チャットを開く」が 404 になっていた原因＝elza vhost に chat 系 location が無かったことへの対処。§12 の nginx 行に §6.7 を追記）
 最終更新: 2026-10-23（§11 外部入力の**境界バリデーション**（`lib/validate.js`・依存ゼロ）を導入し `/api/notify` の data・管理ログイン・push endpoint に入れた。**無認証 SSRF**（任意 endpoint 登録 → 内部 URL への POST）を登録時＋送信直前（`services/notification.js` / `src/core/milestone.js`）の 3 箇所で遮断（IPv6 は角括弧を外して nibble 列で判定・IPv4-mapped の 16 進表記も IPv4 として判定）／`/api/android/send-test` にレート制限／OAuth エラーを text/plain／YouTube webhook の Invalid Date／rag の video_id 検証 / 型は **TypeScript を入れず `@ts-check` + JSDoc** で部分導入（notify-sign・admin・validate・geoip）／§12 に更新先を追加）
 最終更新: 2026-10-23（§5 依存更新：`ip-address` 10.7.4 / **firebase-admin 14.5.0**（v14 は名前空間 API 廃止＝モジュラー API へ移行）/ **puppeteer 25.16.0**（`browser.isConnected()` 廃止 → `.connected`）。未使用の `puppeteer-extra` 系を削除し npm audit 17→1 / §5.2 security-watch の PHP 判定を **Ubuntu CVE トラッカー準拠**に（not-affected / ignored を対象外に・取得失敗は fail-closed）/ §5.3 ハニーポットの**可視化**を追加：管理画面「ハニーポット」タブ＋`GET /api/admin/honeypot`（`requireAuth`・公開ドメインは 403）・`services/honeypot-report.js`（honey.log を直接集計・**日次ローテートの .1/.gz も読む**・自機テスト除外・canary token はマスク・`previousCanaryPaths` も canary_used）・`services/geoip.js`（Team Cymru の DNS で国/ASN/組織名・IPv6 対応・JSON キャッシュ・合計 3 秒で打ち切り）・時刻は JST 固定 / §12 に更新先を追加）
 最終更新: 2026-10-22（§5.3 ハニーポット（偽物の秘密ファイル）を新設：scripts/security/honeypot-setup.sh で偽物を生成・scripts/nginx/apply-honeypot.sh で nginx に配信・scripts/security/honeypot-watch.js が取得/canary使用を通知 / §10.2 配信開始アラーム（Android v1.7.3）を新設：AlarmManager.setAlarmClock による端末内アラーム・exact alarm 権限・TZ 混在の扱い・標準アラームへの補助経路 / §5.1 PHP 実行時ハードニングを拡張：scripts/php/apply-php-hardening.sh（enable_post_data_reading=Off で multipart パーサ無効・ffi.enable=preload で FFI 迂回を塞ぐ・post_max_size 縮小）と scripts/php/verify-php-hardening.sh（実測検証）を追加／scripts/nginx/apply-php-exec-guard.sh で elza vhost の PHP 実行を 404 化／mbstring は意図的に未導入（webui/_mb.php で代替）／§11 に PHP の「読まない・実行しない」規約を追加／§5 のリリース時刻の誤記（23:00 UTC→14:00 UTC）を修正 / §5.1 PHP コアの緊急 RCE 期間の対応（メンテナンスモードで公開 PHP ページを 503 化・patch-and-resume.sh で復旧）を追加 / §5 Node.js を v24.22.1 に更新（2026-10-21 の security release）・パッチ版移行スクリプト scripts/deploy/migrate-node-patch.sh を追加（pm2 save 必須・旧 ~/migrate-*.sh は v24.22.0 固定で参照先ではない） / §6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
