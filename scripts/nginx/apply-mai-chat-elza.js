@@ -6,10 +6,14 @@
  *       server ブロックに、`location = /chat.html` 等を差し込む。
  *
  * 方針（apply-display-location.js と共通）:
- *   - 冪等: すでに適用済みなら「適用済み」と報告して exit 0（再適用しない）
+ *   - 冪等: すでに elza vhost に適用済みなら「適用済み」と報告して exit 0
+ *     （outPath が指定された場合は nginx.conf の内容をそのまま書き出す。
+ *       呼び出し側の cmp で「差分なし＝適用済み」と判定できるようにする）
  *   - fail-closed: アンカーが見つからない・複数ある場合は **何も書き換えず** exit 1
  *   - 挿入位置は `location = /admin.html { ... }` ブロックの直後
  *     （admin 静的リソースの並びに合わせる）
+ *   - 適用済み判定は **elza server ブロックの中だけ**を見る
+ *     （他 vhost に将来 `location = /chat.html` が増えても誤判定しない）
  *   - ブロック本文は scripts/nginx/mai-chat-elza.conf から読む（コメントヘッダは除く）
  *
  * 挿入位置の決め方（apply-display-location.js と同じ解析上の注意）:
@@ -86,16 +90,11 @@ if (!block.trim()) {
 
 const MARK = 'location = /chat.html'
 
-// 既に適用済みか
-if (conf.includes(MARK)) {
-  console.log(`SKIP: 適用済み（${MARK} が存在）`)
-  process.exit(0)
-}
-
 const masked = maskNoise(conf)
 
 // --- server_name elza.poitou-mora.ts.net の server ブロックを探す ---
-const serverRe = /server\s*\{/g
+// 行頭の `server {` だけを候補にする（`location = /server {` を誤検出しない）
+const serverRe = /^[ \t]*server\s*\{/gm
 let match
 let target = null
 while ((match = serverRe.exec(masked)) !== null) {
@@ -116,8 +115,16 @@ if (!target) {
   process.exit(1)
 }
 
-// --- その中の `location = /admin.html {` を探す（一意であること） ---
 const span = masked.slice(target.openIdx, target.endIdx)
+
+// --- 既に適用済みか（elza vhost の中だけを見る） ---
+if (span.includes(MARK)) {
+  if (outPath) fs.writeFileSync(outPath, conf, 'utf8')
+  console.log(`SKIP: 適用済み（${MARK} が elza vhost に存在）`)
+  process.exit(0)
+}
+
+// --- その中の `location = /admin.html {` を探す（一意であること） ---
 const anchorRe = /location\s*=\s*\/admin\.html\s*\{/g
 const anchors = []
 while ((match = anchorRe.exec(span)) !== null) anchors.push(match)

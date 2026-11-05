@@ -11,12 +11,18 @@
 #   sudo bash scripts/nginx/apply-mai-chat-elza.sh --apply  # 適用
 #
 # 安全:
-#   - 冪等（適用済みなら何もせず exit 0）
+#   - 冪等（適用済みなら何もせず exit 0。diff も出さない）
 #   - アンカーが曖昧なら fail-closed（何も書き換えない）
-#   - **atomic**: 一時ファイルへ書き出してから `install` で差し替える
+#   - **atomic**: 一時ファイルを nginx.conf と同じディレクトリに作り、`mv` で rename する
+#     （途中で kill されても nginx.conf が半分だけ書き換わることはない）
 #   - バックアップ → nginx -t 失敗時は即座に復元（他プロセスが設定を変更していた場合は
 #     復元せず中断して、他方の変更を潰さない）
 set -euo pipefail
+
+case "${1:-}" in
+  "" | --apply) ;;
+  *) echo "[ERR] 不明な引数: $1（--apply を付けてください）" >&2; exit 2 ;;
+esac
 
 APPLY=0
 [[ "${1:-}" == "--apply" ]] && APPLY=1
@@ -43,13 +49,17 @@ if [ "$APPLY" = "0" ]; then
   # dry-run は変更しないので root 不要。適用結果を temp に出力して差分だけを表示する
   TMP="$(mktemp)"
   trap 'rm -f "$TMP"' EXIT
-  if "$NODE_BIN" "$PATCH_JS" "$CONF" "$BLOCK_FILE" "$TMP"; then
-    echo "--- dry-run: 挿入される差分 ---"
-    diff -u "$CONF" "$TMP" || true
-  else
+  if ! "$NODE_BIN" "$PATCH_JS" "$CONF" "$BLOCK_FILE" "$TMP"; then
     echo "[ERR] dry-run のパッチ作成に失敗しました（何も変更していません）" >&2
     exit 1
   fi
+  [ ! -s "$TMP" ] && { echo "[ERR] パッチが空です（何も変更していません）" >&2; exit 1; }
+  if cmp -s "$CONF" "$TMP"; then
+    echo "[OK] 差分なし（適用済み）"
+    exit 0
+  fi
+  echo "--- dry-run: 挿入される差分 ---"
+  diff -u "$CONF" "$TMP" || true
   echo
   echo "適用するには: sudo bash scripts/nginx/apply-mai-chat-elza.sh --apply"
   exit 0
@@ -62,24 +72,38 @@ BAK="$CONF.bak-mai-chat-elza-$(date +%Y%m%d-%H%M%S)"
 cp -a "$CONF" "$BAK"
 echo "[OK] backup: $BAK"
 
-TMP="$(mktemp)"
+# 一時ファイルは nginx.conf と同じディレクトリに作る（mv の rename が atomic になるように）
+TMP="$(mktemp "${CONF}.apply-mai-chat-elza.XXXXXX")"
 trap 'rm -f "$TMP"' EXIT
 
-# atomic: 一時ファイルへ書き出してから install で差し替える
+# パッチは temp に書き出す（本体にはまだ触れない）
 "$NODE_BIN" "$PATCH_JS" "$CONF" "$BLOCK_FILE" "$TMP"
+[ ! -s "$TMP" ] && { echo "[ERR] パッチが空です（中断・何も変更していません）" >&2; rm -f "$TMP"; exit 1; }
+
+if cmp -s "$CONF" "$TMP"; then
+  rm -f "$TMP"
+  echo "[OK] 差分なし（適用済み）。nginx -t / reload はスキップします"
+  exit 0
+fi
+
+# 適用後に nginx -t が失敗した場合に「自分が書いた内容が残っているか」を判定するためのハッシュ
+PATCHED_HASH="$(sha256sum "$TMP" | cut -d' ' -f1)"
 
 # install 前に「backup 取得後に他プロセスが config を変更していないか」を確認する。
-# 変更されている場合（並行した適用など）は **install せず中断**（他方の変更を潰さない）。
+# 変更されている場合（並行した適用など）は **mv せず中断**（他方の変更を潰さない）。
 if ! cmp -s "$CONF" "$BAK"; then
+  rm -f "$TMP"
   echo "[ERR] $CONF は backup 取得後に変更されています（並行した変更が疑われます）。" >&2
-  echo "     install せず中断します（他方の変更を潰さないため）。手動で確認してください: $BAK" >&2
+  echo "     mv せず中断します（他方の変更を潰さないため）。手動で確認してください: $BAK" >&2
   exit 1
 fi
-install -m 0644 "$TMP" "$CONF"
+
+mv -f "$TMP" "$CONF"   # 同一ディレクトリ内の rename＝atomic
+chmod 0644 "$CONF"
 
 # nginx -t が失敗したらバックアップへ戻す（壊れた config を残さない）。
 if ! nginx -t; then
-  if cmp -s "$CONF" "$TMP"; then
+  if [ "$(sha256sum "$CONF" | cut -d' ' -f1)" = "$PATCHED_HASH" ]; then
     echo "[ERR] nginx -t が失敗したためバックアップへ戻します" >&2
     cp -a "$BAK" "$CONF"
     echo "復元: $BAK" >&2
@@ -89,19 +113,21 @@ if ! nginx -t; then
       echo "[ERR] 復元後も nginx -t が失敗します。手動で $BAK を確認してください" >&2
     fi
   else
-    echo "[ERR] nginx -t が失敗しましたが $CONF は install 後に変更されています。" >&2
+    echo "[ERR] nginx -t が失敗しましたが $CONF は mv 後に変更されています。" >&2
     echo "     復元せず中断します（他方の変更を潰さないため）。手動で確認してください: $BAK" >&2
   fi
   exit 1
 fi
 
-nginx -s reload
+if ! nginx -s reload; then
+  echo "[WARN] nginx -s reload に失敗しました。設定は配置済みです。" >&2
+  echo "     'sudo nginx -s reload' を手動で実行してください（backup: $BAK）" >&2
+  exit 1
+fi
 echo "=== 完了 ==="
 
 cat <<'TXT'
 確認:
-  curl -s -o /dev/null -w '%{http_code}\n' http://elza.poitou-mora.ts.net/chat.html   # 200 を期待
-  curl -s -o /dev/null -w '%{http_code}\n' http://elza.poitou-mora.ts.net/chat.js      # 200 を期待
-  # tailnet 外から（LAN/VPN でなければ 403 を期待）
-  tailscale status >/dev/null && curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1/chat.html
+  curl -s -o /dev/null -w '%{http_code}\n' https://elza.poitou-mora.ts.net/chat.html   # 200 を期待
+  curl -s -o /dev/null -w '%{http_code}\n' https://elza.poitou-mora.ts.net/chat.js      # 200 を期待
 TXT
