@@ -1315,7 +1315,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     通常の media scope は 32bit のまま（公開メディアなので無意味）。
     理由は下の「Discord 専用メディア」項の「UA 判定は防御にならない」ため
     （推測不能な URL ＝ capability URL にする）。
-- **Discord 専用メディア（`/dmedia/`）の保護 — 3 層**
+- **Discord 専用メディア（`/dmedia/`）の保護 — 4 層**
   1. **到達経路は tunnel のみ**（2026-10-22 実測で確定）:
      `discord.honna-yuzuki.com` の DNS は CNAME で cloudflared tunnel（`mai` トンネル）を指し、
      tunnel のリモート設定にも `discord.honna-yuzuki.com → http://localhost:80` がある。
@@ -1333,10 +1333,15 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
      **2026-10-22 適用済み**（PR #70 / 反映確認: 公開URL+Discordbot=200 / 通常UA=403 /
      localhost=200 / LAN IP=403 / LAN `/upload/dmedia`=403）。
      バックアップは `/etc/nginx/discord.conf.bak-dmedia-tunnel-only-*`。
-  3. **UA 判定は「防御」ではない**:
+  3. **UA 判定は「防御」ではなく、2026-11-07 に廃止した**:
      `if ($http_user_agent !~* "Discordbot") { return 403; }` は UA をクライアントが自由に
      設定できるため、`curl -A "Discordbot"` で取得できてしまう（実測: 200 / 実ファイル）。
-     → 実保護は **URL 側の 128bit ランダム ID**（1 と同じ「推測不能な URL」方式）。
+     さらに **Discord のインライン再生は Discordbot UA では来ない**（実測: Discordbot は
+     unfurl でファイル全体を 200 で取得するが、本編のストリーミングは Firefox 風 UA で来て
+     403 → プレイヤーが「サムネイルだけ 0:00」のまま再生できなかった）。
+     → UA 判定を外しても実保護は変わらない（この項の 4 が本体）。
+     `/etc/nginx/discord.conf` から削除（LAN 直撃の deny と 128bit URL は維持）。
+     以後 /dmedia/ のアクセスは `/var/log/nginx/dmedia.log`（dmediafmt・UA 入り）に記録される。
   4. **upload サービス側でも Host を照合する**（2026-10-22）:
      nginx の LAN/Tailnet 用 vhost（`location ^~ /upload/` → `proxy_pass http://127.0.0.1:3100/`）は
      パス置換で `/upload/dmedia/xxx` を `/dmedia/xxx` にしてしまう → そのままでは

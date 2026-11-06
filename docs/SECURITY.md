@@ -647,12 +647,31 @@ UA 判定は「公式のクローラしか来ない」程度の補助にすぎ�
    実測: `https://discord.honna-yuzuki.com/dmedia/<file>` + Discordbot UA → 200 /
    LAN IP 経由 `/upload/dmedia/<file>` → 403。
 
+### UA 判定の廃止（2026-11-07）
+
+実運用で "Discord に貼った動画が再生できない"（プレイヤーが「サムネイルだけ 0:00」）
+という事象になり、`/var/log/nginx/dmedia.log`（UA 入りの専用ログ。2026-11-07 に
+`/etc/nginx/discord.conf` へ追加）で切り分けた。
+
+- Discord 本体（unfurl）は `Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)` で
+  **ファイル全体を 200 で取得**（bytes=全長 82,947,246）。プレビュー自体は描画される。
+- **本編のストリーミング要求は Firefox 風 UA**（例: `Firefox/38.0` Mac / `Firefox/159.0` Win）
+  で来て **403**。これが「サムネイルだけ 0:00」の正体（実測）。
+- 対処（ユーザー承認済み）: `if ($http_user_agent !~* "Discordbot") { return 403; }` を
+  `/etc/nginx/discord.conf` から削除した。残る保護は tunnel のみ・LAN deny・
+  128bit capability URL・Host 照合（上記 1〜4 はすべて有効のまま）。
+- なお Discord は unfurl のたびに **79MB のファイルを丸ごと再取得**する
+  （プレビューキャッシュ失効のたび・複数回観測）。帯域に注意すること。
+
 ### 教訓
 
 - 「tunnel 経由」はルーティング設定だけでは保証にならない。
   origin の listen を `127.0.0.1` 限定にするか、nginx 側に許可リストを入れる。
 - UA / Referer などのクライアント制御ヘッダを「認可」の根拠にしない
   （ defense in depth の最下層にしかならない）。
+- Discord のインライン再生は Discordbot UA では来ない。UA でアクセス制御すると
+  再生が壊れる（2026-11-07 実測）。アクセスログに UA が残らないと原因究明が遅れる
+  （`/dmedia/` は `/var/log/nginx/dmedia.log` に dmediafmt で記録するようにした）。
 - 推測されにくい URL（＝capability URL）を持つことが、実保護の要。
 
 ## 秘密鍵の置き場所（2026-10-23 修正・webroot 外へ移設）
