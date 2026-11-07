@@ -647,7 +647,7 @@ UA 判定は「公式のクローラしか来ない」程度の補助にすぎ�
    実測: `https://discord.honna-yuzuki.com/dmedia/<file>` + Discordbot UA → 200 /
    LAN IP 経由 `/upload/dmedia/<file>` → 403。
 
-### UA 判定の廃止（2026-11-07）
+### UA 判定の廃止と og:video 復旧（2026-11-07）
 
 実運用で "Discord に貼った動画が再生できない"（プレイヤーが「サムネイルだけ 0:00」）
 という事象になり、`/var/log/nginx/dmedia.log`（UA 入りの専用ログ。2026-11-07 に
@@ -657,9 +657,23 @@ UA 判定は「公式のクローラしか来ない」程度の補助にすぎ�
   **ファイル全体を 200 で取得**（bytes=全長 82,947,246）。プレビュー自体は描画される。
 - **本編のストリーミング要求は Firefox 風 UA**（例: `Firefox/38.0` Mac / `Firefox/159.0` Win）
   で来て **403**。これが「サムネイルだけ 0:00」の正体（実測）。
-- 対処（ユーザー承認済み）: `if ($http_user_agent !~* "Discordbot") { return 403; }` を
-  `/etc/nginx/discord.conf` から削除した。残る保護は tunnel のみ・LAN deny・
-  128bit capability URL・Host 照合（上記 1〜4 はすべて有効のまま）。
+- 一旦 `if ($http_user_agent !~* "Discordbot") { return 403; }` を外して再生を直したが、
+  「URL を知っていれば誰でも直接見れる」状態になったため **og:video ページ経由に戻した**。
+- og:video ページ（`/watch/<id>`）経由では Discord が `og:video` をプロキシ再生するため
+  origin から来るのは Discordbot UA だけになり、`/dmedia/` の UA 制限を復活させても
+  再生できる。ブラウザの直リンク（`.mp4` を直接開く）は 403 になる（設計通り）。
+
+実装:
+- upload サービス（`/var/www/html/upload/server.js`）:
+  - `GET /watch/<id>` → `og:type=video.other` + `og:video`（`/dmedia/*.mp4`）+
+    `twitter:card=player` を持つ HTML を返す（動画以外は `og:type=website` に倒す）
+  - `GET /thumb/<id>.jpg` → og:image 用の JPEG（ffmpeg で 2 秒地点の 1 フレーム、
+    幅 1280px。初回アクセスで自動生成し `discord-media/thumbs/<id>.jpg` にキャッシュ）
+  - `pub()` に `watchUrl`（discord scope のときのみ）を追加。**Discord へ渡すべき URL
+    は `watchUrl`（`/watch/<id>`）**。`.mp4` 直リンクはブラウザから開くと 403 になる
+- nginx（`/etc/nginx/discord.conf`。適用は `bash /tmp/opencode/apply-dmedia-watch.sh`）:
+  - `/dmedia/` に Discordbot UA 制限を復活、`location ^~ /watch/`・`/thumb/` を
+    127.0.0.1:3100 へ proxy（tunnel のみ許可・UA 制限なし）
 - なお Discord は unfurl のたびに **79MB のファイルを丸ごと再取得**する
   （プレビューキャッシュ失効のたび・複数回観測）。帯域に注意すること。
 

@@ -1333,15 +1333,19 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
      **2026-10-22 適用済み**（PR #70 / 反映確認: 公開URL+Discordbot=200 / 通常UA=403 /
      localhost=200 / LAN IP=403 / LAN `/upload/dmedia`=403）。
      バックアップは `/etc/nginx/discord.conf.bak-dmedia-tunnel-only-*`。
-  3. **UA 判定は「防御」ではなく、2026-11-07 に廃止した**:
+  3. **UA 判定は「防御」ではなく、og:video 経由でのみ使う（2026-11-07 復旧）**:
      `if ($http_user_agent !~* "Discordbot") { return 403; }` は UA をクライアントが自由に
      設定できるため、`curl -A "Discordbot"` で取得できてしまう（実測: 200 / 実ファイル）。
-     さらに **Discord のインライン再生は Discordbot UA では来ない**（実測: Discordbot は
-     unfurl でファイル全体を 200 で取得するが、本編のストリーミングは Firefox 風 UA で来て
-     403 → プレイヤーが「サムネイルだけ 0:00」のまま再生できなかった）。
-     → UA 判定を外しても実保護は変わらない（この項の 4 が本体）。
-     `/etc/nginx/discord.conf` から削除（LAN 直撃の deny と 128bit URL は維持）。
-     以後 /dmedia/ のアクセスは `/var/log/nginx/dmedia.log`（dmediafmt・UA 入り）に記録される。
+     2026-11-07 に直リンク .mp4 配信ではインライン再生が壊れること（Discord 上の再生は
+     Discordbot UA ではなく Firefox 風 UA で来て 403）が実測され、一旦 UA 判定を外した。
+     しかし「URL を知っていれば誰でも直接見れる」状態になったため、**og:video ページ
+     （`/watch/<id>`）経由に戻した**。`/dmedia/` の UA 制限は og:video 経由のときだけ
+     有効（Discord は og:video をプロキシ再生するため origin から来るのは
+     Discordbot UA だけ）。
+     → 実保護は **URL 側の 128bit ランダム ID**（1 と同じ「推測不能な URL」方式）。
+     `/etc/nginx/discord.conf` で Discordbot UA 制限を復活済み（`/watch/`・`/thumb/`
+     のロケーションも追加）。`/dmedia/` のアクセスは
+     `/var/log/nginx/dmedia.log`（dmediafmt・UA 入り）に記録される。
   4. **upload サービス側でも Host を照合する**（2026-10-22）:
      nginx の LAN/Tailnet 用 vhost（`location ^~ /upload/` → `proxy_pass http://127.0.0.1:3100/`）は
      パス置換で `/upload/dmedia/xxx` を `/dmedia/xxx` にしてしまう → そのままでは
@@ -1349,6 +1353,15 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
      そこで upload サービスが `/dmedia` の **Host** を照合する
      （`DISCORD_PUBLIC_BASE_URL` の host 以外は 403）。
      discord vhost は `proxy_set_header Host $host` で `discord.honna-yuzuki.com` を渡す。
+  5. **Discord への共有は og:video ページ（`/watch/<id>`）を使う（2026-11-07 復旧）**:
+     Discord 公式仕様でタグ経由のインライン動画プレイヤーを確実に出すのは HTML + OGP。
+     upload サービス `GET /watch/<id>` が `og:type=video.other` + `og:video` +
+     `twitter:card=player` を持つ HTML を返し、`GET /thumb/<id>.jpg` が og:image
+     用のサムネイル（ffmpeg で 1 フレーム、初回は自動生成）を返す。
+     `/dmedia/*.mp4` には Discordbot UA 制限を復活させてある。
+     → Discord bot のプロキシ再生のみが通る。ブラウザの直リンク（`.mp4` を直接開く）は
+     403 になる（URL 共有で見れる状態にはならない）。
+     ※ Discord へ渡すべき URL は `/watch/<id>`（`GET /api/list` の `watchUrl` も参照）。
   - 教訓: 「tunnel 経由」はルーティング設定だけでは保証にならない。
     **origin の listen を 127.0.0.1 限定にするか、nginx で許可リストを入れる**こと。
     **nginx の別 vhost が同じ upstream にパス置換で繋いでいたら、そこも封鎖が必要**。
