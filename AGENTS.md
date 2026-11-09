@@ -877,6 +877,30 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止。既存の CRLF ファイルは
 遅延正規化。バイナリ拡張子は `binary` と明示。
 
+### 7.8 バックアップの別ホスト複製（2026-11-09 追加）
+- `backup.sh`（03:00）の保存先 `/var/lib/mai-push/backups` は**本番マシン内**にあり、
+  ディスク故障・侵入・誤削除で「本体」と「バックアップ」が同時に失われる。
+  `scripts/ops/backup-offsite.sh` が **nassy の別ディスク**（`/mnt/4TB/mai-push-backups`）へ
+  `data-*.db` / `env-*.env` を複製し、**最新ファイルの sha256 一致**を検証する。
+- 実行:
+  ```bash
+  bash scripts/ops/backup-offsite.sh           # dry-run（転送内容の表示のみ）
+  bash scripts/ops/backup-offsite.sh --apply    # 転送 + 検証 + リモートの世代整理
+  ```
+  - 失敗時は Discord に通知する（成功時はログのみ）。多重起動は `flock` で防止。
+  - 接続先・保持日数は env で変更可: `OFFSITE_HOST`（既定 `nassy`）/
+    `OFFSITE_DIR`（既定 `/mnt/4TB/mai-push-backups`）/ `OFFSITE_KEEP_DAYS`（既定 90）。
+- 保持: ローカル 30 日 / リモート 90 日。リモートは `--delete` を使わず、
+  **ファイル名の日付**で整理する（`env-*.env` は `cp -p` で mtime が古いままなので、
+  mtime 基準だと新しい複製まで消える）。
+- 転送先には `.env` のバックアップ（秘密情報）を含む。**ディレクトリ 700 / ファイル 600** を維持する。
+- **本番反映後に cron を登録する**（登録したら §7.6 の表にも同じコミットで追記する）:
+  ```
+  10 3 * * * /var/www/html/koinoyamai.love/scripts/ops/backup-offsite.sh --apply >> /var/www/html/koinoyamai.love/logs/backup-offsite.log 2>&1
+  ```
+- 限界: 同一拠点（LAN 内）の別マシンなので、災害対策としては不十分。
+  将来はクラウドストレージへの二次複製を検討する。
+
 ## 8. nassy 側パイプライン（2026-09-27 systemd 化）— 本番 worker の依存先
 配信終了後の **動画DL → 字幕 → チャプター** は elza ではなく **nassy** で実行される。
 `main.js` と `src/scrapers/youtube.js` は検知した直後に `sendInternalUrl()`（`src/scrapers/youtube.js:163`）で
@@ -1389,6 +1413,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 | 依存パッケージ更新 | `AGENTS.md §5` |
 | Android/WinUI アプリ | `AGENTS.md §10` / `webui/dl/*.json` |
 | nassy 連携 | `AGENTS.md §8` |
+| バックアップ（日次・別ホスト複製・復元検証） | `AGENTS.md §7.8` / `docs/ARCHITECTURE.md §4.6` |
 | ユーザーに見える変更（機能追加/修正/挙動変更） | `webui/updatelogs.php`（**指示がなくても必ず更新**。下記） |
 
 ### updatelogs（更新履歴）は毎回更新する — 指示されなくても行うこと
@@ -1449,6 +1474,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
 最終更新: 2026-10-24（§11 push ガードの**独立レビュー指摘を修正**：①無効化インスタンス（`PUSH_GUARD_DISABLED=1`）が `ReferenceError` で**全通知が黙って全滅**する状態を解消（判定関数をモジュールスコープへ移動＋**実際に呼ぶ**回帰テストを追加）②env のチューニング（`PUSH_GUARD_CACHE_TTL_MS` / `PUSH_GUARD_TIMEOUT_MS`）を実装（文書には有ると書かれていたが未実装）③タイムアウトのタイマーを finally で `clearTimeout`（成功時にもプロセスを掴み続けない）④`inflight` の登録順を修正し lookup の同期 throw でも再解決できるように。回帰テスト [17] を 18 → 22 項目に拡充し 276 項目）
+最終更新: 2026-11-09（§7.8 バックアップの別ホスト複製を新設：`scripts/ops/backup-offsite.sh` が nassy の別ディスク `/mnt/4TB/mai-push-backups` へ `data-*.db` / `env-*.env` を複製し、最新ファイルの sha256 一致を検証。失敗時は Discord 通知・flock で多重起動防止・リモート保持 90 日。世代整理は `env-*.env` の mtime が古いまま（`cp -p`）なので **ファイル名の日付**で判定する。§7.6 の cron 表への登録は本番反映後。§12 に更新先を追加）
 最終更新: 2026-10-25（§14 作業ツリー分離の運用を新設：canonical staging tree は `staging` ブランチ固定・per-session worktree（`scripts/ops/new-worktree.sh`）・ブランチ命名規約・node_modules の symlink 共有・pre-push で `main`/`staging` への直接 push を拒否。背景は 2026-10-24 の共有ツリー事故（PR #83 のコミット混入）。§12 に更新先を追加）
 最終更新: 2026-10-24（§11 push エンドポイントの**送信前の DNS 解決検証**を追加（`lib/push-endpoint-guard.js`）。`publicHttpUrl` はホスト名の文字列しか見ないため残っていた **DNS rebinding**（ドメインで内部 IP に解決してサーバーに内部へ POST させる経路）を、送信直前の `dns.lookup` で遮断。解決先が private / loopback / link-local / CGNAT / IPv6 ULA 等なら**送信しない**（fail-closed・解決不能・時間切れも拒否）。拒否は `[push-guard]` のログで可視化し**既存の登録行は削除しない**。30 秒キャッシュ・無効化は `PUSH_GUARD_DISABLED=1` のときだけ（既定は有効）。回帰テスト [17] を追加し 270 項目）
 ## 14. 作業ツリー分離（2026-10-25 追加）
