@@ -564,7 +564,7 @@
   `lib/` に移動（nginx の alias も同dir直配信のため、移動が必須）。
 - `/api/system-info` は公開（CPU%・メモリ%・loadavg・稼働時間・RSSのみ。**ホスト名/ディスク/OS詳細は返さない**）。status ページのリソース欄は誰でも閲覧可能。
 - `/api/ask`（公開）は 5回/分＋質問500文字上限。管理者用 `/api/admin/ask` は対象外。
-- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 282 項目・2026-11-09 時点）に接続済み。
+- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 281 項目・2026-11-09 時点）に接続済み。
 - pm2-logrotate 導入済み（20M・10世代・圧縮）。
 
 ## 6.7 admin は Tailnet 専用（2026-10-10 追加）
@@ -743,7 +743,7 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 - ステージ・コミット対象の `.js` に対し `node --check`
 - `.php` に対し `php -l`
 - アプリバージョンの3箇所整合（`scripts/ops/check-app-version.sh`・`SKIP_PREPUSH_VERSION=1` でスキップ可）
-- 回帰テスト `npm test`（282項目・2026-11-09 時点、約6秒）
+- 回帰テスト `npm test`（281項目・2026-11-09 時点、約6秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
 ### 7.3.10 Node.js バージョン追従の自動化（2026-10-25 追加）
@@ -867,13 +867,21 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
   `node` を**絶対パスで明示**して実行する。
 - 追加・変更するときは `crontab -l` の実体とこの表を**同じコミットで**更新する。
 - ⚠️ **cron から直接実行する `.sh` は実行権限（index 100755）が必要**（2026-11-09 実測）:
-  `auto-deploy.sh` / `verify-backup.sh` / `db-maintenance.sh` / `dep-update-pr.sh` が
-  100644 のまま直接実行され、**毎回 `Permission denied` で静かに失敗**していた
-  （`logs/*.log` に記録。Discord 通知も出ない）。
+  `verify-backup.sh` / `db-maintenance.sh` / `dep-update-pr.sh` が 100644 のまま直接実行され、
+  **毎回 `Permission denied` で静かに失敗**していた（`logs/*.log` に記録。Discord 通知も出ない）。
   - `bash script.sh` 形式で呼ぶものは不要。上の表で**パスを直接書いているもの**が対象。
   - このリポジトリは `core.fileMode=false` のため、作業ツリーの `chmod +x` だけでは
     index（clone / CI の実体）に反映されない。**`git update-index --chmod=+x <file>`** を使う。
-  - 回帰テスト `[18]` が上記 6 本（`backup.sh` / `backup-offsite.sh` を含む）の index モードを検査する。
+  - 回帰テスト `[18]` が `backup.sh` / `backup-offsite.sh` / `verify-backup.sh` /
+    `db-maintenance.sh` / `dep-update-pr.sh` の index モードを検査する（5 本）。
+  - ⚠️ **`auto-deploy.sh` は意図的に 100644 のまま据え置く（有効化しない）**。
+    有効化すると `PROD_DIR` / `STG_DIR` で `git reset --hard origin/main` が走るため、
+    本番ツリーの**未コミット作業**（リリース中の WinUI 変更など）と
+    staging ツリーの **`staging` ブランチ**（§14）が壊れる。動かす前に
+    ①dirty な作業ツリーなら中止 ②staging は `staging` ブランチへ反映（`main` へ reset しない）
+    のガードを入れること（別 PR）。
+  - `node-version-check.sh` はディスク上 755 のため動作しているが index は 100644（既存の不整合。
+    別途 `git update-index --chmod=+x` で揃える）。
 - リポジトリ外の job（`/home/yuzuki/temp.sh` の温度ログ等）は本表の対象外。
 - **cron は `PATH` が `/usr/bin/node`（Node v18 = EOL）を掴む**ため、node を実行する
   スクリプト（`update-subscribers-and-commit.sh` / `minutes-gen-cron.sh` /
@@ -1444,7 +1452,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - [ ] 上の表に該当するドキュメントを更新した（該当なしなら不要）
 - [ ] ユーザーに見える変更なら `webui/updatelogs.php` を更新した（`lines` を `count-lines.sh` の実測値で）
 - [ ] `node --check <file>` / `php -l <file>`（pre-push でも自動実行, `§7.3`）
-- [ ] `npm test`（回帰テスト 282 項目）
+- [ ] `npm test`（回帰テスト 281 項目）
 - [ ] 本番操作の前に `bash scripts/deploy/assert-port.sh prod|staging`（`§7.2`）
 - [ ] 感度の高い変更なら PR＋別エージェントの独立レビューを通した（`§13`）
 - [ ] 秘密情報・DB・`webui/data` を不用意にコミットしていない
