@@ -27,6 +27,10 @@ ENV_OUT="$BACKUP_DIR/env-$TODAY.env"
 # シークレット類も保存（同じマシン内・所有者権限のみ）
 if [ -f "$ENV_PATH" ]; then
   cp -p "$ENV_PATH" "$ENV_OUT"
+  # `cp -p` だと mtime が .env の更新日時に固定され、下の `-mtime +30` が
+  # **作成直後のバックアップまで削除**してしまう（2026-11-09 レビューで実測）。
+  # バックアップを作成した時刻に更新しておく。
+  touch "$ENV_OUT"
 fi
 
 # 保持日数を超えた古いバックアップを削除

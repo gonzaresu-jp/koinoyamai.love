@@ -564,7 +564,7 @@
   `lib/` に移動（nginx の alias も同dir直配信のため、移動が必須）。
 - `/api/system-info` は公開（CPU%・メモリ%・loadavg・稼働時間・RSSのみ。**ホスト名/ディスク/OS詳細は返さない**）。status ページのリソース欄は誰でも閲覧可能。
 - `/api/ask`（公開）は 5回/分＋質問500文字上限。管理者用 `/api/admin/ask` は対象外。
-- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 276 項目・2026-10-24 時点）に接続済み。
+- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 281 項目・2026-11-09 時点）に接続済み。
 - pm2-logrotate 導入済み（20M・10世代・圧縮）。
 
 ## 6.7 admin は Tailnet 専用（2026-10-10 追加）
@@ -743,7 +743,7 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 - ステージ・コミット対象の `.js` に対し `node --check`
 - `.php` に対し `php -l`
 - アプリバージョンの3箇所整合（`scripts/ops/check-app-version.sh`・`SKIP_PREPUSH_VERSION=1` でスキップ可）
-- 回帰テスト `npm test`（276項目・2026-10-24 時点、約6秒）
+- 回帰テスト `npm test`（281項目・2026-11-09 時点、約6秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
 ### 7.3.10 Node.js バージョン追従の自動化（2026-10-25 追加）
@@ -866,6 +866,22 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
   `check-ubuntu-backport.js` がこの状態だった（04:35 の監視が動作せず）ため、
   `node` を**絶対パスで明示**して実行する。
 - 追加・変更するときは `crontab -l` の実体とこの表を**同じコミットで**更新する。
+- ⚠️ **cron から直接実行する `.sh` は実行権限（index 100755）が必要**（2026-11-09 実測）:
+  `verify-backup.sh` / `db-maintenance.sh` / `dep-update-pr.sh` が 100644 のまま直接実行され、
+  **毎回 `Permission denied` で静かに失敗**していた（`logs/*.log` に記録。Discord 通知も出ない）。
+  - `bash script.sh` 形式で呼ぶものは不要。上の表で**パスを直接書いているもの**が対象。
+  - このリポジトリは `core.fileMode=false` のため、作業ツリーの `chmod +x` だけでは
+    index（clone / CI の実体）に反映されない。**`git update-index --chmod=+x <file>`** を使う。
+  - 回帰テスト `[18]` が `backup.sh` / `backup-offsite.sh` / `verify-backup.sh` /
+    `db-maintenance.sh` / `dep-update-pr.sh` の index モードを検査する（5 本）。
+  - ⚠️ **`auto-deploy.sh` は意図的に 100644 のまま据え置く（有効化しない）**。
+    有効化すると `PROD_DIR` / `STG_DIR` で `git reset --hard origin/main` が走るため、
+    本番ツリーの**未コミット作業**（リリース中の WinUI 変更など）と
+    staging ツリーの **`staging` ブランチ**（§14）が壊れる。動かす前に
+    ①dirty な作業ツリーなら中止 ②staging は `staging` ブランチへ反映（`main` へ reset しない）
+    のガードを入れること（別 PR）。
+  - `node-version-check.sh` はディスク上 755 のため動作しているが index は 100644（既存の不整合。
+    別途 `git update-index --chmod=+x` で揃える）。
 - リポジトリ外の job（`/home/yuzuki/temp.sh` の温度ログ等）は本表の対象外。
 - **cron は `PATH` が `/usr/bin/node`（Node v18 = EOL）を掴む**ため、node を実行する
   スクリプト（`update-subscribers-and-commit.sh` / `minutes-gen-cron.sh` /
@@ -876,6 +892,36 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 `.gitattributes` で `text=auto eol=lf` を設定済み。LF→CRLF 混入で作業ツリーが
 dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止。既存の CRLF ファイルは
 遅延正規化。バイナリ拡張子は `binary` と明示。
+
+### 7.8 バックアップの別ホスト複製（2026-11-09 追加）
+- `backup.sh`（03:00）の保存先 `/var/lib/mai-push/backups` は**本番マシン内**にあり、
+  ディスク故障・侵入・誤削除で「本体」と「バックアップ」が同時に失われる。
+  `scripts/ops/backup-offsite.sh` が **nassy の別ディスク**（`/mnt/4TB/mai-push-backups`）へ
+  `data-*.db` / `env-*.env` を複製し、**最新ファイルの sha256 一致**を検証する。
+- 実行:
+  ```bash
+  bash scripts/ops/backup-offsite.sh           # dry-run（転送内容の表示のみ）
+  bash scripts/ops/backup-offsite.sh --apply    # 転送 + 検証 + リモートの世代整理
+  ```
+  - 失敗時は Discord に通知する（成功時はログのみ）。多重起動は `flock` で防止。
+  - 接続先・保持日数は env で変更可: `OFFSITE_HOST`（既定 `nassy`）/
+    `OFFSITE_DIR`（既定 `/mnt/4TB/mai-push-backups`）/ `OFFSITE_KEEP_DAYS`（既定 90）/
+    `OFFSITE_MIN_DB_BYTES`（既定 1MB。これ未満の DB は転送しない）/ `OFFSITE_SSH_OPTS`。
+  - 前提: 転送先へ ssh 鍵で入れること（BatchMode のためパスワード不可）・
+    転送先に `rsync` / `sha256sum` / `stat` があること・`OFFSITE_DIR` が **rootfs とは別デバイス**に
+    マウントされていること（`nofail` で外れていると rootfs に書いて「成功」するため実行時に検査する）。
+  - 転送前に最新 DB の**サイズ下限・`PRAGMA quick_check`・日付（当日/前日）**を検査する。
+    壊れた/古いバックアップを sha256 一致だけで「成功」にしないため（0 バイト同士でも一致する）。
+- 保持: ローカル 30 日 / リモート 90 日。リモートは `--delete` を使わず、
+  **ファイル名の日付**で整理する（`env-*.env` は `cp -p` で mtime が古いままなので、
+  mtime 基準だと新しい複製まで消える）。
+- 転送先には `.env` のバックアップ（秘密情報）を含む。**ディレクトリ 700 / ファイル 600** を維持する。
+- **本番反映後に cron を登録する**（登録したら §7.6 の表にも同じコミットで追記する）:
+  ```
+  10 3 * * * /var/www/html/koinoyamai.love/scripts/ops/backup-offsite.sh --apply >> /var/www/html/koinoyamai.love/logs/backup-offsite.log 2>&1
+  ```
+- 限界: 同一拠点（LAN 内）の別マシンなので、災害対策としては不十分。
+  将来はクラウドストレージへの二次複製を検討する。
 
 ## 8. nassy 側パイプライン（2026-09-27 systemd 化）— 本番 worker の依存先
 配信終了後の **動画DL → 字幕 → チャプター** は elza ではなく **nassy** で実行される。
@@ -1389,6 +1435,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 | 依存パッケージ更新 | `AGENTS.md §5` |
 | Android/WinUI アプリ | `AGENTS.md §10` / `webui/dl/*.json` |
 | nassy 連携 | `AGENTS.md §8` |
+| バックアップ（日次・別ホスト複製・復元検証） | `AGENTS.md §7.8` / `docs/ARCHITECTURE.md §4.6` |
 | ユーザーに見える変更（機能追加/修正/挙動変更） | `webui/updatelogs.php`（**指示がなくても必ず更新**。下記） |
 
 ### updatelogs（更新履歴）は毎回更新する — 指示されなくても行うこと
@@ -1405,7 +1452,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - [ ] 上の表に該当するドキュメントを更新した（該当なしなら不要）
 - [ ] ユーザーに見える変更なら `webui/updatelogs.php` を更新した（`lines` を `count-lines.sh` の実測値で）
 - [ ] `node --check <file>` / `php -l <file>`（pre-push でも自動実行, `§7.3`）
-- [ ] `npm test`（回帰テスト 276 項目）
+- [ ] `npm test`（回帰テスト 281 項目）
 - [ ] 本番操作の前に `bash scripts/deploy/assert-port.sh prod|staging`（`§7.2`）
 - [ ] 感度の高い変更なら PR＋別エージェントの独立レビューを通した（`§13`）
 - [ ] 秘密情報・DB・`webui/data` を不用意にコミットしていない
@@ -1449,6 +1496,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
 最終更新: 2026-10-24（§11 push ガードの**独立レビュー指摘を修正**：①無効化インスタンス（`PUSH_GUARD_DISABLED=1`）が `ReferenceError` で**全通知が黙って全滅**する状態を解消（判定関数をモジュールスコープへ移動＋**実際に呼ぶ**回帰テストを追加）②env のチューニング（`PUSH_GUARD_CACHE_TTL_MS` / `PUSH_GUARD_TIMEOUT_MS`）を実装（文書には有ると書かれていたが未実装）③タイムアウトのタイマーを finally で `clearTimeout`（成功時にもプロセスを掴み続けない）④`inflight` の登録順を修正し lookup の同期 throw でも再解決できるように。回帰テスト [17] を 18 → 22 項目に拡充し 276 項目）
+最終更新: 2026-11-09（§7.8 バックアップの別ホスト複製を新設：`scripts/ops/backup-offsite.sh` が nassy の別ディスク `/mnt/4TB/mai-push-backups` へ `data-*.db` / `env-*.env` を複製し、最新ファイルの sha256 一致を検証。失敗時は Discord 通知・flock で多重起動防止・リモート保持 90 日。世代整理は `env-*.env` の mtime が古いまま（`cp -p`）なので **ファイル名の日付**で判定する。§7.6 の cron 表への登録は本番反映後。§12 に更新先を追加）
 最終更新: 2026-10-25（§14 作業ツリー分離の運用を新設：canonical staging tree は `staging` ブランチ固定・per-session worktree（`scripts/ops/new-worktree.sh`）・ブランチ命名規約・node_modules の symlink 共有・pre-push で `main`/`staging` への直接 push を拒否。背景は 2026-10-24 の共有ツリー事故（PR #83 のコミット混入）。§12 に更新先を追加）
 最終更新: 2026-10-24（§11 push エンドポイントの**送信前の DNS 解決検証**を追加（`lib/push-endpoint-guard.js`）。`publicHttpUrl` はホスト名の文字列しか見ないため残っていた **DNS rebinding**（ドメインで内部 IP に解決してサーバーに内部へ POST させる経路）を、送信直前の `dns.lookup` で遮断。解決先が private / loopback / link-local / CGNAT / IPv6 ULA 等なら**送信しない**（fail-closed・解決不能・時間切れも拒否）。拒否は `[push-guard]` のログで可視化し**既存の登録行は削除しない**。30 秒キャッシュ・無効化は `PUSH_GUARD_DISABLED=1` のときだけ（既定は有効）。回帰テスト [17] を追加し 270 項目）
 ## 14. 作業ツリー分離（2026-10-25 追加）
