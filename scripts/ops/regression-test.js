@@ -1281,8 +1281,15 @@ async function main() {
       ok("upload サービス: scope=discord の ID が 128bit（16 バイト）※CI では対象不在のためスキップ", true,
         `not found: ${uploadServer}`);
     } else {
+      // 2026-11-07 の upload サービス改修で Host 照合が `isDiscordHost(req)` ヘルパーへ
+      // 切り出された（ヘルパー内で `req.headers.host` を読む）。直接参照とヘルパー経由の
+      // どちらでも「/dmedia が Host を見ている」ことを検査する。
+      const dmediaDirect = /app\.use\("\/dmedia",[\s\S]{0,400}?req\.headers\.host/.test(uploadSrc);
+      const dmediaViaHelper =
+        /app\.use\("\/dmedia",[\s\S]{0,400}?isDiscordHost\(req\)/.test(uploadSrc) &&
+        /function\s+isDiscordHost\([\s\S]{0,400}?req\.headers\.host/.test(uploadSrc);
       ok("upload サービス: /dmedia で Host を照合する（LAN 経由の迂回防止）",
-        /app\.use\("\/dmedia",[\s\S]{0,400}?req\.headers\.host/.test(uploadSrc));
+        dmediaDirect || dmediaViaHelper);
       ok("upload サービス: scope=discord の ID が 128bit（16 バイト）",
         /req\.query\.scope\s*===\s*"discord"\s*\?\s*16\s*:\s*4/.test(uploadSrc));
     }
