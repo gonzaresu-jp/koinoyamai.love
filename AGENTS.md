@@ -564,7 +564,7 @@
   `lib/` に移動（nginx の alias も同dir直配信のため、移動が必須）。
 - `/api/system-info` は公開（CPU%・メモリ%・loadavg・稼働時間・RSSのみ。**ホスト名/ディスク/OS詳細は返さない**）。status ページのリソース欄は誰でも閲覧可能。
 - `/api/ask`（公開）は 5回/分＋質問500文字上限。管理者用 `/api/admin/ask` は対象外。
-- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 276 項目・2026-10-24 時点）に接続済み。
+- 回帰テストは `npm test`（scripts/ops/regression-test.js、HMAC v2＋timestamp検証＋YouTubeフィード補助ロジック＋webhookトークン検証を含む 281 項目・2026-11-09 時点）に接続済み。
 - pm2-logrotate 導入済み（20M・10世代・圧縮）。
 
 ## 6.7 admin は Tailnet 専用（2026-10-10 追加）
@@ -592,6 +592,13 @@
 - nginx へは `~/apply-admin-tailnet.sh` と `~/apply-admin-autoauth.sh`
   （アンカー文字列カウント検証付きパッチ）で反映。
   復旧用バックアップ: `/etc/nginx/nginx.conf.bak-admin-*` / `.bak-autoauth-*`。funnel/serve は tailscale CLI（要 sudo）。
+- **まいAI チャット（`/chat.html`・`/chat.js`・`/icon.webp`・`/icon-192.webp`）も elza vhost では tailnet/LAN 限定（2026-11-06 追加）**:
+  `location = /admin.html` と同じ allowlist（`127.0.0.1` / `::1` / `192.168.0.0/16` / `100.64.0.0/10`）で
+  webui を root にする `location` を追加する。
+  適用は `sudo bash scripts/nginx/apply-mai-chat-elza.sh --apply`（dry-run なら引数なし・冪等）。
+  これが無いと elza vhost の root（`/var/www/html`）に chat 系ファイルが無く
+  **admin.html の「まいAI チャットを開く」が 404** になっていた（2026-11-06 実測）。
+  `/css/chat.css`・fontawesome・`/api/admin/chat/*` は既存の location（`/css/`・fontawesome・`/api/admin`）で配信される。
 
 ### 6.8 YouTube Webhook（PubSubHubbub）
 
@@ -736,7 +743,7 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 - ステージ・コミット対象の `.js` に対し `node --check`
 - `.php` に対し `php -l`
 - アプリバージョンの3箇所整合（`scripts/ops/check-app-version.sh`・`SKIP_PREPUSH_VERSION=1` でスキップ可）
-- 回帰テスト `npm test`（276項目・2026-10-24 時点、約6秒）
+- 回帰テスト `npm test`（281項目・2026-11-09 時点、約6秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
 ### 7.3.10 Node.js バージョン追従の自動化（2026-10-25 追加）
@@ -859,6 +866,22 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
   `check-ubuntu-backport.js` がこの状態だった（04:35 の監視が動作せず）ため、
   `node` を**絶対パスで明示**して実行する。
 - 追加・変更するときは `crontab -l` の実体とこの表を**同じコミットで**更新する。
+- ⚠️ **cron から直接実行する `.sh` は実行権限（index 100755）が必要**（2026-11-09 実測）:
+  `verify-backup.sh` / `db-maintenance.sh` / `dep-update-pr.sh` が 100644 のまま直接実行され、
+  **毎回 `Permission denied` で静かに失敗**していた（`logs/*.log` に記録。Discord 通知も出ない）。
+  - `bash script.sh` 形式で呼ぶものは不要。上の表で**パスを直接書いているもの**が対象。
+  - このリポジトリは `core.fileMode=false` のため、作業ツリーの `chmod +x` だけでは
+    index（clone / CI の実体）に反映されない。**`git update-index --chmod=+x <file>`** を使う。
+  - 回帰テスト `[18]` が `backup.sh` / `backup-offsite.sh` / `verify-backup.sh` /
+    `db-maintenance.sh` / `dep-update-pr.sh` の index モードを検査する（5 本）。
+  - ⚠️ **`auto-deploy.sh` は意図的に 100644 のまま据え置く（有効化しない）**。
+    有効化すると `PROD_DIR` / `STG_DIR` で `git reset --hard origin/main` が走るため、
+    本番ツリーの**未コミット作業**（リリース中の WinUI 変更など）と
+    staging ツリーの **`staging` ブランチ**（§14）が壊れる。動かす前に
+    ①dirty な作業ツリーなら中止 ②staging は `staging` ブランチへ反映（`main` へ reset しない）
+    のガードを入れること（別 PR）。
+  - `node-version-check.sh` はディスク上 755 のため動作しているが index は 100644（既存の不整合。
+    別途 `git update-index --chmod=+x` で揃える）。
 - リポジトリ外の job（`/home/yuzuki/temp.sh` の温度ログ等）は本表の対象外。
 - **cron は `PATH` が `/usr/bin/node`（Node v18 = EOL）を掴む**ため、node を実行する
   スクリプト（`update-subscribers-and-commit.sh` / `minutes-gen-cron.sh` /
@@ -869,6 +892,36 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 `.gitattributes` で `text=auto eol=lf` を設定済み。LF→CRLF 混入で作業ツリーが
 dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止。既存の CRLF ファイルは
 遅延正規化。バイナリ拡張子は `binary` と明示。
+
+### 7.8 バックアップの別ホスト複製（2026-11-09 追加）
+- `backup.sh`（03:00）の保存先 `/var/lib/mai-push/backups` は**本番マシン内**にあり、
+  ディスク故障・侵入・誤削除で「本体」と「バックアップ」が同時に失われる。
+  `scripts/ops/backup-offsite.sh` が **nassy の別ディスク**（`/mnt/4TB/mai-push-backups`）へ
+  `data-*.db` / `env-*.env` を複製し、**最新ファイルの sha256 一致**を検証する。
+- 実行:
+  ```bash
+  bash scripts/ops/backup-offsite.sh           # dry-run（転送内容の表示のみ）
+  bash scripts/ops/backup-offsite.sh --apply    # 転送 + 検証 + リモートの世代整理
+  ```
+  - 失敗時は Discord に通知する（成功時はログのみ）。多重起動は `flock` で防止。
+  - 接続先・保持日数は env で変更可: `OFFSITE_HOST`（既定 `nassy`）/
+    `OFFSITE_DIR`（既定 `/mnt/4TB/mai-push-backups`）/ `OFFSITE_KEEP_DAYS`（既定 90）/
+    `OFFSITE_MIN_DB_BYTES`（既定 1MB。これ未満の DB は転送しない）/ `OFFSITE_SSH_OPTS`。
+  - 前提: 転送先へ ssh 鍵で入れること（BatchMode のためパスワード不可）・
+    転送先に `rsync` / `sha256sum` / `stat` があること・`OFFSITE_DIR` が **rootfs とは別デバイス**に
+    マウントされていること（`nofail` で外れていると rootfs に書いて「成功」するため実行時に検査する）。
+  - 転送前に最新 DB の**サイズ下限・`PRAGMA quick_check`・日付（当日/前日）**を検査する。
+    壊れた/古いバックアップを sha256 一致だけで「成功」にしないため（0 バイト同士でも一致する）。
+- 保持: ローカル 30 日 / リモート 90 日。リモートは `--delete` を使わず、
+  **ファイル名の日付**で整理する（`env-*.env` は `cp -p` で mtime が古いままなので、
+  mtime 基準だと新しい複製まで消える）。
+- 転送先には `.env` のバックアップ（秘密情報）を含む。**ディレクトリ 700 / ファイル 600** を維持する。
+- **本番反映後に cron を登録する**（登録したら §7.6 の表にも同じコミットで追記する）:
+  ```
+  10 3 * * * /var/www/html/koinoyamai.love/scripts/ops/backup-offsite.sh --apply >> /var/www/html/koinoyamai.love/logs/backup-offsite.log 2>&1
+  ```
+- 限界: 同一拠点（LAN 内）の別マシンなので、災害対策としては不十分。
+  将来はクラウドストレージへの二次複製を検討する。
 
 ## 8. nassy 側パイプライン（2026-09-27 systemd 化）— 本番 worker の依存先
 配信終了後の **動画DL → 字幕 → チャプター** は elza ではなく **nassy** で実行される。
@@ -1318,7 +1371,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
     通常の media scope は 32bit のまま（公開メディアなので無意味）。
     理由は下の「Discord 専用メディア」項の「UA 判定は防御にならない」ため
     （推測不能な URL ＝ capability URL にする）。
-- **Discord 専用メディア（`/dmedia/`）の保護 — 3 層**
+- **Discord 専用メディア（`/dmedia/`）の保護 — 4 層**
   1. **到達経路は tunnel のみ**（2026-10-22 実測で確定）:
      `discord.honna-yuzuki.com` の DNS は CNAME で cloudflared tunnel（`mai` トンネル）を指し、
      tunnel のリモート設定にも `discord.honna-yuzuki.com → http://localhost:80` がある。
@@ -1336,10 +1389,19 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
      **2026-10-22 適用済み**（PR #70 / 反映確認: 公開URL+Discordbot=200 / 通常UA=403 /
      localhost=200 / LAN IP=403 / LAN `/upload/dmedia`=403）。
      バックアップは `/etc/nginx/discord.conf.bak-dmedia-tunnel-only-*`。
-  3. **UA 判定は「防御」ではない**:
+  3. **UA 判定は「防御」ではなく、og:video 経由でのみ使う（2026-11-07 復旧）**:
      `if ($http_user_agent !~* "Discordbot") { return 403; }` は UA をクライアントが自由に
      設定できるため、`curl -A "Discordbot"` で取得できてしまう（実測: 200 / 実ファイル）。
+     2026-11-07 に直リンク .mp4 配信ではインライン再生が壊れること（Discord 上の再生は
+     Discordbot UA ではなく Firefox 風 UA で来て 403）が実測され、一旦 UA 判定を外した。
+     しかし「URL を知っていれば誰でも直接見れる」状態になったため、**og:video ページ
+     （`/watch/<id>`）経由に戻した**。`/dmedia/` の UA 制限は og:video 経由のときだけ
+     有効（Discord は og:video をプロキシ再生するため origin から来るのは
+     Discordbot UA だけ）。
      → 実保護は **URL 側の 128bit ランダム ID**（1 と同じ「推測不能な URL」方式）。
+     `/etc/nginx/discord.conf` で Discordbot UA 制限を復活済み（`/watch/`・`/thumb/`
+     のロケーションも追加）。`/dmedia/` のアクセスは
+     `/var/log/nginx/dmedia.log`（dmediafmt・UA 入り）に記録される。
   4. **upload サービス側でも Host を照合する**（2026-10-22）:
      nginx の LAN/Tailnet 用 vhost（`location ^~ /upload/` → `proxy_pass http://127.0.0.1:3100/`）は
      パス置換で `/upload/dmedia/xxx` を `/dmedia/xxx` にしてしまう → そのままでは
@@ -1347,6 +1409,15 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
      そこで upload サービスが `/dmedia` の **Host** を照合する
      （`DISCORD_PUBLIC_BASE_URL` の host 以外は 403）。
      discord vhost は `proxy_set_header Host $host` で `discord.honna-yuzuki.com` を渡す。
+  5. **Discord への共有は og:video ページ（`/watch/<id>`）を使う（2026-11-07 復旧）**:
+     Discord 公式仕様でタグ経由のインライン動画プレイヤーを確実に出すのは HTML + OGP。
+     upload サービス `GET /watch/<id>` が `og:type=video.other` + `og:video` +
+     `twitter:card=player` を持つ HTML を返し、`GET /thumb/<id>.jpg` が og:image
+     用のサムネイル（ffmpeg で 1 フレーム、初回は自動生成）を返す。
+     `/dmedia/*.mp4` には Discordbot UA 制限を復活させてある。
+     → Discord bot のプロキシ再生のみが通る。ブラウザの直リンク（`.mp4` を直接開く）は
+     403 になる（URL 共有で見れる状態にはならない）。
+     ※ Discord へ渡すべき URL は `/watch/<id>`（`GET /api/list` の `watchUrl` も参照）。
   - 教訓: 「tunnel 経由」はルーティング設定だけでは保証にならない。
     **origin の listen を 127.0.0.1 限定にするか、nginx で許可リストを入れる**こと。
     **nginx の別 vhost が同じ upstream にパス置換で繋いでいたら、そこも封鎖が必要**。
@@ -1366,7 +1437,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 | デプロイ/検証の作法 | `AGENTS.md §7` / `docs/DEVELOPMENT-WORKFLOW.md` |
 | webui 構成/CSP/静的配信 | `docs/ARCHITECTURE.md §4.5` / `AGENTS.md §6.6` |
 | 作業ツリー分離（worktree） | `AGENTS.md §14` / `scripts/ops/ensure-staging-tree.sh` / `scripts/ops/new-worktree.sh` / `scripts/hooks/pre-push` |
-| nginx への新ルート追加（例: `/display/`） | `AGENTS.md §6.9` / `docs/ARCHITECTURE.md §4.5b` / `docs/SECURITY.md` |
+| nginx への新ルート追加（例: `/display/`） | `AGENTS.md §6.7`（elza vhost）/ `§6.9` / `docs/ARCHITECTURE.md §4.5b` / `docs/SECURITY.md` |
 | 外部入力の検証 / SSRF / 型の部分導入（`@ts-check`） | `AGENTS.md §11` / `docs/ARCHITECTURE.md §4.4` |
 | アーカイブ API | `docs/ARCHIVE-ADMIN-SPEC.md` |
 | ハニーポットの可視化（管理画面タブ・集計 API・GeoIP） | `AGENTS.md §5.3` / `docs/ARCHITECTURE.md §4.2, §4.3` |
@@ -1374,6 +1445,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 | 依存パッケージ更新 | `AGENTS.md §5` |
 | Android/WinUI アプリ | `AGENTS.md §10` / `webui/dl/*.json` |
 | nassy 連携 | `AGENTS.md §8` |
+| バックアップ（日次・別ホスト複製・復元検証） | `AGENTS.md §7.8` / `docs/ARCHITECTURE.md §4.6` |
 | ユーザーに見える変更（機能追加/修正/挙動変更） | `webui/updatelogs.php`（**指示がなくても必ず更新**。下記） |
 
 ### updatelogs（更新履歴）は毎回更新する — 指示されなくても行うこと
@@ -1390,7 +1462,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
 - [ ] 上の表に該当するドキュメントを更新した（該当なしなら不要）
 - [ ] ユーザーに見える変更なら `webui/updatelogs.php` を更新した（`lines` を `count-lines.sh` の実測値で）
 - [ ] `node --check <file>` / `php -l <file>`（pre-push でも自動実行, `§7.3`）
-- [ ] `npm test`（回帰テスト 276 項目）
+- [ ] `npm test`（回帰テスト 281 項目）
 - [ ] 本番操作の前に `bash scripts/deploy/assert-port.sh prod|staging`（`§7.2`）
 - [ ] 感度の高い変更なら PR＋別エージェントの独立レビューを通した（`§13`）
 - [ ] 秘密情報・DB・`webui/data` を不用意にコミットしていない
@@ -1434,6 +1506,7 @@ dirty になる事故（2026-09-26、main.js を含む8ファイル）を防止�
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 
 最終更新: 2026-10-24（§11 push ガードの**独立レビュー指摘を修正**：①無効化インスタンス（`PUSH_GUARD_DISABLED=1`）が `ReferenceError` で**全通知が黙って全滅**する状態を解消（判定関数をモジュールスコープへ移動＋**実際に呼ぶ**回帰テストを追加）②env のチューニング（`PUSH_GUARD_CACHE_TTL_MS` / `PUSH_GUARD_TIMEOUT_MS`）を実装（文書には有ると書かれていたが未実装）③タイムアウトのタイマーを finally で `clearTimeout`（成功時にもプロセスを掴み続けない）④`inflight` の登録順を修正し lookup の同期 throw でも再解決できるように。回帰テスト [17] を 18 → 22 項目に拡充し 276 項目）
+最終更新: 2026-11-09（§7.8 バックアップの別ホスト複製を新設：`scripts/ops/backup-offsite.sh` が nassy の別ディスク `/mnt/4TB/mai-push-backups` へ `data-*.db` / `env-*.env` を複製し、最新ファイルの sha256 一致を検証。失敗時は Discord 通知・flock で多重起動防止・リモート保持 90 日。世代整理は `env-*.env` の mtime が古いまま（`cp -p`）なので **ファイル名の日付**で判定する。§7.6 の cron 表への登録は本番反映後。§12 に更新先を追加）
 最終更新: 2026-10-25（§14 作業ツリー分離の運用を新設：canonical staging tree は `staging` ブランチ固定・per-session worktree（`scripts/ops/new-worktree.sh`）・ブランチ命名規約・node_modules の symlink 共有・pre-push で `main`/`staging` への直接 push を拒否。背景は 2026-10-24 の共有ツリー事故（PR #83 のコミット混入）。§12 に更新先を追加）
 最終更新: 2026-10-24（§11 push エンドポイントの**送信前の DNS 解決検証**を追加（`lib/push-endpoint-guard.js`）。`publicHttpUrl` はホスト名の文字列しか見ないため残っていた **DNS rebinding**（ドメインで内部 IP に解決してサーバーに内部へ POST させる経路）を、送信直前の `dns.lookup` で遮断。解決先が private / loopback / link-local / CGNAT / IPv6 ULA 等なら**送信しない**（fail-closed・解決不能・時間切れも拒否）。拒否は `[push-guard]` のログで可視化し**既存の登録行は削除しない**。30 秒キャッシュ・無効化は `PUSH_GUARD_DISABLED=1` のときだけ（既定は有効）。回帰テスト [17] を追加し 270 項目）
 ## 14. 作業ツリー分離（2026-10-25 追加）
@@ -1477,6 +1550,7 @@ PR に無関係なコミットが混入する）。以後、物理的に分離�
 - canonical ツリーが更新されたら `mai-push-api-test` を手動で再起動する（自動化は将来の課題）。
 - 作業中は staging アプリのコードが切り替わらないよう、canonical ツリーを動かさない。
 
+最終更新: 2026-11-06（§6.7 まいAI チャットを elza vhost で tailnet/LAN 限定配信するルールを追加：scripts/nginx/apply-mai-chat-elza.sh ＝ 2026-11-06 に admin.html の「まいAI チャットを開く」が 404 になっていた原因＝elza vhost に chat 系 location が無かったことへの対処。§12 の nginx 行に §6.7 を追記）
 最終更新: 2026-10-23（§11 外部入力の**境界バリデーション**（`lib/validate.js`・依存ゼロ）を導入し `/api/notify` の data・管理ログイン・push endpoint に入れた。**無認証 SSRF**（任意 endpoint 登録 → 内部 URL への POST）を登録時＋送信直前（`services/notification.js` / `src/core/milestone.js`）の 3 箇所で遮断（IPv6 は角括弧を外して nibble 列で判定・IPv4-mapped の 16 進表記も IPv4 として判定）／`/api/android/send-test` にレート制限／OAuth エラーを text/plain／YouTube webhook の Invalid Date／rag の video_id 検証 / 型は **TypeScript を入れず `@ts-check` + JSDoc** で部分導入（notify-sign・admin・validate・geoip）／§12 に更新先を追加）
 最終更新: 2026-10-23（§5 依存更新：`ip-address` 10.7.4 / **firebase-admin 14.5.0**（v14 は名前空間 API 廃止＝モジュラー API へ移行）/ **puppeteer 25.16.0**（`browser.isConnected()` 廃止 → `.connected`）。未使用の `puppeteer-extra` 系を削除し npm audit 17→1 / §5.2 security-watch の PHP 判定を **Ubuntu CVE トラッカー準拠**に（not-affected / ignored を対象外に・取得失敗は fail-closed）/ §5.3 ハニーポットの**可視化**を追加：管理画面「ハニーポット」タブ＋`GET /api/admin/honeypot`（`requireAuth`・公開ドメインは 403）・`services/honeypot-report.js`（honey.log を直接集計・**日次ローテートの .1/.gz も読む**・自機テスト除外・canary token はマスク・`previousCanaryPaths` も canary_used）・`services/geoip.js`（Team Cymru の DNS で国/ASN/組織名・IPv6 対応・JSON キャッシュ・合計 3 秒で打ち切り）・時刻は JST 固定 / §12 に更新先を追加）
 最終更新: 2026-10-22（§5.3 ハニーポット（偽物の秘密ファイル）を新設：scripts/security/honeypot-setup.sh で偽物を生成・scripts/nginx/apply-honeypot.sh で nginx に配信・scripts/security/honeypot-watch.js が取得/canary使用を通知 / §10.2 配信開始アラーム（Android v1.7.3）を新設：AlarmManager.setAlarmClock による端末内アラーム・exact alarm 権限・TZ 混在の扱い・標準アラームへの補助経路 / §5.1 PHP 実行時ハードニングを拡張：scripts/php/apply-php-hardening.sh（enable_post_data_reading=Off で multipart パーサ無効・ffi.enable=preload で FFI 迂回を塞ぐ・post_max_size 縮小）と scripts/php/verify-php-hardening.sh（実測検証）を追加／scripts/nginx/apply-php-exec-guard.sh で elza vhost の PHP 実行を 404 化／mbstring は意図的に未導入（webui/_mb.php で代替）／§11 に PHP の「読まない・実行しない」規約を追加／§5 のリリース時刻の誤記（23:00 UTC→14:00 UTC）を修正 / §5.1 PHP コアの緊急 RCE 期間の対応（メンテナンスモードで公開 PHP ページを 503 化・patch-and-resume.sh で復旧）を追加 / §5 Node.js を v24.22.1 に更新（2026-10-21 の security release）・パッチ版移行スクリプト scripts/deploy/migrate-node-patch.sh を追加（pm2 save 必須・旧 ~/migrate-*.sh は v24.22.0 固定で参照先ではない） / §6.9 旅先ディスプレイ（/display/）を新設：nginx の location 追加手順・同一オリジン配信の理由・API の start_time の TZ 混在注意 / §12 に nginx 新ルート追加時のドキュメント先を追加 / §5 依存更新（npm audit fix で critical 1→0・未使用の firebase クライアント削除）と本番反映経路 scripts/deploy/npm-deploy.sh・check-drift.sh の node_modules 乖離検出を追加 / §5.1 PHP ランタイム（php-fpm 8.3）を新設：CVE-2026-109618/109619 の緊急パッチ適用手順・scripts/php/・Ubuntu バックポート時の判定方法 / §5 Node.js を v24.22.0 に統一：pm2 全プロセス・pm2 デーモン・他プロジェクト 5 本・pi-vector.service・cron スクリプト・CI を明示指定。EOL だった v20/v18 の排除 / §9 pi-vector の ExecStart 更新 / §11 ネイティブビルドの基準を v24 に / §13 独立レビューの結果は必ず PR コメントに投稿するルールを追加（指摘原文・対応表・実測根拠を残す））
