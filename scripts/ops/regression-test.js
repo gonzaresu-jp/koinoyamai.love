@@ -1754,6 +1754,29 @@ async function main() {
         /publicHttpUrl\(/.test(fs.readFileSync(path.join(projectDir, "routes", "subscriptions.js"), "utf8")));
     }
 
+    // --- 18. cron から直接実行するスクリプトの実行権限（2026-11-09 追加） ---
+    // 実測: auto-deploy.sh / verify-backup.sh / db-maintenance.sh / dep-update-pr.sh が
+    // index 100644 のまま crontab から直接実行され、毎回 "Permission denied" で
+    // 静かに失敗していた（logs/*.log）。core.fileMode=false の環境では作業ツリーの
+    // chmod が index に反映されないため、**git の index モード**を検査する。
+    console.log("\n[18] cron 実行スクリプトの実行権限");
+    {
+      const execScripts = [
+        "scripts/ops/backup.sh",
+        "scripts/ops/backup-offsite.sh",
+        "scripts/ops/auto-deploy.sh",
+        "scripts/ops/verify-backup.sh",
+        "scripts/ops/db-maintenance.sh",
+        "scripts/ops/dep-update-pr.sh",
+      ];
+      for (const rel of execScripts) {
+        const r = require("child_process").spawnSync(
+          "git", ["-C", projectDir, "ls-files", "-s", "--", rel], { encoding: "utf8" });
+        const mode = String(r.stdout || "").trim().split(/\s+/)[0];
+        ok(`実行権限: ${rel} が 100755`, mode === "100755", mode || "not tracked");
+      }
+    }
+
     console.log(`\n結果: ${passed} passed, ${failed} failed`);
   } catch (e) {
     failed++;

@@ -17,10 +17,18 @@
 #     >> /var/www/html/koinoyamai.love/logs/backup-offsite.log 2>&1
 #
 # env（通常は設定不要）:
-#   OFFSITE_HOST       転送先 ssh ホスト            既定: nassy
-#   OFFSITE_DIR        転送先ディレクトリ           既定: /mnt/4TB/mai-push-backups
-#   OFFSITE_KEEP_DAYS  リモートの保持日数           既定: 90（ローカルは 30 日）
-#   OFFSITE_SSH_OPTS   ssh オプション               既定: -o BatchMode=yes -o ConnectTimeout=10
+#   OFFSITE_HOST         転送先 ssh ホスト            既定: nassy
+#   OFFSITE_DIR          転送先ディレクトリ           既定: /mnt/4TB/mai-push-backups
+#   OFFSITE_KEEP_DAYS    リモートの保持日数           既定: 90（ローカルは 30 日）
+#   OFFSITE_SSH_OPTS     ssh オプション               既定: -o BatchMode=yes -o ConnectTimeout=10
+#   OFFSITE_MIN_DB_BYTES 最新 DB の下限サイズ         既定: 1048576（1MB）
+#   OFFSITE_BACKUP_DIR / OFFSITE_BASE_DIR はテスト用（既定は本番パス）。通常は設定しない。
+#
+# 前提:
+#   - 転送先ホストへ ssh 鍵で入れること（BatchMode のためパスワード不可）
+#   - 転送先に rsync / sha256sum / stat があること
+#   - OFFSITE_DIR が rootfs とは別のデバイスにマウントされていること
+#     （nofail マウントが外れていると rootfs に書いて「成功」するため、実行時に検査する）
 #
 # 注意:
 #   - 転送先には .env のバックアップ（秘密情報）も含まれる。ディレクトリは 700、
@@ -29,11 +37,12 @@
 #     （将来的にクラウドストレージへ二次複製する余地を残す）。
 set -uo pipefail
 
-BASE="/var/www/html/koinoyamai.love"
-BACKUP_DIR="/var/lib/mai-push/backups"
+BASE="${OFFSITE_BASE_DIR:-/var/www/html/koinoyamai.love}"
+BACKUP_DIR="${OFFSITE_BACKUP_DIR:-/var/lib/mai-push/backups}"
 HOST="${OFFSITE_HOST:-nassy}"
 REMOTE_DIR="${OFFSITE_DIR:-/mnt/4TB/mai-push-backups}"
 KEEP_DAYS="${OFFSITE_KEEP_DAYS:-90}"
+MIN_DB_BYTES="${OFFSITE_MIN_DB_BYTES:-1048576}"
 SSH_OPTS="${OFFSITE_SSH_OPTS:--o BatchMode=yes -o ConnectTimeout=10}"
 APPLY=0
 
@@ -46,17 +55,23 @@ fi
 
 log() { echo "[$(date '+%F %T')] $*"; }
 
-# --- 入力の検証（ssh / find に渡す前に、引用符・空白・オプション偽装を弾く） ---
+# --- 入力の検証（ssh / リモート shell に渡す前に、引用符・空白・オプション偽装を弾く） ---
 if ! printf '%s' "$HOST" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._@-]*$'; then
     log "ERROR: OFFSITE_HOST が不正です: $HOST" >&2
     exit 2
 fi
-if ! printf '%s' "$REMOTE_DIR" | grep -qE '^/[A-Za-z0-9._/-]*$' || printf '%s' "$REMOTE_DIR" | grep -q '\.\.'; then
-    log "ERROR: OFFSITE_DIR が不正です（絶対パス・英数字と . _ / - のみ）: $REMOTE_DIR" >&2
+# 絶対パスかつ 2 階層以上（`/` や `/mnt` を誤って chmod/削除しないため）
+if ! printf '%s' "$REMOTE_DIR" | grep -qE '^/[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+$' ||
+   printf '%s' "$REMOTE_DIR" | grep -q '\.\.'; then
+    log "ERROR: OFFSITE_DIR が不正です（/dir/subdir 形式・英数字と . _ - のみ）: $REMOTE_DIR" >&2
     exit 2
 fi
 if ! printf '%s' "$KEEP_DAYS" | grep -qE '^[0-9]+$'; then
     log "ERROR: OFFSITE_KEEP_DAYS が不正です: $KEEP_DAYS" >&2
+    exit 2
+fi
+if ! printf '%s' "$MIN_DB_BYTES" | grep -qE '^[0-9]+$'; then
+    log "ERROR: OFFSITE_MIN_DB_BYTES が不正です: $MIN_DB_BYTES" >&2
     exit 2
 fi
 
@@ -65,7 +80,7 @@ LOCK=/tmp/mai-push-backup-offsite.lock
 exec 9>"$LOCK"
 flock -n 9 || { log "skip: another backup-offsite is running"; exit 0; }
 
-# --- Discord 通知（失敗時のみ。既存の ops スクリプトと同じ方式） ---
+# --- Discord 通知（失敗・警告時のみ。既存の ops スクリプトと同じ方式） ---
 env_val() {
     grep -m1 "^$1=" "$BASE/.env" 2>/dev/null | cut -d= -f2- | tr -d "\"'" | tr -d ' \r\n'
 }
@@ -73,16 +88,23 @@ DISCORD_BOT_TOKEN="${DISCORD_BOT_TOKEN:-$(env_val DISCORD_BOT_TOKEN)}"
 DISCORD_CHANNEL_ID="${DISCORD_CHANNEL_ID:-$(env_val DISCORD_CHANNEL_ID)}"
 HOSTNAME=$(hostname)
 
+# メッセージに `"` や `\` が混ざっても JSON を壊さない（通知が丸ごと落ちるのを防ぐ）
+json_escape() {
+    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' '
+}
+
 send_alert() {
     local level="$1" title="$2" desc="$3"
     [ -z "$DISCORD_BOT_TOKEN" ] || [ -z "$DISCORD_CHANNEL_ID" ] && return 0
-    local color=16711680
+    local color=16711680 title_j desc_j
     [ "$level" = "WARN" ] && color=16776960
+    title_j=$(json_escape "$title")
+    desc_j=$(json_escape "$desc")
     curl -s -H "Content-Type: application/json" \
          -H "Authorization: Bot $DISCORD_BOT_TOKEN" \
          -H "User-Agent: mai-push-backup-offsite (https://koinoyamai.love, 1.0)" \
          -X POST "https://discord.com/api/v10/channels/$DISCORD_CHANNEL_ID/messages" \
-         -d "{\"embeds\":[{\"title\":\"$title\",\"description\":\"$desc\",\"color\":$color,\"footer\":{\"text\":\"Host: $HOSTNAME | backup-offsite\"},\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}]}" > /dev/null 2>&1
+         -d "{\"embeds\":[{\"title\":\"$title_j\",\"description\":\"$desc_j\",\"color\":$color,\"footer\":{\"text\":\"Host: $HOSTNAME | backup-offsite\"},\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}]}" > /dev/null 2>&1
 }
 
 fail() {
@@ -119,6 +141,31 @@ if [ "${#ENV_FILES[@]}" -gt 0 ]; then
     else
         LATEST_ENV=$(printf '%s\n' "${ENV_FILES[@]}" | sort | tail -1)
     fi
+else
+    log "WARN: env-*.env が 1 つもありません（.env のバックアップが作られていない）"
+    send_alert "WARN" "Backup Offsite: env バックアップなし" "env-*.env がありません。backup.sh の実行状況を確認してください。"
+fi
+
+# --- ローカルの健全性チェック（壊れた/古いバックアップを「成功」にしない） ---
+DB_SIZE=$(stat -c%s -- "$LATEST_DB")
+if [ "$DB_SIZE" -lt "$MIN_DB_BYTES" ]; then
+    fail "最新 DB が小さすぎます（${DB_SIZE} bytes < ${MIN_DB_BYTES}）: $(basename "$LATEST_DB")"
+fi
+
+LATEST_DATE=$(basename "$LATEST_DB" | sed -E 's/^data-([0-9]{8})\.db$/\1/')
+YESTERDAY=$(date -d '-1 day' +%Y%m%d)
+if [ "$LATEST_DATE" != "$TODAY" ] && [ "$LATEST_DATE" != "$YESTERDAY" ]; then
+    log "WARN: 最新 DB が古い: $(basename "$LATEST_DB")（当日・前日ではない）"
+    send_alert "WARN" "Backup Offsite: バックアップが古い" "最新 DB: $(basename "$LATEST_DB")（当日・前日ではありません）。backup.sh の実行状況を確認してください。"
+fi
+
+SQLITE_BIN=$(command -v sqlite3 || echo /usr/bin/sqlite3)
+if [ ! -x "$SQLITE_BIN" ]; then
+    fail "sqlite3 が見つからないため最新 DB を検証できません（fail-closed）"
+fi
+QUICK_CHECK=$("$SQLITE_BIN" "$LATEST_DB" "PRAGMA quick_check;" 2>&1 | head -1)
+if [ "$QUICK_CHECK" != "ok" ]; then
+    fail "最新 DB の quick_check が NG: $QUICK_CHECK ($(basename "$LATEST_DB"))"
 fi
 
 # --- 接続確認 ---
@@ -127,9 +174,10 @@ if ! ssh $SSH_OPTS "$HOST" "true" 2>/dev/null; then
 fi
 
 # --- dry-run ---
+# `--chmod=F600` を apply と揃える（無いと属性差だけで毎回「変更あり」に見える）
 if [ "$APPLY" -ne 1 ]; then
     log "dry-run: $HOST:$REMOTE_DIR へ転送される内容（--apply で実行）"
-    rsync -a -n --itemize-changes --timeout=120 -e "ssh $SSH_OPTS" \
+    rsync -a -n --itemize-changes --chmod=F600 --timeout=120 -e "ssh $SSH_OPTS" \
         "${DATA_FILES[@]}" "${ENV_FILES[@]}" "$HOST:$REMOTE_DIR/" \
         || fail "rsync（dry-run）が失敗しました"
     log "dry-run 完了: data=${#DATA_FILES[@]} 件 / env=${#ENV_FILES[@]} 件"
@@ -139,6 +187,16 @@ fi
 # --- 転送先の準備（700 固定） ---
 ssh $SSH_OPTS "$HOST" "mkdir -p -- '$REMOTE_DIR' && chmod 700 -- '$REMOTE_DIR'" \
     || fail "転送先ディレクトリを準備できません: $HOST:$REMOTE_DIR"
+
+# --- 転送先が rootfs ではないこと（nofail マウント外れの検出） ---
+# /mnt/4TB が未マウントでもディレクトリは rootfs 上に存在し、mkdir も書き込みも成功する。
+# デバイス ID が `/` と同じなら「別ディスクへ置く」目的が失われているので中止する。
+DEVS=$(ssh $SSH_OPTS "$HOST" "stat -c '%d' -- '$REMOTE_DIR' /" 2>/dev/null)
+REMOTE_DEV=$(printf '%s\n' "$DEVS" | sed -n 1p)
+ROOT_DEV=$(printf '%s\n' "$DEVS" | sed -n 2p)
+if [ -z "$DEVS" ] || [ -z "$REMOTE_DEV" ] || [ "$REMOTE_DEV" = "$ROOT_DEV" ]; then
+    fail "転送先が rootfs と同じデバイスです（マウントされていない可能性）: $HOST:$REMOTE_DIR"
+fi
 
 # --- 転送（--delete は使わない: ローカルの保持期限切れでリモートまで消さない） ---
 # --partial は使わない。中断時に「途中まで書けたファイル」が最終名で残り、
@@ -179,6 +237,7 @@ if [ -n "$OLD_LIST" ]; then
         printf '%s\n' "$OLD_LIST" | sed 's/^/  /'
     else
         log "WARN: リモートの古いバックアップを削除できませんでした（転送自体は成功）: $NAMES"
+        send_alert "WARN" "Backup Offsite: 世代整理に失敗" "リモートの古いバックアップを削除できませんでした（転送は成功）。ディスク容量を確認してください。"
     fi
 fi
 
