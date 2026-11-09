@@ -845,6 +845,7 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 5 0 * * *   cd /var/www/html/koinoyamai.love && ./scripts/ops/update-subscribers-and-commit.sh >> logs/subscribers.log 2>&1
 30 6 * * *  cd /var/www/html/koinoyamai.love && ./scripts/deploy/check-drift.sh --quiet >> logs/drift.log 2>&1
 0 3 * * *   /var/www/html/koinoyamai.love/scripts/ops/backup.sh
+10 3 * * *  /var/www/html/koinoyamai.love/scripts/ops/backup-offsite.sh --apply >> /var/www/html/koinoyamai.love/logs/backup-offsite.log 2>&1
 */15 * * * * /var/www/html/koinoyamai.love/scripts/ops/healthcheck.sh
 30 9 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/minutes-gen-cron.sh
 30 4 * * *  bash /var/www/html/koinoyamai.love/scripts/ops/security-watch-cron.sh
@@ -855,6 +856,8 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 0 4 * * 0   /var/www/html/koinoyamai.love/scripts/ops/verify-backup.sh >> /var/www/html/koinoyamai.love/logs/verify-backup.log 2>&1
 15 4 * * 0  /var/www/html/koinoyamai.love/scripts/ops/db-maintenance.sh >> /var/www/html/koinoyamai.love/logs/db-maintenance.log 2>&1
 */5 * * * *  mkdir -p /var/www/html/koinoyamai.love/logs && /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/security/honeypot-watch.js >> /var/www/html/koinoyamai.love/logs/honeypot-cron.log 2>&1
+# ※ auto-deploy.sh の行は crontab に残っているが、スクリプトが index 100644 のため
+#    実行されない（§7.6 の注意書き参照）。安全ガードを入れるまで有効化しない。
 */5 * * * *  /var/www/html/koinoyamai.love/scripts/ops/auto-deploy.sh >> /var/www/html/koinoyamai.love/logs/auto-deploy.log 2>&1
 ```
 - いずれも `crontab -l`（yuzuki ユーザー）で確認済み。ログは `logs/`（gitignore 対象）。
