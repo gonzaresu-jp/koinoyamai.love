@@ -236,18 +236,19 @@ async function handleAdminNotify(body, adminUser = "scheduler") {
   ctx.recentNotifications.set(notificationHash, now);
 
   const db = ctx.db;
-  if (!isTargetedSend && !isScheduleEventNotify) {
-    db.run("INSERT INTO notifications (title, body, url, icon, image, platform, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [data.title, data.body, data.url, data.icon, data.image || null, settingKey || type || "admin", "success"],
-      function (insertErr) {
-        if (!insertErr) {
-          const { scheduleHistoryJsonUpdate } = require("./history");
-          scheduleHistoryJsonUpdate();
-          const { sendSseEvent } = require("./sse");
-          try { sendSseEvent({ type: "history-updated", lastUpdated: Math.floor(Date.now() / 1000), added: [this.lastID] }); } catch {}
-        }
-      });
-  }
+  // 全通知を notifications テーブルに記録し、SSE でブロードキャストする。
+  // （対象を絞った通知でも、SSE クライアント（Windows アプリ）がリアルタイムで
+  //  受信できるようにするため。対象絞り込みは push 配信（web/FCM）側でのみ行う）
+  db.run("INSERT INTO notifications (title, body, url, icon, image, platform, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [data.title, data.body, data.url, data.icon, data.image || null, settingKey || type || "admin", "success"],
+    function (insertErr) {
+      if (!insertErr) {
+        const { scheduleHistoryJsonUpdate } = require("./history");
+        scheduleHistoryJsonUpdate();
+        const { sendSseEvent } = require("./sse");
+        try { sendSseEvent({ type: "history-updated", lastUpdated: Math.floor(Date.now() / 1000), added: [this.lastID] }); } catch {}
+      }
+    });
 
   let selectSql = "SELECT client_id, subscription_json, settings_json FROM subscriptions";
   let selectParams = [];

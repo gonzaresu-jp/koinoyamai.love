@@ -134,7 +134,7 @@ app.use("/api/", (req, res, next) => {
 // 末尾要素（= 実クライアントIP）を使い、直接接続は TCP ピアアドレスを使う。
 // （XFF は直結クライアントには偽造可能なため、前段経由以外では参照しない）
 const SSE_MAX_CLIENTS = Math.max(1, parseInt(process.env.SSE_MAX_CLIENTS, 10) || 500);
-const SSE_MAX_PER_CLIENT = Math.max(1, parseInt(process.env.SSE_MAX_PER_CLIENT, 10) || 5);
+const SSE_MAX_PER_CLIENT = Math.max(1, parseInt(process.env.SSE_MAX_PER_CLIENT, 10) || 20);
 const SSE_MAX_AGE_MS = Math.max(60 * 1000, parseInt(process.env.SSE_MAX_AGE_MS, 10) || 30 * 60 * 1000);
 const SSE_HEARTBEAT_MS = Math.max(5000, parseInt(process.env.SSE_HEARTBEAT_MS, 10) || 25000);
 const sseConnectionCounts = new Map();

@@ -100,6 +100,17 @@ public sealed partial class MainWindow : Window
 
         SetupTrayIcon();
         InstallWndProcSubclass();
+        // フォーカス復帰/喪失時にポインター捕捉の取りこぼしを回復する（タッチパッド/マウススクロールの飲み込み対策）
+        this.Activated += (_, e) =>
+        {
+            if (e.WindowActivationState == WindowActivationState.Deactivated)
+            {
+                if (_tabStripPointerPressed) ClearDragState();
+                return;
+            }
+            if (_tabStripPointerPressed && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0)
+                ClearDragState();
+        };
         TabStripContainer.RenderTransform = _tabStripTransform;
         DragGhost.RenderTransform = _dragGhostTransform;
         StartHoverPoller();
@@ -159,6 +170,8 @@ public sealed partial class MainWindow : Window
     private const int WM_SETCURSOR   = 0x0020;
     private const int WM_SYSCOMMAND  = 0x0112;
     private const int WM_NCMOUSEMOVE = 0x00A0;
+    private const int WM_MOUSEWHEEL  = 0x020A;
+    private const int WM_MOUSEHWHEEL = 0x020E;
     private const int SC_MINIMIZE    = 0xF020;
     private const int HTCLIENT       = 1;
     private const int HTCAPTION      = 2;
@@ -195,6 +208,9 @@ public sealed partial class MainWindow : Window
     private static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll")]
     private static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
+    private const int VK_LBUTTON = 0x01;
     [DllImport("user32.dll")]
     private static extern IntPtr CreatePopupMenu();
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -278,6 +294,24 @@ public sealed partial class MainWindow : Window
 
     private IntPtr WndProcCore(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
+        // タッチパッド/マウススクロールが飲み込まれる原因のフェイルセーフ:
+        // タブドラッグのポインター捕捉が取りこぼされて立ちっぱなしになると、Tabs が
+        // ポインターを保持したままになり、以後のホイールイベントが WebView2 に届かなくなる。
+        // 左ボタンが既に離されているのにフラグが立っている場合は WndProc のたびに回復する
+        // （ポーリング周期に依存しない）。
+        if (_tabStripPointerPressed && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0)
+        {
+            ClearDragState();
+        }
+        // ホイール/タッチパッドのメッセージが来た時点で、ボタンが離れているのに
+        // 捕捉が残っていたら即時解除する（ホバーポーリング周期 80ms を待たずに復旧）。
+        // 捕捉が残っているとホイールが WebView2 に届かずスクロール不能になるため。
+        if ((msg == WM_MOUSEWHEEL || msg == WM_MOUSEHWHEEL)
+            && _tabStripPointerPressed
+            && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0)
+        {
+            ClearDragState();
+        }
         if (msg == WM_SYSCOMMAND && (wParam.ToInt32() & 0xFFF0) == SC_MINIMIZE)
         {
             // 最小化ボタン → タスクバーに残さずトレイへ格納
@@ -324,21 +358,25 @@ public sealed partial class MainWindow : Window
             uint rawDpi = GetDpiForWindow(_hwnd);
             double dpi = rawDpi > 0 ? rawDpi / 96.0 : 1.0;
 
-            // ドラッグゾーン（上 40px）: 常に HTCAPTION（リサイズ含め上書き）
+            // ドラッグゾーン（上 30px）: ストリップ表示時のみ HTCAPTION。
+            // 非表示時（Y=-70）は上端の見えている部分は実際には WebView2 コンテンツで
+            // （ContentGrid が透けて見える）、HTCAPTION を返すとホイール/タッチパッドが
+            // WebView2 に届かず上端でスクロールしなくなる。非表示時は HTCLIENT にして
+            // スクロールを優先する。ドラッグはストリップ表示後に可能（ホバーで出る）。
             if (cp.Y >= 0 && cp.Y < (int)(TabStripDragZone * dpi))
-                return (IntPtr)HTCAPTION;
+                return _tabStripVisible ? (IntPtr)HTCAPTION : (IntPtr)HTCLIENT;
 
             // タブゾーン上辺のリサイズグリップを無効化
             if (result is HTTOP or HTTOPLEFT or HTTOPRIGHT)
                 return (IntPtr)HTCLIENT;
 
-            // タブゾーン（40-80px）: 非表示時のみ HTCAPTION、表示時は HTCLIENT でタブに届ける
-            if (result == HTCLIENT && cp.Y < (int)(TabStripTotal * dpi))
-            {
-                if (!_tabStripVisible)
-                    return (IntPtr)HTCAPTION;
-                // 表示中は _tabAreaRight によるチェックなし（SetDragRectangles が上半分を担当）
-            }
+            // タブゾーン（30-70px）: 常に HTCLIENT（非表示時も）。
+            // 以前は非表示時に HTCAPTION にしていたが、その領域でのマウスホイールが
+            // WebView2 に届かずスクロールが効かない原因になっていた（間欠的に全体が
+            // 効かなくなる事象の主因の一つ）。非表示時もコンテンツが透けて見える領域なので
+            // HTCLIENT のままにしてスクロール・クリックを WebView2 へ通す。
+            if (cp.Y >= (int)(TabStripDragZone * dpi) && cp.Y < (int)(TabStripTotal * dpi))
+                return (IntPtr)HTCLIENT;
 
             return (IntPtr)result;
         }
@@ -364,6 +402,8 @@ public sealed partial class MainWindow : Window
     private DispatcherQueueTimer? _hoverTimer;
     // 異常停止後に再開しない（80ms 周期で例外が出続けるとログが溢れるため）
     private bool _hoverPollerStopped;
+    // 例外で停止した後にカウント式リスタートを行う（最大回数後に永久停止）
+    private int _hoverRestartCount;
 
     private void StartHoverPoller()
     {
@@ -411,6 +451,15 @@ public sealed partial class MainWindow : Window
             // ウィンドウ破棄後もタイマーが走り続けるケース → 参照せずに停止する
             StopHoverPoller("hwnd-invalid", null);
             return;
+        }
+        // タッチパッドスクロールが飲み込まれる原因のフェイルセーフ:
+        // OnTabItemDragPressed で立てた _tabStripPointerPressed が PointerReleased /
+        // PointerCaptureLost の取りこぼしで立ちっぱなしになると、Tabs のポインター捕捉が
+        // 解除されず、以後のポインター（スクロール）イベントが WebView2 に届かなくなる。
+        // 左ボタンが既に離されているのにフラグが立っている場合は自動回復する。
+        if (_tabStripPointerPressed && (GetAsyncKeyState(VK_LBUTTON) & 0x8000) == 0)
+        {
+            ClearDragState();
         }
         if (!IsWindowVisible(_hwnd) || IsIconic(_hwnd))
         {
@@ -469,6 +518,20 @@ public sealed partial class MainWindow : Window
             var state = DescribeWindowState();
             if (ex is null) Diagnostics.Log("HoverPoller", $"stopped({reason}) {state}");
             else Diagnostics.Log("HoverPoller", $"stopped({reason}) {state}{Environment.NewLine}{ex}");
+            // 例外（hwnd 破棄でない）なら最大3回まで遅延リスタートする。
+            // 永久停止だとスクロール復旧フェイルセーフも永久に止まり、スクロールが
+            // 再起動まで効かなくなる（たまにスクロールが死ぬ主因の一つ）。
+            // 80ms 周期で例外が連発するケースはログが溢れるので、10s 後再開＋上限3回。
+            if (ex is not null && reason != "hwnd-invalid" && _hoverRestartCount < 3 && IsWindowAlive())
+            {
+                _hoverRestartCount++;
+                int attempt = _hoverRestartCount;
+                _ = Task.Delay(10_000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() =>
+                {
+                    try { if (IsWindowAlive()) { Diagnostics.Log("HoverPoller", $"restarting attempt={attempt}"); StartHoverPoller(); } }
+                    catch { }
+                }));
+            }
         }
         catch { }
     }
@@ -639,6 +702,9 @@ public sealed partial class MainWindow : Window
             new PointerEventHandler(OnTabDragReleased), handledEventsToo: true);
         Tabs.AddHandler(UIElement.PointerCaptureLostEvent,
             new PointerEventHandler((_, _) => EndTabDrag()), handledEventsToo: true);
+        // ポインターがキャンセルされた場合もドラッグ状態を畳む（捕捉の取りこぼし対策）
+        Tabs.AddHandler(UIElement.PointerCanceledEvent,
+            new PointerEventHandler((_, _) => EndTabDrag()), handledEventsToo: true);
         Tabs.PointerEntered += (_, _) => CancelCollapseTimer();
         Tabs.PointerExited += (_, _) =>
         {
@@ -740,6 +806,14 @@ public sealed partial class MainWindow : Window
         _dragTab = null;
         _isDragging = false;
         _tabStripPointerPressed = false;
+        // WebView2 のフォーカスを戻す（タッチパッド precision scroll はフォーカスが
+        // WebView2 上にある前提。Tabs にフォーカスが残るとスクロールが届かない）。
+        try
+        {
+            if (Tabs.SelectedItem is TabViewItem t && _tabWebViews.TryGetValue(t, out var wv) && wv.Visibility == Visibility.Visible)
+                wv.Focus(FocusState.Programmatic);
+        }
+        catch { }
     }
 
     // TabViewItem の左端 X を Tabs 相対論理座標で返す（ActualOffset 累積）
@@ -1338,10 +1412,33 @@ public sealed partial class MainWindow : Window
     private const string SseNotifyBridgeScript = """
         (function () {
             if (typeof window.chrome?.webview?.postMessage !== 'function') return;
-            if (window.location.hostname !== 'koinoyamai.love') return;
+            const h = window.location.hostname || '';
+            // 本番 + サブドメイン（test 等）でも SSE 接続させる。旧版は完全一致で test が切れていた。
+            if (h !== 'koinoyamai.love' && !h.endsWith('.koinoyamai.love')) return;
             let lastId = 0;
             let es = null;
             let retryMs = 5000;
+            const abs = (u) => { try { return u ? new URL(u, location.origin).href : ''; } catch (_) { return ''; } };
+            // SSE が 30 分で切断・429・一時断でもポーリングで拾い直す（最大 60 秒の取りこぼし防止）。
+            async function pollAndPost() {
+                try {
+                    const r = await fetch('/api/history?limit=10');
+                    const json = await r.json();
+                    const logs = (json.logs || []).filter(n => n && n.id > lastId).sort((a, b) => a.id - b.id);
+                    for (const notif of logs) {
+                        lastId = notif.id;
+                        window.chrome.webview.postMessage(JSON.stringify({
+                            type: 'push-notification',
+                            id: notif.id,
+                            title: notif.title || '',
+                            body: notif.body || '',
+                            icon: abs(notif.icon),
+                            image: abs(notif.image),
+                            url: notif.url || ''
+                        }));
+                    }
+                } catch (_) {}
+            }
             function connect() {
                 try {
                     es = new EventSource('/api/events/stream');
@@ -1350,23 +1447,7 @@ public sealed partial class MainWindow : Window
                         try {
                             const d = JSON.parse(e.data);
                             if (d.type !== 'history-updated') return;
-                            const r = await fetch('/api/history?limit=1');
-                            const json = await r.json();
-                            const notif = json.logs?.[0];
-                            if (!notif || notif.id <= lastId) return;
-                            lastId = notif.id;
-                            // 履歴の icon/image は相対パスのことがある（テスト通知など）。
-                            // トーストのヒーロー画像は絶対URIが必要なのでここで解決する。
-                            const abs = (u) => { try { return u ? new URL(u, location.origin).href : ''; } catch (_) { return ''; } };
-                            window.chrome.webview.postMessage(JSON.stringify({
-                                type: 'push-notification',
-                                id: notif.id,
-                                title: notif.title || '',
-                                body: notif.body || '',
-                                icon: abs(notif.icon),
-                                image: abs(notif.image),
-                                url: notif.url || ''
-                            }));
+                            await pollAndPost();
                         } catch (_) {}
                     };
                     es.onerror = function () {
@@ -1380,7 +1461,18 @@ public sealed partial class MainWindow : Window
                 }
             }
             window.addEventListener('beforeunload', function () { try { es?.close(); } catch (_) {} });
-            connect();
+            // 初回は履歴の最大 id に合わせてから SSE 開始（古い 10 件ぶんを一斉表示しない）
+            (async () => {
+                try {
+                    const r = await fetch('/api/history?limit=1');
+                    const json = await r.json();
+                    const first = json.logs?.[0];
+                    if (first && first.id) lastId = first.id;
+                } catch (_) {}
+                connect();
+            })();
+            // SSE 切断中の取りこぼしを拾うフォールバック：30 秒ごとに軽くポーリング
+            setInterval(() => { pollAndPost(); }, 30000);
         })();
         """;
 

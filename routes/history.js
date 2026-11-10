@@ -188,7 +188,7 @@ function register(app, db) {
       if (countErr) return res.status(500).json({ error: "DB error", detail: countErr.message });
       const total = countRow?.cnt ? parseInt(countRow.cnt, 10) : 0;
       if (!total) return res.json({ logs: [], total: 0, hasMore: false });
-      db.all(`SELECT n.id, n.title, n.body, n.url, n.icon, n.image, n.platform, n.status, strftime('%s', n.created_at) AS timestamp, (SELECT tm.id FROM twitter_media tm WHERE tm.tweet_id = n.tweet_id ORDER BY tm.id LIMIT 1) AS media_id, (SELECT tm.media_type FROM twitter_media tm WHERE tm.tweet_id = n.tweet_id ORDER BY tm.id LIMIT 1) AS media_type FROM notifications n ORDER BY n.created_at DESC LIMIT ? OFFSET ?`, [limit, offset], (err, rows) => {
+      db.all(`SELECT n.id, n.title, n.body, n.url, n.icon, n.image, n.platform, n.status, strftime('%s', n.created_at) AS timestamp, (SELECT tm.id FROM twitter_media tm WHERE tm.tweet_id = n.tweet_id ORDER BY tm.id LIMIT 1) AS media_id, (SELECT tm.media_type FROM twitter_media tm WHERE tm.tweet_id = n.tweet_id ORDER BY tm.id LIMIT 1) AS media_type FROM notifications n ORDER BY n.id DESC LIMIT ? OFFSET ?`, [limit, offset], (err, rows) => {
         if (err) return res.status(500).json({ error: "DB error", detail: err.message });
         const safeRows = Array.isArray(rows) ? rows : [];
         const hasMore = offset + safeRows.length < total;

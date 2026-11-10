@@ -7,7 +7,7 @@ async function updateHistoryJson() {
   const db = ctx.db;
   try {
     const query = (limit) => new Promise((resolve, reject) => {
-      db.all(`SELECT n.id, n.title, n.body, n.url, n.icon, n.image, n.platform, n.status, strftime('%s', n.created_at) AS timestamp, (SELECT tm.id FROM twitter_media tm WHERE tm.tweet_id = n.tweet_id ORDER BY tm.id LIMIT 1) AS media_id, (SELECT tm.media_type FROM twitter_media tm WHERE tm.tweet_id = n.tweet_id ORDER BY tm.id LIMIT 1) AS media_type FROM notifications n ORDER BY n.created_at DESC LIMIT ?`, [limit], (err, rows) => err ? reject(err) : resolve(rows || []));
+      db.all(`SELECT n.id, n.title, n.body, n.url, n.icon, n.image, n.platform, n.status, strftime('%s', n.created_at) AS timestamp, (SELECT tm.id FROM twitter_media tm WHERE tm.tweet_id = n.tweet_id ORDER BY tm.id LIMIT 1) AS media_id, (SELECT tm.media_type FROM twitter_media tm WHERE tm.tweet_id = n.tweet_id ORDER BY tm.id LIMIT 1) AS media_type FROM notifications n ORDER BY n.id DESC LIMIT ?`, [limit], (err, rows) => err ? reject(err) : resolve(rows || []));
     });
     const countQuery = () => new Promise((resolve, reject) => db.get("SELECT COUNT(*) as count FROM notifications", [], (err, row) => err ? reject(err) : resolve(row?.count || 0)));
     const [rows, dbTotal] = await Promise.all([query(ctx.HISTORY_JSON_LIMIT), countQuery()]);

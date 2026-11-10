@@ -246,6 +246,21 @@ async function fetchText(url, timeoutMs, opts) {
       clearTimeout(timer);
     }
   }
+  // 最終手段: fetch が全リトライ失敗した場合、curl にフォールバックする
+  // （ubuntu.com は node fetch の TLS/HTTP2 を時折 503/504 で拒否するが、
+  //   curl は安定して 200 を返す実測がある 2026-11-08）
+  try {
+    const { execFileSync } = require("child_process");
+    const out = execFileSync("curl", [
+      "-sS", "--fail", "--max-time", "30",
+      "-H", "User-Agent: mai-push-security-watch (https://koinoyamai.love)",
+      "-H", "Accept: */*",
+      url,
+    ], { encoding: "utf8", timeout: 35000 });
+    if (out && out.length > 0) return out;
+  } catch (e) {
+    lastErr = e;
+  }
   throw lastErr || new Error("fetch failed");
 }
 
