@@ -43,7 +43,7 @@ cat > "/tmp/opencode/$SLUG/env.sh" <<EOF
 #   source /tmp/opencode/$SLUG/env.sh
 export KOINOYAMAI_WORKTREE="$WT"
 export NODE_PATH="$STAGING/node_modules"
-export PATH="/home/yuzuki/.nvm/versions/node/v24.22.1/bin:\$PATH"
+export PATH="/home/yuzuki/.nvm/versions/node/v24.22.3/bin:\$PATH"
 cd "$WT"
 EOF
 echo "[new-worktree] 作成しました: $WT"

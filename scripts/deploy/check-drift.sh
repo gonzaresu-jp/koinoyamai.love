@@ -50,7 +50,7 @@ notice() { if [ $QUIET -eq 1 ]; then echo "$@" >&2; else echo "$@"; fi; }
 
 # cron の PATH は /usr/bin/node（v18 EOL）を掴むため明示指定を優先する（AGENTS §5/§7.6）。
 # 見つからなければ PATH 解決にフォールバックする（cron 以外の手動実行を壊さない）。
-NODE_BIN="${NODE_BIN:-$HOME/.nvm/versions/node/v24.22.1/bin/node}"
+NODE_BIN="${NODE_BIN:-$HOME/.nvm/versions/node/v24.22.3/bin/node}"
 [ -x "$NODE_BIN" ] || NODE_BIN="node"
 drift=0
 

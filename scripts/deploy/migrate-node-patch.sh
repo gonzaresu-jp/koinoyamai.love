@@ -2,12 +2,12 @@
 # migrate-node-patch.sh — pm2 アプリを Node のパッチ版へ移行する
 #
 # 用途:
-#   Node のパッチ版（例: v24.22.0 → v24.22.1）へ全 pm2 アプリを移行する。
+#   Node のパッチ版（例: v24.22.0 → v24.22.3）へ全 pm2 アプリを移行する。
 #   セキュリティリリース（LTS の security release）が出たときに使う。
 #
 # 使い方:
-#   bash scripts/deploy/migrate-node-patch.sh --from v24.22.0 --to v24.22.1            # dry-run
-#   bash scripts/deploy/migrate-node-patch.sh --from v24.22.0 --to v24.22.1 --apply
+#   bash scripts/deploy/migrate-node-patch.sh --from v24.22.0 --to v24.22.3            # dry-run
+#   bash scripts/deploy/migrate-node-patch.sh --from v24.22.0 --to v24.22.3 --apply
 #
 # 前提（これを満たさないと「新版に写了一瞬で旧版に戻る」事故になる）:
 #   1. `nvm install <to>` で新しい Node を入手済みであること
@@ -30,7 +30,7 @@
 set -euo pipefail
 
 FROM="v24.22.0"
-TO="v24.22.1"
+TO="v24.22.3"
 APPLY=0
 
 # 引数解析（--from X / --to X / --apply）

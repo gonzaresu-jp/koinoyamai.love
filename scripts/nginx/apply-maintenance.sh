@@ -41,7 +41,7 @@ BLOCK_FILE="$REPO_ROOT/scripts/nginx/maintenance.conf"
 SEC_SNIPPET_REPO="$REPO_ROOT/scripts/nginx/mai-security-headers.conf"
 PATCH_JS="$REPO_ROOT/scripts/nginx/apply-maintenance.js"
 # node は明示指定する（sudo 実行では nvm の PATH が読めず /usr/bin/node = v18 EOL を掴むため。AGENTS.md §5）
-NODE_BIN="${NODE_BIN:-/home/yuzuki/.nvm/versions/node/v24.22.1/bin/node}"
+NODE_BIN="${NODE_BIN:-/home/yuzuki/.nvm/versions/node/v24.22.3/bin/node}"
 
 [ "$(id -u)" -eq 0 ] || { echo "[ERR] sudo で実行してください"; exit 1; }
 [ -f "$CONF" ] || { echo "[ERR] $CONF が見つかりません"; exit 1; }

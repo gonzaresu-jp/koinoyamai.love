@@ -26,7 +26,7 @@ cd "$REPO_ROOT"
 
 PM2_USER="${PM2_USER:-yuzuki}"
 PM2_HOME_DIR="${PM2_HOME_DIR:-/home/yuzuki/.pm2}"
-NODE_BIN="${NODE_BIN:-/home/yuzuki/.nvm/versions/node/v24.22.1/bin/node}"
+NODE_BIN="${NODE_BIN:-/home/yuzuki/.nvm/versions/node/v24.22.3/bin/node}"
 MAINT_SCRIPT="$REPO_ROOT/scripts/nginx/apply-maintenance.sh"
 APPLY_ARGS=()
 

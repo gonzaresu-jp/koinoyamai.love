@@ -6,7 +6,7 @@ set -uo pipefail
 BASE="/var/www/html/koinoyamai.love"
 PM2_LOG_DIR="$HOME/.pm2/logs"
 STATE_FILE="/var/lib/mai-push/log-anomaly-state.json"
-NODE_BIN="${NODE_BIN:-$HOME/.nvm/versions/node/v24.22.1/bin/node}"
+NODE_BIN="${NODE_BIN:-$HOME/.nvm/versions/node/v24.22.3/bin/node}"
 [ -x "$NODE_BIN" ] || NODE_BIN="node"
 
 env_val() {

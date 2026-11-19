@@ -14,9 +14,9 @@ set -uo pipefail
 
 PROD_DIR="/var/www/html/koinoyamai.love"
 STG_DIR="/home/yuzuki/koinoyamai.love-test"
-NODE_BIN="${NODE_BIN:-$HOME/.nvm/versions/node/v24.22.1/bin/node}"
+NODE_BIN="${NODE_BIN:-$HOME/.nvm/versions/node/v24.22.3/bin/node}"
 [ -x "$NODE_BIN" ] || NODE_BIN="node"
-NPM_BIN="${NPM_BIN:-$HOME/.nvm/versions/node/v24.22.1/bin/npm}"
+NPM_BIN="${NPM_BIN:-$HOME/.nvm/versions/node/v24.22.3/bin/npm}"
 [ -x "$NPM_BIN" ] || NPM_BIN="npm"
 
 env_val() {

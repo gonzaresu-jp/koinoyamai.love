@@ -11,7 +11,7 @@ BASE="/var/www/html/koinoyamai.love"
 STG_DIR="/home/yuzuki/koinoyamai.love-test"
 NODE_BASE="$HOME/.nvm/versions/node"
 NVM_DIR="$HOME/.nvm"
-NODE_BIN="${NODE_BIN:-$HOME/.nvm/versions/node/v24.22.1/bin/node}"
+NODE_BIN="${NODE_BIN:-$HOME/.nvm/versions/node/v24.22.3/bin/node}"
 [ -x "$NODE_BIN" ] || NODE_BIN="node"
 
 # nvm を読み込む

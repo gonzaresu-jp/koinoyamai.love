@@ -7,7 +7,7 @@ set -uo pipefail
 BASE="/var/www/html/koinoyamai.love"
 BACKUP_DIR="/var/lib/mai-push/backups"
 SQLITE_BIN=$(command -v sqlite3 || echo /usr/bin/sqlite3)
-NODE_BIN="${NODE_BIN:-$HOME/.nvm/versions/node/v24.22.1/bin/node}"
+NODE_BIN="${NODE_BIN:-$HOME/.nvm/versions/node/v24.22.3/bin/node}"
 [ -x "$NODE_BIN" ] || NODE_BIN="node"
 
 env_val() {

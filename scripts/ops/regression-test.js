@@ -423,7 +423,7 @@ async function main() {
 
     // 9-2. node index.json の解析（security フラグの判定）
     const nodeIdx = secChecks.parseNodeIndex(JSON.stringify([
-      { version: "v24.22.1", date: "2026-11-01", security: true, lts: "Krypton" },
+      { version: "v24.22.3", date: "2026-11-10", security: true, lts: "Krypton" },
       { version: "v24.22.0", date: "2026-10-14", security: false, lts: "Krypton" },
       { version: "v25.0.0", date: "2026-11-01", security: false, lts: false },
     ]));

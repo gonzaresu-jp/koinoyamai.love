@@ -37,7 +37,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 PATCH_JS="$REPO_ROOT/scripts/nginx/apply-honeypot.js"
 HONEY_DIR="/var/lib/mai-push/honeypot"
 # node は明示指定する（sudo 実行では nvm の PATH が読めず /usr/bin/node = v18 EOL を掴むため。AGENTS.md §5）
-NODE_BIN="${NODE_BIN:-/home/yuzuki/.nvm/versions/node/v24.22.1/bin/node}"
+NODE_BIN="${NODE_BIN:-/home/yuzuki/.nvm/versions/node/v24.22.3/bin/node}"
 
 [ -f "$CONF" ] || { echo "[ERR] $CONF が見つかりません"; exit 1; }
 [ -f "$PATCH_JS" ] || { echo "[ERR] $PATCH_JS が見つかりません"; exit 1; }
@@ -147,7 +147,7 @@ done
 
 cat <<'TXT'
 監視の有効化（cron）:
-  */5 * * * *  mkdir -p /var/www/html/koinoyamai.love/logs && /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/security/honeypot-watch.js >> /var/www/html/koinoyamai.love/logs/honeypot-cron.log 2>&1
+  */5 * * * *  mkdir -p /var/www/html/koinoyamai.love/logs && /home/yuzuki/.nvm/versions/node/v24.22.3/bin/node /var/www/html/koinoyamai.love/scripts/security/honeypot-watch.js >> /var/www/html/koinoyamai.love/logs/honeypot-cron.log 2>&1
   ※ watcher 自身のイベントログは logs/honeypot.log（cron の stdout とは別のファイル）
 通知の疎通テスト:
   node scripts/security/honeypot-watch.js --test
