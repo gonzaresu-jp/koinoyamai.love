@@ -1,0 +1,1 @@
+{"agent-guard":{"PreToolUse":[{"hooks":[{"command":"./scripts/guard/adapters/antigravity.sh","timeout":30,"type":"command"}],"matcher":"run_command"}]}}

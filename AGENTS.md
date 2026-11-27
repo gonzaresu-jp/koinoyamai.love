@@ -44,7 +44,7 @@
 
 各 § に散らばっている「やる・確認する・やらない」を一覧にしたもの。詳細と理由は各 § と
 `docs/agents/INCIDENTS.md` を見る。「やらない」「確認してからやる」の多くは
-`.claude/hooks/guard-rules.txt`（§13）で機械的にも止める／確認に回す。
+`scripts/guard/guard-rules.txt`（§13、docs/GUARD.md）で機械的にも止める／確認に回す。
 
 **常にやる（Always）**
 - 本番を触る前に、ポートの持ち主を確かめる（`bash scripts/deploy/assert-port.sh prod|staging`。§1・§7.2）。
@@ -108,7 +108,7 @@
 | デプロイ/検証の作法 | `AGENTS.md §7` / `docs/DEVELOPMENT-WORKFLOW.md` |
 | webui 構成/CSP/静的配信 | `docs/ARCHITECTURE.md §4.5` / `AGENTS.md §6.6` |
 | 作業ツリー分離（worktree） | `AGENTS.md §14` / `scripts/ops/ensure-staging-tree.sh` / `scripts/ops/new-worktree.sh` / `scripts/hooks/pre-push` |
-| エージェント用ガード（禁止・要確認コマンド） | `.claude/hooks/guard-rules.txt` / `scripts/ci/test-guard.sh`（例を足す）/ `AGENTS.md §13` |
+| エージェント用ガード（禁止・要確認コマンド） | `scripts/guard/guard-rules.txt` / `scripts/ci/test-guard.sh`（例を足す）/ `docs/GUARD.md` / `AGENTS.md §13` |
 | nginx への新ルート追加（例: `/display/`） | `AGENTS.md §6.7`（elza vhost）/ `§6.9` / `docs/ARCHITECTURE.md §4.5b` / `docs/SECURITY.md` |
 | 外部入力の検証 / SSRF / 型の部分導入（`@ts-check`） | `AGENTS.md §11` / `docs/ARCHITECTURE.md §4.4` |
 | アーカイブ API | `docs/ARCHIVE-ADMIN-SPEC.md` |
@@ -179,11 +179,14 @@
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 - **ルールを仕組みで守る 3 層（2026-11-27 追加）**:
-  1. エージェントのコマンド: `.claude/hooks/guard-bash.sh`（Claude Code の PreToolUse）が `.claude/hooks/guard-rules.txt`
-     に従い止める（deny）/ ユーザーに確認する（ask）。拒否: 本番 `/api/notify`（§2）・`--no-verify`・
+  1. エージェントのコマンド: 核 `scripts/guard/guard-check.sh` が `scripts/guard/guard-rules.txt` に従い判定し、
+     各ツールのアダプタ（`scripts/guard/adapters/`）が Claude Code / Codex / Cursor / Gemini CLI / Antigravity CLI
+     から、opencode はプラグイン（`.opencode/plugins/agent-guard.js`）から核を呼ぶ（構成は `docs/GUARD.md`）。
+     止める（deny）/ ユーザーに確認する（ask）。拒否: 本番 `/api/notify`（§2）・`--no-verify`・
      `core.hooksPath` の上書き・手作業の `SKIP_PREPUSH=1`・main / staging への push。確認: pm2 のプロセス操作
      （数値 ID でも本番に当たり得るため staging も含む。§6）・プロセスの kill・nginx / 依存の `--apply`・systemctl など。
-     判定できないときは止める。**Claude Code 以外の AI ツール（OpenCode 等）には効かない**。
+     判定できないときは止める。ask に対応しないツールでは ask を deny に倒す（Antigravity は force_ask）。
+     フックの仕組みを持たないツールには効かない。
      正規表現による照合なので、変数経由（`$URL/api/notify`）や URL エンコード等は止めきれない（層 1 の限界）。
   2. git: `scripts/hooks/pre-push` が保護ブランチへの push と、送信するコミット中の秘密値を止める（どのツールにも効く）。
   3. CI: 秘密値の検出とガードの判定テストを PR ごとに実行する。

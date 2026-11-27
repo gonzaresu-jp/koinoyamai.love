@@ -2,6 +2,8 @@
 
 > `AGENTS.md` 末尾にあった「最終更新」行を移設したもの（新しい順）。§番号は分割前と共通。
 
+最終更新: 2026-11-27（§13 の層 1（エージェント用ガード）をツール非依存の核＋アダプタ方式へ移行: 核 `scripts/guard/guard-check.sh` とルール `scripts/guard/guard-rules.txt`（旧 `.claude/hooks/` から移設。ルールの判定は不変）＋アダプタ（Claude Code / Codex / Cursor / Gemini CLI / Antigravity CLI）と opencode プラグイン `.opencode/plugins/agent-guard.js`（`.gitignore` に例外を追加）。ask に対応しないツールでは ask を deny に倒し、Antigravity は force_ask。判定テスト `scripts/ci/test-guard.sh` を核＋アダプタ＋固有ルールに拡張（229 件）。詳細は `docs/GUARD.md`）
+
 最終更新: 2026-11-27（§6・§7.3.6 自動デプロイで discord-bot も再起動し、pm2 で online が続くことを確認（失敗ならロールバック）。旧 `promote.sh`（main へ直接 push）を `scripts/archive/` へ退役し、`docs/DEVELOPMENT-WORKFLOW.md` の基本フローを「PR → マージ → auto-deploy」に、ロールバック手順を強制 push から `git revert` の PR に更新）
 
 最終更新: 2026-11-27（§7.3.6 自動デプロイに安全ガードを追加: CI ゲート・flock・dirty / 未 push コミットがあれば停止・本番は ff-only・staging はローカル `staging` ブランチへ反映・失敗コミットの再試行抑止・ワーカーも再起動・自己書き換え対策・Bot トークンを引数に出さない。判定テスト `scripts/ci/test-auto-deploy.sh` を CI に追加。§6 に自動デプロイの再起動を例外として明記。§7.6 と回帰テスト [18] の「auto-deploy は 100644 据え置き」の古い記述を更新し [18] の検査対象に追加。`docs/DEVELOPMENT-WORKFLOW.md` の「staging の node_modules / .env は本番への symlink」の古い記述を実態（実体）に修正。dotenv のパス指定を server.js / lib/admin.js / bilibili-live.js で統一（§11）。INCIDENTS に記録）

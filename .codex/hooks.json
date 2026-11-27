@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "bash \"$(git rev-parse --show-toplevel)/scripts/guard/adapters/codex.sh\"",
+            "statusMessage": "ガードでコマンドを検査中",
+            "type": "command"
+          }
+        ],
+        "matcher": "Bash"
+      }
+    ]
+  }
+}

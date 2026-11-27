@@ -1,20 +1,20 @@
 {
-  "permissions": {
-    "deny": [
-      "Bash(git push --no-verify:*)"
-    ]
-  },
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
         "hooks": [
           {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard-bash.sh\""
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/guard/adapters/claude-code.sh\"",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": "Bash"
       }
+    ]
+  },
+  "permissions": {
+    "deny": [
+      "Bash(git push --no-verify:*)"
     ]
   }
 }

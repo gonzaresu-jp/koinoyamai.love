@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "BeforeTool": [
+      {
+        "hooks": [
+          {
+            "command": "$GEMINI_PROJECT_DIR/scripts/guard/adapters/gemini.sh",
+            "description": "エージェント用ガード（scripts/guard/guard-check.sh）でシェルコマンドを検査する",
+            "name": "agent-guard",
+            "type": "command"
+          }
+        ],
+        "matcher": "run_shell_command"
+      }
+    ]
+  }
+}
