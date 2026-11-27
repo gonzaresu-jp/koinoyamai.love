@@ -239,6 +239,8 @@ body::after {
    ヘッダー
    ========================= */
 header {
+  /* #nav-menu / #menu-overlay（position: fixed）が子要素にあるため、
+     containing block を作る backdrop-filter / transform / filter は付けない */
   background-color: rgba(177, 30, 124, 0.80);
   color: var(--color-light-text);
   padding: 0 1rem;
@@ -252,8 +254,6 @@ header {
   align-items: center;
   z-index: 5;
   overflow: hidden;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
 }
 
 header h1 {
