@@ -92,19 +92,31 @@ bash scripts/ops/dep-update-pr.sh     # npm audit fix → npm test → PR 作成
 bash scripts/ops/auto-deploy.sh     # main の新コミット → CI 確認 → staging → smoke → 本番（API + ワーカー）
 ```
 - 5分ごとの cron で実行。`flock` で多重起動しない。新コミットが無ければ何もしない（exit 0）。
-- **CI ゲート（2026-11-27）**: そのコミットの GitHub Actions を `gh` で確認する。実行中なら次の回へ、
-  失敗・取得不能（gh の認証切れ等）なら配置せず通知（fail-closed）。
+- **CI ゲート（2026-11-27）**: そのコミットの check-run を `gh` で確認する。実行中・未登録なら次の回へ、
+  失敗なら配置しない。**どのワークフローの失敗でも止まる**（build-android / build-windows を含む。安全側）。
 - staging: **ローカルの `staging` ブランチ**に `origin/main` を配置（`deploy-staging.sh` と同じ。§14.1）。
-  未コミットの変更があれば止める。→ smoke test (health/archive/scraper-status/notify)。
-- 本番: 未コミットの変更、または origin/main に無いコミット（cron の push 失敗で溜まったデータ等）があれば
-  **止めて通知**（`reset --hard` で消さない）。`git merge --ff-only` で進め、**API とワーカーを再起動**し、
+  → smoke test (health/archive/scraper-status/notify)。
+  ⚠️ `deploy-staging.sh <feature>` で作業ブランチを staging に出して確かめている間でも、main に新しいコミットが
+  来ると 5 分以内に main で上書きされる。長く確かめたいときは、その間 cron 行を止めるか、main への
+  マージを待ってもらう。
+- 本番: `git merge --ff-only` で進め（`reset --hard` で消さない）、**API とワーカーを再起動**し、
   本番 smoke test ＋ワーカーの `/api/health/live`（:3002）を確認。
-- 失敗時: 本番はロールバック（前コミットに戻して API とワーカーを再起動）。失敗したコミットは
-  状態ファイルの `failedCommit` に記録し、**新しいコミットが来るまで再試行しない**（5 分ごとの再起動・通知の連発を防ぐ）。
-- 状態ファイル: `/var/lib/mai-push/auto-deploy-state.json`（`lastDeployedCommit` / `failedCommit` / `status`）。
+- 止まり方は 2 種類（状態ファイル `/var/lib/mai-push/auto-deploy-state.json` の `status`）:
+  - **失敗**（コミット自体が悪い: `ci-failed` / `staging-failed` / `rolled-back` / `rolled-back-unhealthy` /
+    `rollback-skipped`）→ `failedCommit` に記録し、**新しいコミットが来るまで再試行しない**（再起動・通知の連発を防ぐ）。
+  - **保留**（環境の都合: `ci-unknown`＝gh の認証切れ等 / `staging-dirty` / `prod-dirty` / `prod-diverged`＝未 push の
+    コミット / `*-checkout-failed` / `prod-ff-failed`）→ `blockedCommit` に記録し、**毎回再試行**する。
+    通知は「コミットと理由」が変わったときだけ。原因を片付ければ次の回に自動で配置される。
+- ロールバック: 本番の smoke 失敗時、前のコミットに戻して API とワーカーを再起動し、**戻した後も確認**する
+  （直らなければ `rolled-back-unhealthy`）。ただし配置後に本番ツリーが変わっていたら（同時に動いた cron の
+  コミット等）、消さないよう**自動では戻さない**（`rollback-skipped`。手動対応）。
+- **手動で再試行する**（失敗扱いのコミットをもう一度配置したい）: 原因を直したうえで、状態ファイルの
+  `failedCommit` を空にする（例: `python3 -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d["failedCommit"]="";json.dump(d,open(p,"w"))' /var/lib/mai-push/auto-deploy-state.json`）。次の回に再試行される。
 - 実行中に自分自身（本番ツリーのファイル）が書き換わっても影響しないよう、一時コピーに移ってから実行する。
-- Discord の Bot トークンはコマンド引数に出さない（`curl -K -`）。
-- 判定テスト: `scripts/ci/test-auto-deploy.sh`（使い捨てのリポジトリと pm2 / gh / curl の代役で各場面を再現。CI で実行）。
+- Discord の通知本文は python で JSON にする（コミットメッセージの改行・`"` で壊れない）。Bot トークンは
+  コマンド引数に出さない（`curl -K <(...)`）。
+- 判定テスト: `scripts/ci/test-auto-deploy.sh`（使い捨てのリポジトリと pm2 / gh / curl の代役で 12 の場面・42 項目を
+  再現。CI で実行）。
 - cron: `*/5 * * * *`。
 
 ### 7.3.5 バックアップ復元検証・DB メンテナンス（2026-10-25 追加）

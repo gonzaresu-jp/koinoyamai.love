@@ -45,7 +45,11 @@ log() { echo "[$(date '+%F %T')] $*"; }
 
 # --- 多重起動の防止（npm-deploy などで 5 分を超えると次の cron と重なる）---
 mkdir -p "$(dirname "$LOCK_FILE")"
-exec 9>"$LOCK_FILE"
+if ! { exec 9>"$LOCK_FILE"; } 2>/dev/null; then
+    # 開けないまま flock すると「前回の実行中」と誤認して黙ってスキップし続ける
+    log "ERROR: ロックファイルを開けない（$LOCK_FILE）。権限を確認してください"
+    exit 1
+fi
 if ! flock -n 9; then
     log "前回の実行が続いているためスキップ"
     exit 0
@@ -64,33 +68,57 @@ send_alert() {
     local color=3066993
     [ "$level" = "ERROR" ] && color=16711680
     [ "$level" = "WARN" ] && color=16776960
-    # トークンを curl の引数に渡すと ps から見える（AGENTS.md §3）。組み込みの printf から設定として渡す
-    printf 'header = "Authorization: Bot %s"\n' "$DISCORD_BOT_TOKEN" | curl -s -K - \
+    # 本文の JSON は python で組み立てる（コミットメッセージの改行や " で JSON が壊れて通知が届かなくなるため）。
+    # 呼び出し側の "\\n" は改行として扱う。
+    # トークンを curl の引数に渡すと ps から見える（AGENTS.md §3）。組み込みの printf から設定（-K）として渡す
+    AD_TITLE="$title" AD_DESC="$desc" AD_COLOR="$color" AD_HOST="$HOSTNAME" python3 -c '
+import json, os, datetime
+print(json.dumps({"embeds": [{
+    "title": os.environ["AD_TITLE"],
+    "description": os.environ["AD_DESC"].replace("\\n", "\n")[:4000],
+    "color": int(os.environ["AD_COLOR"]),
+    "footer": {"text": "Host: " + os.environ["AD_HOST"] + " | auto-deploy"},
+    "timestamp": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+}]}, ensure_ascii=True))' | curl -s \
+         -K <(printf 'header = "Authorization: Bot %s"\n' "$DISCORD_BOT_TOKEN") \
          -H "Content-Type: application/json" \
          -H "User-Agent: mai-push-auto-deploy (https://koinoyamai.love, 1.0)" \
          -X POST "https://discord.com/api/v10/channels/$DISCORD_CHANNEL_ID/messages" \
-         -d "{\"embeds\":[{\"title\":\"$title\",\"description\":\"$desc\",\"color\":$color,\"footer\":{\"text\":\"Host: $HOSTNAME | auto-deploy\"},\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}]}" > /dev/null 2>&1
+         --data-binary @- > /dev/null 2>&1
 }
 
 # --- 状態ファイルの読み書き ---
 #   lastDeployedCommit … 最後に本番へ出したコミット
-#   failedCommit       … 失敗（CI 失敗・staging smoke 失敗・本番ロールバック・ツリー不整合）したコミット。
-#                        同じコミットは再試行しない（新しいコミットが来たら再開）
+#   failedCommit       … コミット自体が悪くて失敗したもの（CI 失敗・smoke 失敗・ロールバック）。
+#                        同じコミットは再試行しない（新しいコミットが来たら再開）。手動で再試行するには
+#                        状態ファイルの failedCommit を空にする（docs/agents/07-automation.md §7.3.6）
+#   blockedCommit / status … 環境の都合で保留したもの（CI 結果を取れない・ツリーが dirty・未 push のコミット）。
+#                        毎回再試行し、通知は「コミットと理由」が変わったときだけ出す
 STATE_JSON=""
 state_get() {
     printf '%s' "$STATE_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$1',''))" 2>/dev/null | tr -d '\r'
 }
-save_state() { # lastDeployed failedCommit status
+save_state() { # lastDeployed failedCommit status [blockedCommit]
     mkdir -p "$(dirname "$STATE_FILE")"
-    printf '{"lastDeployedCommit":"%s","failedCommit":"%s","status":"%s","lastAttempt":"%s"}\n' \
-        "$1" "$2" "$3" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$STATE_FILE"
+    printf '{"lastDeployedCommit":"%s","failedCommit":"%s","blockedCommit":"%s","status":"%s","lastAttempt":"%s"}\n' \
+        "$1" "$2" "${4:-}" "$3" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$STATE_FILE"
 }
 if [ -f "$STATE_FILE" ]; then STATE_JSON="$(cat "$STATE_FILE")"; else STATE_JSON='{}'; fi
 
-# 失敗を記録して止める（同じコミットでは二度と通知しない）
+# コミットが悪くて失敗: 記録して止める（同じコミットでは二度と試さず、通知も 1 回だけ）
 fail_commit() { # status title desc
     save_state "$LAST_DEPLOYED" "$REMOTE_HEAD" "$1"
     send_alert "ERROR" "$2" "$3"
+    exit 1
+}
+# 環境の都合で保留: 次の回にまた試す。通知は同じコミット・同じ理由では 1 回だけ
+block_commit() { # status title desc
+    local prev_blocked prev_status
+    prev_blocked="$(state_get blockedCommit)"; prev_status="$(state_get status)"
+    save_state "$LAST_DEPLOYED" "$(state_get failedCommit)" "$1" "$REMOTE_HEAD"
+    if [ "$prev_blocked" != "$REMOTE_HEAD" ] || [ "$prev_status" != "$1" ]; then
+        send_alert "WARN" "$2" "$3\\n解消すれば次の回（5 分以内）に自動で再試行します。"
+    fi
     exit 1
 }
 
@@ -152,9 +180,10 @@ restart_prod() {
 # 出力: success / pending / failure / unknown（gh が使えない等）
 ci_status() {
     local sha="$1" repo out
-    repo="$(git -C "$PROD_DIR" remote get-url origin 2>/dev/null | sed -E 's#^.*github\.com[:/]##; s#\.git$##')"
-    [ -n "$repo" ] || { echo unknown; return; }
-    out="$(gh api "repos/$repo/commits/$sha/check-runs" \
+    repo="${AUTO_DEPLOY_REPO:-$(git -C "$PROD_DIR" remote get-url origin 2>/dev/null | sed -E 's#^.*github\.com[:/]##; s#/+$##; s#\.git$##')}"
+    [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo unknown; return; }
+    # check-run が 0 件（まだ登録されていない）は pending。どのワークフローの失敗も配置を止める（安全側）
+    out="$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" \
         --jq '[.check_runs[] | {s: .status, c: (.conclusion // "")}]
               | if length == 0 then "pending"
                 elif any(.s != "completed") then "pending"
@@ -169,8 +198,15 @@ tree_dirty() { [ -n "$(git -C "$1" status --porcelain --untracked-files=no 2>/de
 # --- main ---
 cd "$PROD_DIR" || { log "ERROR: PROD_DIR not found"; exit 1; }
 
-git fetch origin main --quiet 2>&1
-REMOTE_HEAD=$(git rev-parse origin/main 2>/dev/null)
+if ! git fetch origin main --quiet 2>&1; then
+    log "WARNING: git fetch に失敗（次の回に再試行）"
+    exit 0
+fi
+REMOTE_HEAD=$(git rev-parse --verify --quiet 'origin/main^{commit}' 2>/dev/null)
+if ! [[ "$REMOTE_HEAD" =~ ^[0-9a-f]{40}$ ]]; then
+    log "ERROR: origin/main を解決できない（${REMOTE_HEAD:-空}）"
+    exit 1
+fi
 LAST_DEPLOYED="$(state_get lastDeployedCommit)"
 FAILED_COMMIT="$(state_get failedCommit)"
 
@@ -191,7 +227,7 @@ case "$CI" in
         fail_commit "ci-failed" "Auto-Deploy: CI 失敗のため配置しません" "コミット: $REMOTE_HEAD\\n新コミット:\\n$NEW_COMMITS" ;;
     unknown)
         log "CI の結果を取得できないため配置しない（gh の認証・ネットワークを確認）: $REMOTE_HEAD"
-        fail_commit "ci-unknown" "Auto-Deploy: CI の結果を確認できません" "コミット: $REMOTE_HEAD\\ngh の認証・ネットワークを確認してください。確認できるまで配置しません（新しいコミットで再試行）" ;;
+        block_commit "ci-unknown" "Auto-Deploy: CI の結果を確認できません" "コミット: $REMOTE_HEAD\\ngh の認証・ネットワークを確認してください。確認できるまで配置しません。" ;;
 esac
 
 log "=== 新コミット検出（CI 成功）: $REMOTE_HEAD (前回: ${LAST_DEPLOYED:-none}) ==="
@@ -200,10 +236,10 @@ echo "$NEW_COMMITS" | sed 's/^/  /'
 
 # --- Step 1: staging にデプロイ ---
 log "Step 1: staging にデプロイ"
-cd "$STG_DIR" || fail_commit "staging-missing" "Auto-Deploy: staging ツリーなし" "STG_DIR=$STG_DIR が見つかりません"
+cd "$STG_DIR" || block_commit "staging-missing" "Auto-Deploy: staging ツリーなし" "STG_DIR=$STG_DIR が見つかりません"
 if tree_dirty "$STG_DIR"; then
     log "staging ツリーに未コミットの変更があるため止める"
-    fail_commit "staging-dirty" "Auto-Deploy: staging ツリーに未コミットの変更" "$STG_DIR に未コミットの変更があるため配置しません（消さないため）。コミット: $REMOTE_HEAD"
+    block_commit "staging-dirty" "Auto-Deploy: staging ツリーに未コミットの変更" "$STG_DIR に未コミットの変更があるため配置しません（消さないため）。コミット: $REMOTE_HEAD"
 fi
 git fetch origin main --quiet 2>&1
 STG_PREV="$(git rev-parse --abbrev-ref HEAD 2>/dev/null) @ $(git rev-parse --short HEAD 2>/dev/null)"
@@ -211,7 +247,7 @@ STG_PREV="$(git rev-parse --abbrev-ref HEAD 2>/dev/null) @ $(git rev-parse --sho
 # umask 002: 書き換わる webui/*.php が php-fpm から読めなくなる事故を防ぐ（§7.1）
 ( umask 002; git checkout -q -B staging origin/main ) 2>&1 | tail -1
 if [ "$(git rev-parse HEAD 2>/dev/null)" != "$REMOTE_HEAD" ] || [ "$(git branch --show-current)" != "staging" ]; then
-    fail_commit "staging-checkout-failed" "Auto-Deploy: staging の切り替えに失敗" "staging ブランチを $REMOTE_HEAD にできませんでした（$STG_DIR）"
+    block_commit "staging-checkout-failed" "Auto-Deploy: staging の切り替えに失敗" "staging ブランチを $REMOTE_HEAD にできませんでした（$STG_DIR）"
 fi
 log "staging: $STG_PREV → staging @ $(git rev-parse --short HEAD)"
 if ! "$NODE_BIN" scripts/deploy/check-node-modules-drift.js >/dev/null 2>&1; then
@@ -234,19 +270,19 @@ log "Step 3: 本番にデプロイ"
 cd "$PROD_DIR" || { log "ERROR: PROD_DIR not found"; exit 1; }
 if tree_dirty "$PROD_DIR"; then
     log "本番ツリーに未コミットの変更があるため止める"
-    fail_commit "prod-dirty" "Auto-Deploy: 本番ツリーに未コミットの変更" "$PROD_DIR に未コミットの変更があるため配置しません（消さないため）。コミット: $REMOTE_HEAD"
+    block_commit "prod-dirty" "Auto-Deploy: 本番ツリーに未コミットの変更" "$PROD_DIR に未コミットの変更があるため配置しません（消さないため）。コミット: $REMOTE_HEAD"
 fi
-LOCAL_ONLY="$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0)"
+LOCAL_ONLY="$(git rev-list --count origin/main..HEAD 2>/dev/null || echo unknown)"
 if [ "$LOCAL_ONLY" != "0" ]; then
     log "本番ツリーに origin/main に無いコミットが ${LOCAL_ONLY} 件あるため止める"
-    fail_commit "prod-diverged" "Auto-Deploy: 本番ツリーに未 push のコミット" "$PROD_DIR に origin/main に無いコミットが ${LOCAL_ONLY} 件あります（cron の push 失敗など）。消さないため配置しません。push してから新しいコミットで再試行されます。"
+    block_commit "prod-diverged" "Auto-Deploy: 本番ツリーに未 push のコミット" "$PROD_DIR に origin/main に無いコミットが ${LOCAL_ONLY} 件あります（cron の push 失敗など）。消さないため配置しません。push されれば再試行されます。"
 fi
 PREV_COMMIT=$(git rev-parse HEAD)
 if ! ( umask 002; git merge -q --ff-only origin/main ) 2>&1 | tail -1; then
-    fail_commit "prod-ff-failed" "Auto-Deploy: 本番を fast-forward できません" "コミット: $REMOTE_HEAD"
+    block_commit "prod-ff-failed" "Auto-Deploy: 本番を fast-forward できません" "コミット: $REMOTE_HEAD"
 fi
 if [ "$(git rev-parse HEAD)" != "$REMOTE_HEAD" ]; then
-    fail_commit "prod-ff-failed" "Auto-Deploy: 本番を fast-forward できません" "HEAD が $REMOTE_HEAD になりませんでした"
+    block_commit "prod-ff-failed" "Auto-Deploy: 本番を fast-forward できません" "HEAD が $REMOTE_HEAD になりませんでした"
 fi
 
 if ! "$NODE_BIN" scripts/deploy/check-node-modules-drift.js >/dev/null 2>&1; then
@@ -265,9 +301,20 @@ if smoke_test "http://127.0.0.1:8080" "production" && worker_ok; then
     send_alert "INFO" "Auto-Deploy: 成功" "コミット: $REMOTE_HEAD\\n新コミット:\\n$NEW_COMMITS\\n\\nCI・staging・本番（API + ワーカー）の確認がすべて PASS しました。"
 else
     log "本番 smoke test: FAIL → ロールバック"
+    # smoke の最中に、同じツリーで cron（webui/data の日次コミット等）がコミット・編集していたら、
+    # reset --hard で消してしまう。HEAD が配置したコミットのままで、未コミットの変更も無いときだけ戻す。
+    if [ "$(git rev-parse HEAD)" != "$REMOTE_HEAD" ] || tree_dirty "$PROD_DIR"; then
+        log "本番ツリーが配置後に変わっているため、自動ロールバックしない（手動対応）"
+        fail_commit "rollback-skipped" "Auto-Deploy: 本番 smoke test 失敗（自動ロールバックできず）" "コミット: $REMOTE_HEAD\\n本番の smoke test が失敗しましたが、配置後に本番ツリーが変わっていた（同時に動いた cron 等）ため、作業を消さないよう自動では戻していません。手動で確認してください（戻し先: $PREV_COMMIT）。"
+    fi
     ( umask 002; git reset -q --hard "$PREV_COMMIT" ) 2>&1 | tail -1
     restart_prod
-    fail_commit "rolled-back" "Auto-Deploy: 本番 smoke test 失敗 → ロールバック" "コミット: $REMOTE_HEAD\\n前回のコミット ($PREV_COMMIT) に戻し、API とワーカーを再起動しました。新しいコミットが来るまで再試行しません。"
+    # 戻した後も確かめる（node_modules の入れ替え等で、戻しても直らない場合がある）
+    if smoke_test "http://127.0.0.1:8080" "production(rolled-back)" && worker_ok; then
+        fail_commit "rolled-back" "Auto-Deploy: 本番 smoke test 失敗 → ロールバック" "コミット: $REMOTE_HEAD\\n前回のコミット ($PREV_COMMIT) に戻し、API とワーカーを再起動しました（戻した後の確認は PASS）。新しいコミットが来るまで再試行しません。"
+    else
+        fail_commit "rolled-back-unhealthy" "Auto-Deploy: ロールバック後も本番が異常" "コミット: $REMOTE_HEAD\\n前回のコミット ($PREV_COMMIT) に戻しましたが、本番の確認がまだ失敗しています。至急手動で確認してください（npm-deploy による node_modules の入れ替え等）。"
+    fi
 fi
 
 log "=== デプロイ完了 ==="
