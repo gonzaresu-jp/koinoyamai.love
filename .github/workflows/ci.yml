@@ -60,6 +60,9 @@ jobs:
       - name: エージェント用ガード（.claude/hooks）の判定テスト
         run: bash scripts/ci/test-guard.sh
 
+      - name: pre-push の保護ブランチ判定テスト
+        run: bash scripts/ci/test-pre-push.sh
+
       - name: VAPID 鍵を生成（テスト用のローカルファイル・gitignore 済み）
         # services/notification.js が読むのは { vapidPublicKey, vapidPrivateKey }
         # （web-push の generateVAPIDKeys() は { publicKey, privateKey } を返すので変換する）

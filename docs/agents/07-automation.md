@@ -39,13 +39,16 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 
 ### 7.3 push 前の自動検査（pre-push フック、有効化済み）
 `core.hooksPath = scripts/hooks` により、push 時に自動で：
+- `main` / `staging` への直接 push を拒否（**実際の push 先の ref** で判定。例外は cron の `SKIP_PREPUSH=1` のみ。§13・§14.2）
 - ステージ・コミット対象の `.js` に対し `node --check`
 - `.php` に対し `php -l`
 - アプリバージョンの3箇所整合（`scripts/ops/check-app-version.sh`・`SKIP_PREPUSH_VERSION=1` でスキップ可）
-- 送信するコミットごとの追加行から秘密値を検出（`scripts/ci/secret-scan.sh --range`・2026-11-27 追加。
-  `SKIP_PREPUSH_REGRESSION=1` でも飛ばない）
+- 送信するコミットごとの追加行から秘密値を検出（既存ブランチは `secret-scan.sh --range`、新規ブランチは
+  `--new`＝リモートに無いコミットすべて。2026-11-27 追加。`SKIP_PREPUSH_REGRESSION=1` でも飛ばない）
 - 回帰テスト `npm test`（281項目・2026-11-09 時点、約6秒）
-- 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
+- 構文エラー・秘密値・保護ブランチへの push があれば拒否。`SKIP_PREPUSH_REGRESSION=1` は回帰テストだけを飛ばす
+  （Windows など回帰テストが動かない環境用。PR の CI で必ず通す）。`git push --no-verify` は人間が判断した場合のみ
+  （エージェントはガードで拒否される。§13）。判定は `scripts/ci/test-pre-push.sh` が CI で検査する。
 
 ### 7.3.10 Node.js バージョン追従の自動化（2026-10-25 追加）
 ```bash
