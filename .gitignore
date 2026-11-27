@@ -130,7 +130,7 @@ Windows/mai-push-winui/publish/
 
 # ---------- ローカル残骸の誤コミット防止 (2026-10-20 追加) ----------
 # 背景: 未追跡ファイルが 2 つの自動処理を止めていた
-#   1) promote.sh は `git status --porcelain` が空でなければ本番昇格を中止する
+#   1) 旧 promote.sh（2026-11-27 退役）は `git status --porcelain` が空でなければ本番昇格を中止していた
 #   2) scripts/ops/update-subscribers-and-commit.sh は webui/data 以外に未コミット変更が
 #      あると日次データ更新を commit せず保留する（AGENTS.md §7.5）
 # 日付付きバックアップ（例: robots.txt.bak-20261011-1445）

@@ -24,14 +24,20 @@
 ## 基本フロー（trunk-based）
 
 ```
-feature/xxx で開発
+作業ブランチ（agent/xxx・feature/xxx。AGENTS.md §14 の worktree）で開発
    ↓
-bash scripts/deploy/deploy-staging.sh feature/xxx      … stagingに展開 + smoke 自動実行
+git push -u origin feature/xxx                  … pre-push の検査（AGENTS.md §13）
+bash scripts/deploy/deploy-staging.sh feature/xxx      … （任意）stagingに展開 + smoke 自動実行
   （ブラウザで https://test.koinoyamai.love を目視確認）
    ↓
-git push origin feature/xxx                     … staging で検証したリビジョンを共有
-bash scripts/deploy/promote.sh feature/xxx --sync-staging … 本番へ ff 昇格 + 本番smoke + staging追従
+gh pr create → CI 通過 →（感度の高い変更は独立レビュー＋承認）→ マージ
+   ↓
+scripts/ops/auto-deploy.sh（cron・5 分ごと）が main の新コミットを検知
+  → CI 成功を確認 → staging → smoke → 本番（ff-only）→ API・ワーカー・discord-bot を再起動 → smoke
 ```
+
+> 旧 `promote.sh`（ブランチを main へ ff マージして直接 push する方式）は、§13 の「すべて PR 経由」・
+> pre-push の main 直接 push 拒否と両立しないため、2026-11-27 に `scripts/archive/promote.sh` へ退役した。
 
 > GitHub 運用（issue / PR / 別エージェント独立レビュー / main ブランチ保護）は `AGENTS.md §13` を参照。
 > 感度の高い変更（DB・認証、依存、通知経路、外部API/インフラ）は PR＋レビュー必須。
@@ -47,25 +53,16 @@ bash scripts/deploy/deploy-staging.sh <branch> [--worker] [--sync-db] [--dry-run
 - `--sync-db`：先に本番 `data.db` → `data-test.db` スナップショット
 - `--dry-run`：手順だけ表示
 - 実行後、API（:8081）の smoke（health / archive stats / videos / search）を自動実行。失敗時は exit 1
+- ⚠️ main に新しいコミットが来ると、自動デプロイが 5 分以内に staging を main で上書きする（AGENTS.md §7.3.6）
 
-### promote.sh
+### 本番への反映（auto-deploy.sh）
 
-```
-bash scripts/deploy/promote.sh <branch> [--sync-staging] [--no-restart] [--dry-run]
-```
+詳細は `AGENTS.md §7.3.6`（`docs/agents/07-automation.md`）。要点:
 
-- **fast-forward 可能な場合のみ** 昇格。staging で検証したコミットと同一ツリーを本番で動かす
-- `--sync-staging`：昇格後に staging を新しい main へ追従
-- `--no-restart`：本番プロセスの再起動をスキップ
-- `--dry-run`：手順だけ表示
-- 本番リポジトリに**未コミット変更があると中止**します（先に commit / stash する）
-- ff できない（本番 main が進んでいる）場合も中止し、`<branch>` の rebase → staging 再検証を促す
-
-### promote 後の自動処理
-
-1. 本番 pm2 全再起動（`bash scripts/deploy/restart.sh all`）
-2. 本番 API（:8080）の smoke（health / archive stats / videos / search）
-3. （--sync-staging 時）`deploy-staging.sh main` で staging を最新化
+- 対象は **main にマージされたコミットだけ**。CI が成功していなければ配置しない
+- 本番ツリーに未コミットの変更・未 push のコミットがあれば止めて通知する（消さない）。`--ff-only` でのみ進む
+- 本番の API・ワーカー・discord-bot を再起動して smoke。失敗時は前のコミットに戻す
+- 失敗したコミットは新しいコミットが来るまで再試行しない。手動で再試行する方法も §7.3.6
 
 ## 運用ルール
 
@@ -125,12 +122,16 @@ bash scripts/deploy/promote.sh <branch> [--sync-staging] [--no-restart] [--dry-r
 
 ## ロールバック
 
+main は強制 push 禁止（ブランチ保護・AGENTS.md §13）なので、履歴を巻き戻さず **`git revert` の PR** で戻す:
+
 ```bash
-git log --oneline -10 main            # 戻り先の commit を確認
-git reset --hard <commit> && git push --force origin main   # ※force push は慎重に
+git switch -c fix/revert-xxx origin/main
+git revert <戻したい commit>          # マージコミットなら -m 1
+git push -u origin fix/revert-xxx      # → PR → CI → マージで auto-deploy が配置する
 ```
 
-または promote 直後なら `git revert` で新しい commit を積んでから通常 push。
+急ぎで本番だけ戻す必要がある場合は、自動デプロイのロールバック（smoke 失敗時に自動）か、
+作業者の承認のうえで本番ツリーを手動で戻す（`AGENTS.md §2.1` の「確認してからやる」）。
 
 ## コード行数集計方法（updateLogs の "lines"）
 

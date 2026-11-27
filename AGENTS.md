@@ -89,7 +89,7 @@
 ## 6. 検証の作法
 - 変更後は `node --check <file>` → pm2 再起動（`--update-env`）→ **正しいポート**で `/api/health`。
 - 本番 pm2 再起動は作業者の明示承認後にのみ実施。例外: 自動デプロイ（`scripts/ops/auto-deploy.sh`）は
-  main のマージ（＝承認）・CI 成功・staging smoke 通過を条件に、`mai-push-api` と `mai-push-worker` を自動で再起動する（§7.3.6）。
+  main のマージ（＝承認）・CI 成功・staging smoke 通過を条件に、`mai-push-api`・`mai-push-worker`・`discord-bot` を自動で再起動する（§7.3.6）。
 - DB・history.json を触るテストは本番でやるな。staging でやれ。
 
 ## 12. ドキュメント更新ルール（ARCHITECTURE.md を腐らせない）

@@ -10,9 +10,16 @@ trap 'rm -rf "$W"' EXIT
 
 # ---- 代役（PATH の先頭に置く）----
 mkdir -p "$W/bin"
+# pm2 の代役: 呼び出しを記録。jlist には discord-bot の状態を返す
+# （本番の app.txt が BOT_BAD と同じなら errored ＝ 悪いコミットで Bot が落ちる）
 cat > "$W/bin/pm2" <<'EOF'
 #!/usr/bin/env bash
 echo "pm2 $*" >> "$TEST_LOG"
+if [ "${1:-}" = "jlist" ]; then
+  st=online
+  if [ -n "${BOT_BAD:-}" ] && [ "$(tr -d '\r\n' < "$AUTO_DEPLOY_PROD_DIR/app.txt" 2>/dev/null)" = "$BOT_BAD" ]; then st=errored; fi
+  printf '[{"name":"mai-push-api","pm2_env":{"status":"online"}},{"name":"discord-bot","pm2_env":{"status":"%s"}}]\n' "$st"
+fi
 EOF
 cat > "$W/bin/gh" <<'EOF'
 #!/usr/bin/env bash
@@ -139,6 +146,7 @@ check "staging は staging ブランチ" "$(t test "$(g -C "$W/stg" branch --sho
 check "staging にいたブランチ（docs/other）は書き換えない" "$(t test "$(g -C "$W/stg" rev-parse docs/other)" = "$A")"
 check "本番 API を再起動" "$(t grep -q 'pm2 restart mai-push-api --update-env' "$TEST_LOG")"
 check "本番ワーカーを再起動" "$(t grep -q 'pm2 restart mai-push-worker --update-env' "$TEST_LOG")"
+check "本番 discord-bot を再起動" "$(t grep -q 'pm2 restart discord-bot --update-env' "$TEST_LOG")"
 no_bad_json "成功（新コミット 2 件・改行と \" を含む）"
 CI_STATE=success run
 check "成功後の再実行では何もしない" "$(t test "$(grep -c 'pm2 restart mai-push-api --update-env' "$TEST_LOG")" = "1")"
@@ -181,6 +189,12 @@ check "新しいコミットで再開し本番は C" "$(t test "$(prod_head)" = 
 setup; CI_STATE=success WORKER_BAD=B run
 check "ワーカー異常なら A に戻す" "$(t test "$(prod_head)" = "$A")"
 check "ワーカー異常も rolled-back" "$(t test "$(state status)" = "rolled-back")"
+
+# 10b. discord-bot だけ異常（落ちる）→ ロールバック。成功時は discord-bot も再起動している
+setup; CI_STATE=success BOT_BAD=B run
+check "discord-bot 異常なら A に戻す" "$(t test "$(prod_head)" = "$A")"
+check "discord-bot 異常も rolled-back" "$(t test "$(state status)" = "rolled-back")"
+check "discord-bot を再起動（配置時とロールバック時）" "$(t test "$(grep -c 'pm2 restart discord-bot --update-env' "$TEST_LOG")" = "2")"
 
 # 11. 戻しても直らない → rolled-back-unhealthy
 setup; CI_STATE=success PROD_CODE=500 run

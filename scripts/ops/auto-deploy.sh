@@ -6,7 +6,7 @@
 # 前提:
 #   - staging ツリーは /home/yuzuki/koinoyamai.love-test（canonical。ローカルの staging ブランチを使う）
 #   - 本番ツリーは /var/www/html/koinoyamai.love（main）
-#   - pm2 で mai-push-api / mai-push-worker / mai-push-api-test が稼働中
+#   - pm2 で mai-push-api / mai-push-worker / discord-bot / mai-push-api-test が稼働中
 #   - gh がログイン済み（CI の結果を参照する）
 #
 # 安全弁（AGENTS.md §7.3.6）:
@@ -170,9 +170,39 @@ worker_ok() {
     return 1
 }
 
+# discord-bot は HTTP の口が無いので、pm2 上で online かを見る。起動直後に落ちる（クラッシュループ）場合を
+# 拾うため、少し間を空けて 2 回続けて online であることを確かめる（最大およそ 30 秒）
+bot_status() {
+    pm2 jlist 2>/dev/null | python3 -c '
+import sys, json
+try:
+    apps = json.load(sys.stdin)
+except Exception:
+    print("unknown"); sys.exit(0)
+print(next((a.get("pm2_env", {}).get("status", "unknown") for a in apps if a.get("name") == "discord-bot"), "missing"))' 2>/dev/null | tr -d '\r'
+}
+bot_ok() {
+    local i st streak=0
+    for i in $(seq 1 6); do
+        st="$(bot_status)"
+        if [ "$st" = "online" ]; then
+            streak=$((streak + 1)); [ "$streak" -ge 2 ] && return 0
+        else
+            streak=0
+        fi
+        sleep 5
+    done
+    log "smoke FAIL (discord-bot): pm2 status=${st:-none}"
+    return 1
+}
+
+# 本番の確認: API の smoke ＋ ワーカー ＋ discord-bot
+prod_ok() { smoke_test "http://127.0.0.1:8080" "$1" && worker_ok && bot_ok; }
+
 restart_prod() {
     pm2 restart mai-push-api --update-env >/dev/null 2>&1
     pm2 restart mai-push-worker --update-env >/dev/null 2>&1
+    pm2 restart discord-bot --update-env >/dev/null 2>&1
     sleep 3
 }
 
@@ -290,15 +320,15 @@ if ! "$NODE_BIN" scripts/deploy/check-node-modules-drift.js >/dev/null 2>&1; the
     bash scripts/deploy/npm-deploy.sh --apply 2>&1 | tail -5
 fi
 
-# 本番 API とワーカーを再起動（ワーカー側のコード変更もここで反映する）
+# 本番 API・ワーカー・discord-bot を再起動（各プロセスのコード変更をここで反映する）
 restart_prod
 
-# --- Step 4: 本番で smoke test（API + ワーカー）---
+# --- Step 4: 本番で smoke test（API + ワーカー + discord-bot）---
 log "Step 4: 本番 smoke test"
-if smoke_test "http://127.0.0.1:8080" "production" && worker_ok; then
+if prod_ok "production"; then
     log "本番 smoke test: PASS"
     save_state "$REMOTE_HEAD" "" "success"
-    send_alert "INFO" "Auto-Deploy: 成功" "コミット: $REMOTE_HEAD\\n新コミット:\\n$NEW_COMMITS\\n\\nCI・staging・本番（API + ワーカー）の確認がすべて PASS しました。"
+    send_alert "INFO" "Auto-Deploy: 成功" "コミット: $REMOTE_HEAD\\n新コミット:\\n$NEW_COMMITS\\n\\nCI・staging・本番（API + ワーカー + discord-bot）の確認がすべて PASS しました。"
 else
     log "本番 smoke test: FAIL → ロールバック"
     # smoke の最中に、同じツリーで cron（webui/data の日次コミット等）がコミット・編集していたら、
@@ -310,8 +340,8 @@ else
     ( umask 002; git reset -q --hard "$PREV_COMMIT" ) 2>&1 | tail -1
     restart_prod
     # 戻した後も確かめる（node_modules の入れ替え等で、戻しても直らない場合がある）
-    if smoke_test "http://127.0.0.1:8080" "production(rolled-back)" && worker_ok; then
-        fail_commit "rolled-back" "Auto-Deploy: 本番 smoke test 失敗 → ロールバック" "コミット: $REMOTE_HEAD\\n前回のコミット ($PREV_COMMIT) に戻し、API とワーカーを再起動しました（戻した後の確認は PASS）。新しいコミットが来るまで再試行しません。"
+    if prod_ok "production(rolled-back)"; then
+        fail_commit "rolled-back" "Auto-Deploy: 本番 smoke test 失敗 → ロールバック" "コミット: $REMOTE_HEAD\\n前回のコミット ($PREV_COMMIT) に戻し、API・ワーカー・discord-bot を再起動しました（戻した後の確認は PASS）。新しいコミットが来るまで再試行しません。"
     else
         fail_commit "rolled-back-unhealthy" "Auto-Deploy: ロールバック後も本番が異常" "コミット: $REMOTE_HEAD\\n前回のコミット ($PREV_COMMIT) に戻しましたが、本番の確認がまだ失敗しています。至急手動で確認してください（npm-deploy による node_modules の入れ替え等）。"
     fi

@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# ※ 退役（2026-11-27）: main へ ff マージして直接 push する方式は、AGENTS.md §13（すべて PR 経由）と
+#   pre-push の main 直接 push 拒否と両立しないため使わない。本番反映は scripts/ops/auto-deploy.sh（§7.3.6）。
+#   記録のために残している。
 # promote.sh - staging で検証済みのブランチを本番(main)へ昇格する
 #
 # 使い方:
