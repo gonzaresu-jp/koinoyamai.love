@@ -58,7 +58,7 @@
     }
 
     .header-status-link:hover {
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(177, 30, 124, 0.08);
     }
 
     .status-dot {
@@ -113,32 +113,24 @@
         display: flex;
         align-items: center;
         gap: 7px;
-        padding: 6px 13px;
-        border-radius: 20px;
-        border: 1.5px solid rgba(255, 255, 255, 0.35);
-        background: rgba(255, 255, 255, 0.12);
-        color: #fff;
+        padding: 6px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(177, 30, 124, 0.2);
+        background: rgba(255, 255, 255, 0.92);
+        color: var(--color-text, #2c2c3e);
         font-size: 0.78rem;
-        font-weight: 600;
+        font-weight: 700;
         cursor: pointer;
         white-space: nowrap;
-        transition: background 0.18s, border-color 0.18s, transform 0.1s;
-        backdrop-filter: blur(6px);
+        box-shadow: 0 3px 10px -3px rgba(177, 30, 124, 0.16);
+        transition: background 0.18s, border-color 0.18s, transform 0.1s, box-shadow 0.18s;
         letter-spacing: 0.01em;
     }
 
     .auth-login-btn:hover {
-        background: rgba(255, 255, 255, 0.22);
-        border-color: rgba(255, 255, 255, 0.55);
-    }
-
-    .auth-login-btn:active {
-        transform: scale(0.96);
-    }
-
-    .auth-login-btn:hover {
-        background: rgba(255, 255, 255, 0.22);
-        border-color: rgba(255, 255, 255, 0.55);
+        background: #fff;
+        border-color: rgba(177, 30, 124, 0.42);
+        box-shadow: 0 5px 14px -3px rgba(177, 30, 124, 0.26);
     }
 
     .auth-login-btn:active {
@@ -150,10 +142,10 @@
         display: flex;
         align-items: center;
         gap: 7px;
-        border-radius: 20px;
-        background: rgba(255, 255, 255, 0.14);
-        border: 1.5px solid rgba(255, 255, 255, 0.28);
-        backdrop-filter: blur(6px);
+        padding: 2px;
+        border-radius: 999px;
+        background: rgba(177, 30, 124, 0.07);
+        border: 1px solid rgba(177, 30, 124, 0.22);
         cursor: default;
     }
 
@@ -162,7 +154,7 @@
         height: 28px;
         border-radius: 50%;
         object-fit: cover;
-        border: 1.5px solid rgba(255, 255, 255, 0.5);
+        border: 1.5px solid rgba(255, 255, 255, 0.95);
         flex-shrink: 0;
     }
 
@@ -205,7 +197,7 @@
         width: 8px;
         height: 8px;
         border-radius: 50%;
-        background: rgba(255, 255, 255, 0.5);
+        background: rgba(177, 30, 124, 0.42);
         animation: authDotPulse 1.2s ease-in-out infinite;
     }
 
@@ -291,17 +283,15 @@
         margin-left: 10px;
         padding: 3px 9px;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.14);
-        border: 1.5px solid rgba(255, 255, 255, 0.28);
-        color: #fff;
+        background: rgba(177, 30, 124, 0.08);
+        border: 1px solid rgba(177, 30, 124, 0.2);
+        color: var(--color-primary, #B11E7C);
         font-size: 0.72rem;
         font-weight: 700;
         line-height: 1.2;
         letter-spacing: 0.04em;
         white-space: nowrap;
         flex-shrink: 0;
-        backdrop-filter: blur(6px);
-        -webkit-backdrop-filter: blur(6px);
     }
 
     /* 初期状態（hidden）は非表示。JS が日本TZ以外のときだけ表示する */

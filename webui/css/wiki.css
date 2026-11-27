@@ -29,9 +29,7 @@ body#app-body::after {
     background: none;
 }
 
-/* 白背景でも文字・ロゴが消えないよう、ヘッダーとメニューは不透明のブランドカラーに。
-   共通の #B11E7CBF（透過75%）は白地で薄れて白文字が読めなくなるため */
-#header-slot > header,
+/* 白背景でもスライドメニューの文字が消えないよう、メニューは不透明のブランドカラーに */
 #nav-menu {
     background-color: #B11E7C;
 }
