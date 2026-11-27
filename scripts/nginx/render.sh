@@ -17,6 +17,8 @@
 # envsubst には置換対象を上記2変数だけに限定して渡す。
 # nginx 自身の変数（$host / $request_uri 等）を巻き込んで置換しないため。
 set -euo pipefail
+# 生成した nginx.conf は秘密値を含むため、生成物のパーミッションを絞る
+umask 077
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -26,15 +28,17 @@ OUT_DIR="${1:-}"
 if [ -z "$OUT_DIR" ]; then
   OUT_DIR="$(mktemp -d /tmp/nginx-render.XXXXXX)"
 fi
-mkdir -p "$OUT_DIR"
-# フェーズ1では本番へ書かない。出力先が /etc/nginx 配下なら明示的に拒否する
-OUT_DIR_ABS="$(cd "$OUT_DIR" && pwd)"
+# フェーズ1では本番へ書かない。出力先が /etc/nginx 配下なら明示的に拒否する。
+# 判定は mkdir より前に、シンボリックリンクを解決した実パスで行う
+# （論理パス判定だと /etc/nginx へのリンク経由で回避できてしまうため）。
+OUT_DIR_ABS="$(realpath -m "$OUT_DIR")"
 case "$OUT_DIR_ABS" in
   /etc/nginx|/etc/nginx/*)
     echo "[render] ERROR: 出力先に /etc/nginx は指定できません（フェーズ1は生成のみ）" >&2
     exit 1
     ;;
 esac
+mkdir -p "$OUT_DIR"
 
 ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"
 if [ ! -f "$ENV_FILE" ]; then
