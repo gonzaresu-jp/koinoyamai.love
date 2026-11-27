@@ -50,11 +50,13 @@
             </div>
         </div>
 
-        <div class="hamburger-icon fade" id="hamburger-toggle" role="button" tabindex="0" aria-label="メニューを開く"
-            aria-controls="nav-menu" aria-expanded="false">
-            <span></span>
-            <span></span>
-            <span></span>
+        <div class="hamburger-slot">
+            <div class="hamburger-icon fade" id="hamburger-toggle" role="button" tabindex="0" aria-label="メニューを開く"
+                aria-controls="nav-menu" aria-expanded="false">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
         </div>
     </div>
 

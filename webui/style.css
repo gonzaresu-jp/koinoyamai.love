@@ -340,6 +340,15 @@ header h1 {
 /* =========================
    ハンバーガーメニュー
    ========================= */
+.hamburger-slot {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .hamburger-icon {
   width: 38px;
   height: 38px;
@@ -387,20 +396,20 @@ header h1 {
   transform: translateY(7px);
 }
 
-/* メニュー開閉時のアニメーション */
+/* メニュー開閉時のアニメーション（白フロストメニュー上でマゼンタのまま表示） */
 .menu-open .hamburger-icon {
   position: fixed;
   top: 10px;
-  right: 17px;
+  right: 16px;
   z-index: 1002;
 }
 
 .menu-open .hamburger-icon:hover {
-  background-color: rgba(255, 255, 255, 0.14);
+  background-color: rgba(177, 30, 124, 0.10);
 }
 
 .menu-open .hamburger-icon span {
-  background-color: #fff;
+  background-color: var(--color-primary);
 }
 
 .menu-open .hamburger-icon span:nth-child(1) {
@@ -432,17 +441,21 @@ header h1 {
 }
 
 /* =========================
-   ナビゲーションメニュー
+   ナビゲーションメニュー（白フロスト統一）
    ========================= */
 #nav-menu {
   position: fixed;
   inset: 0 0 0 auto;
   width: 300px;
-  max-width: 80vw;
+  max-width: 82vw;
   height: 100%;
   max-height: 100%;
-  background-color: var(--color-primary-alpha);
-  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.32);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--color-text);
+  border-left: 1px solid rgba(177, 30, 124, 0.14);
+  box-shadow:
+    -12px 0 36px -6px rgba(177, 30, 124, 0.18),
+    -4px 0 16px -2px rgba(138, 79, 255, 0.10);
   transform: translateX(100%);
   transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
   padding-top: calc(var(--header-height, 60px) + env(safe-area-inset-top));
@@ -450,8 +463,8 @@ header h1 {
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   scrollbar-width: none;
 }
 #nav-menu::-webkit-scrollbar {
@@ -464,14 +477,14 @@ header h1 {
 
 .nav-list {
   list-style: none;
-  padding: 20px 0;
+  padding: 12px 0 28px;
   margin: 0;
 }
 
 .nav-list li {
   padding: 0;
   margin: 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 1px solid rgba(177, 30, 124, 0.09);
 }
 
 /* メニューが開いている時のli要素 */
@@ -500,19 +513,21 @@ body.menu-transitions-disabled #nav-menu .nav-list li {
   display: block;
   width: 100%;
   padding: 12px 20px;
-  color: var(--color-light-text);
+  color: var(--color-text);
   text-decoration: none;
   text-align: left;
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 1rem;
-  transition: background-color 0.18s ease, padding-left 0.18s ease;
+  font-size: 0.94rem;
+  font-weight: 600;
+  transition: background-color 0.18s ease, color 0.18s ease, padding-left 0.18s ease;
 }
 
 .nav-list a:hover,
 .nav-list button:hover {
-  background-color: #921768;
+  background-color: rgba(177, 30, 124, 0.07);
+  color: var(--color-primary);
   padding-left: 26px;
 }
 
@@ -654,17 +669,32 @@ body.notifications-enabled .toggle-image.on {
 
 #start {
   margin-left: 20px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(177, 30, 124, 0.2);
+  background: #fff;
+  color: var(--color-text);
+  font-family: inherit;
 }
 
 #subscriber-name-submit {
-  background-color: var(--color-secondary) !important;
+  background-color: var(--color-primary) !important;
+  color: #fff !important;
   border-radius: 10px;
-  margin-right: 5px !important;
-  max-height: 40px;
-  display: flex;
+  margin-right: 12px !important;
+  max-height: 36px;
+  padding: 6px 14px !important;
+  width: auto !important;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   white-space: nowrap;
+  box-shadow: 0 4px 12px -3px rgba(177, 30, 124, 0.35);
+}
+
+#subscriber-name-submit:hover {
+  background-color: #981969 !important;
+  padding-left: 14px !important;
 }
 
 .subscriber-linked {
@@ -684,7 +714,7 @@ body.notifications-enabled .toggle-image.on {
 
 /* プラットフォーム別設定エリア */
 #platform-settings {
-  background-color: #9217688c;
+  background-color: rgba(177, 30, 124, 0.045);
   max-height: 0;
   overflow: visible;
   transition: max-height 0.3s ease-in-out;
@@ -692,7 +722,7 @@ body.notifications-enabled .toggle-image.on {
 
 .settings-on #platform-settings {
   max-height: 800px;
-  padding: 10px 0;
+  padding: 8px 0;
 }
 
 .platform-settings-list {
@@ -701,12 +731,22 @@ body.notifications-enabled .toggle-image.on {
   margin: 0;
 }
 
+.platform-setting-button {
+  color: #8a8296 !important;
+  font-size: 0.88rem !important;
+}
+
+.platform-setting-button.is-on {
+  color: var(--color-primary) !important;
+  font-weight: 700 !important;
+}
+
 .platform-toggle {
   display: flex;
   justify-content: space-between;
   padding: 8px 20px;
   font-size: 0.9rem;
-  color: var(--color-light-text);
+  color: var(--color-text);
 }
 
 /* =========================
@@ -740,11 +780,11 @@ body.notifications-enabled .toggle-image.on {
   width: 46px;
   height: 26px;
   border-radius: 999px;
-  background: #9b88b7;
+  background: #d9cee2;
   position: relative;
   transition: background-color 0.18s ease, box-shadow 0.12s;
   vertical-align: middle;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.03);
+  box-shadow: inset 0 0 0 1px rgba(177, 30, 124, 0.10);
 }
 
 .toggle-notify .slider::before {
@@ -757,7 +797,7 @@ body.notifications-enabled .toggle-image.on {
   border-radius: 50%;
   background: #fff;
   transition: transform 0.18s ease;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
   will-change: transform;
 }
 
@@ -766,7 +806,7 @@ body.notifications-enabled .toggle-image.on {
 }
 
 .toggle-notify input[type="checkbox"]:checked+.slider {
-  background-color: var(--color-secondary);
+  background-color: var(--color-primary);
 }
 
 .toggle-notify input[type="checkbox"]:focus+.slider {

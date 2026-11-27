@@ -5,11 +5,11 @@
         display: flex;
         align-items: center;
         gap: 7px;
-        padding: 14px 20px 4px;
-        font-size: 0.7rem;
+        padding: 14px 20px 6px;
+        font-size: 0.72rem;
         font-weight: 800;
-        letter-spacing: 0.09em;
-        color: rgba(255, 255, 255, 0.55);
+        letter-spacing: 0.08em;
+        color: #8c7d96;
         pointer-events: none;
         border-bottom: none;
     }
@@ -21,15 +21,17 @@
 
     .nav-section-label i {
         font-size: 0.78rem;
-        opacity: 0.9;
+        color: var(--color-primary, #B11E7C);
+        opacity: 0.85;
     }
 
     .nav-list a i {
         display: inline-block;
         width: 1.5em;
         text-align: center;
-        margin-right: 3px;
-        opacity: 0.92;
+        margin-right: 4px;
+        color: var(--color-primary, #B11E7C);
+        opacity: 0.9;
         font-size: 0.92em;
     }
 
@@ -160,10 +162,10 @@
 
     .nav-logout-btn {
         width: 100%;
-        padding: 12px 16px;
+        padding: 12px 20px;
         background: none;
         border: none;
-        color: #e57373 !important;
+        color: #c62828 !important;
 
         align-items: center;
         gap: 10px;
@@ -175,7 +177,8 @@
     }
 
     .nav-logout-btn:hover {
-        background: rgba(255, 255, 255, 0.1);
+        background: rgba(198, 40, 40, 0.08) !important;
+        color: #b71c1c !important;
     }
 
     .nav-logout-avatar {
@@ -184,7 +187,7 @@
         border-radius: 50%;
         object-fit: cover;
         flex-shrink: 0;
-        border: 1px solid rgba(255, 255, 255, 0.4);
+        border: 1.5px solid rgba(177, 30, 124, 0.24);
     }
 
     /* 読み込み中ドット */
@@ -218,12 +221,48 @@
     /* ========================================
    ナビメニュー内のユーザー情報
 ======================================== */
+    .nav-auth-info {
+        padding: 12px 20px !important;
+    }
+
+    .nav-user-info {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .nav-user-text {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+    }
+
+    .nav-user-name,
+    .nav-user-email {
+        padding: 0 !important;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .nav-user-name {
+        font-size: 0.9rem !important;
+        font-weight: 700 !important;
+        color: var(--color-text, #2c2c3e) !important;
+    }
+
+    .nav-user-email {
+        font-size: 0.74rem !important;
+        font-weight: 500 !important;
+        color: #7c7288 !important;
+    }
+
     .nav-auth-avatar {
         width: 36px;
         height: 36px;
         border-radius: 50%;
         object-fit: cover;
-        border: 2px solid rgba(255, 255, 255, 0.4);
+        border: 2px solid rgba(177, 30, 124, 0.26);
         flex-shrink: 0;
     }
 
@@ -231,45 +270,55 @@
     .nav-oshi-info {
         display: flex;
         align-items: center;
-        gap: 5px;
-        margin-top: 4px;
+        gap: 6px;
+        margin-top: 8px;
         font-size: 0.78rem;
-        color: rgba(255, 255, 255, 0.8);
+        color: #6b5f78;
+    }
+
+    .nav-oshi-info span {
+        padding: 0 !important;
+        width: auto !important;
+        font-size: 0.78rem !important;
+        color: #6b5f78 !important;
     }
 
     /* ========================================
    ログインCTA（未ログイン時）
 ======================================== */
     .nav-login-prompt {
-        padding: 4px 0 6px;
+        padding: 12px 20px;
     }
 
     .nav-login-desc {
-        font-size: 0.75rem;
-        color: rgba(255, 255, 255, 0.65);
+        font-size: 0.76rem;
+        color: #6e657c;
         line-height: 1.55;
         margin: 0 0 10px;
     }
 
     .nav-auth-btn {
-        display: flex;
+        display: flex !important;
         align-items: center;
         justify-content: center;
         gap: 8px;
-        padding: 10px;
-        border-radius: 10px;
-        border: 1.5px solid rgba(255, 255, 255, 0.2);
-        background: rgba(255, 255, 255, 0.08);
-        color: #fff;
-        font-size: 0.85rem;
-        font-weight: 600;
+        padding: 10px 14px !important;
+        border-radius: 12px;
+        border: 1px solid rgba(177, 30, 124, 0.22) !important;
+        background: #fff !important;
+        color: var(--color-text, #2c2c3e) !important;
+        font-size: 0.85rem !important;
+        font-weight: 700 !important;
         cursor: pointer;
+        box-shadow: 0 4px 12px -4px rgba(177, 30, 124, 0.18);
         transition: all 0.2s;
     }
 
     .nav-auth-btn.google:hover {
-        background: rgba(255, 255, 255, 0.15);
-        border-color: rgba(255, 255, 255, 0.4);
+        background: #fdf6fa !important;
+        border-color: rgba(177, 30, 124, 0.45) !important;
+        color: var(--color-primary, #B11E7C) !important;
+        padding-left: 14px !important;
     }
 
     /* ========================================
