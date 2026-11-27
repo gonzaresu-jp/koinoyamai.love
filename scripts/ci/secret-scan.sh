@@ -15,7 +15,8 @@ PATTERNS=(
   'AWS アクセスキー|AKIA[0-9A-Z]{16}'
   'GitHub トークン|gh[pousr]_[A-Za-z0-9]{36,}'
   'GitHub fine-grained トークン|github_pat_[A-Za-z0-9_]{40,}'
-  'OpenAI / Anthropic 等の API キー|sk-(ant-|proj-)?[A-Za-z0-9_-]{32,}'
+  'OpenAI / Anthropic 等の API キー|(^|[^A-Za-z0-9_-])sk-(ant-|proj-)?[A-Za-z0-9_-]{32,}'
+  'Discord Bot トークン|[MNO][A-Za-z0-9_-]{23,27}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,40}'
   'Slack トークン|xox[baprs]-[A-Za-z0-9-]{20,}'
   'Google API キー|AIza[0-9A-Za-z_-]{35}'
   'Stripe 本番キー|[rs]k_live_[0-9A-Za-z]{24,}'
@@ -58,20 +59,51 @@ all_re="$(printf '%s\n' "${PATTERNS[@]}" | sed 's/^[^|]*|//' | paste -sd'|' -)"
 
 if [ "${1:-}" = "--range" ]; then
   range="${2:?--range には A..B を指定してください}"
+  # 範囲が解決できないと git log が何も出さず「OK」になってしまう（fail-open）ので先に確かめる
+  case "$range" in
+    *..*) from="${range%%..*}"; to="${range#*..}" ;;
+    *) echo "[secret-scan] --range は A..B の形で指定してください: $range" >&2; exit 2 ;;
+  esac
+  for rev in "$from" "${to:-HEAD}"; do
+    if ! git rev-parse --verify --quiet "${rev}^{commit}" >/dev/null; then
+      echo "[secret-scan] 範囲を解決できません（$rev）。検査できないため止めます" >&2
+      exit 2
+    fi
+  done
   echo "[secret-scan] 追加行を検査（コミットごと）: $range"
   # 範囲の両端の差分だと「途中で追加して後で消した」秘密値が打ち消し合って見えない。
   # git log -p でコミットごとの追加行を出し、awk で「パス<TAB>行番号<TAB>本文」に整形してから
   # まとめた正規表現で候補行だけに絞る（1 行ずつ grep を起動すると大きなコミットで極端に遅い）。
+  #   - ファイル境界は diff --git 行、追加行は hunk ヘッダの行数で数える
+  #     （本文が "++ " で始まる行を "+++ " ヘッダと取り違えないため）
+  #   - core.quotePath=false で日本語のパスを引用符なしで出す（引用符付きでも外して読む）
+  #   - --diff-merges=first-parent でマージコミットで持ち込まれた内容も見る
   while IFS=$'\t' read -r path ln text; do
     ignored_path "$path" && continue
     check_line "$path" "$ln" "$text"
-  done < <(git log -p -U0 --no-color --no-ext-diff --format= "$range" -- \
+  done < <(git -c core.quotePath=false log -p -U0 --no-color --no-ext-diff --diff-merges=first-parent --format= "$range" -- \
     | awk '
-        /^\+\+\+ b\// { path = substr($0, 7); next }
-        /^\+\+\+ /    { path = ""; next }
-        /^@@ /        { if (match($0, /\+[0-9]+/)) ln = substr($0, RSTART + 1, RLENGTH - 1) + 0; next }
-        /^\+/         { if (path != "") print path "\t" ln "\t" substr($0, 2); ln++; next }
-        /^ /          { ln++ }
+        /^diff --git / { path = ""; rem = 0; next }
+        rem > 0 {
+          c = substr($0, 1, 1)
+          if (c == "+") { if (path != "") print path "\t" ln "\t" substr($0, 2); ln++; rem-- }
+          next
+        }
+        /^\+\+\+ / {
+          p = substr($0, 5)
+          if (p ~ /^".*"$/) p = substr(p, 2, length(p) - 2)
+          path = (p ~ /^b\//) ? substr(p, 3) : ""
+          next
+        }
+        /^@@ / {
+          if (match($0, /\+[0-9]+(,[0-9]+)?/)) {
+            s = substr($0, RSTART + 1, RLENGTH - 1)
+            n = split(s, a, ",")
+            ln = a[1] + 0
+            rem = (n > 1) ? a[2] + 0 : 1
+          }
+          next
+        }
       ' \
     | grep -E -- "$all_re" || true)
 else

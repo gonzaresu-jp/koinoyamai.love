@@ -1,20 +1,26 @@
 # guard-bash.sh のルール（AGENTS.md §2・§13）。1 行 1 ルール: 種類|理由|正規表現（ERE）
 #   種類: deny … 実行させない / ask … ユーザーに確認を求める
 #   正規表現は行末まで（中で | を使ってよい）。理由には | を書かない。
-#   照合対象は「エージェントが書いたコマンド全文」（複数行なら行ごと）。
+#   照合対象は「エージェントが書いたコマンド全文」（行末 \ の継続行はつないだうえで、行ごと）。
+#   名前の後ろは空白だけでなく ; & | ) や引用符も来る（例: `pm2 restart mai-push-api;`）。終端は
+#   ([[:space:];&|)'"]|$) のように書く。
+#   正規表現なので、変数経由・URL エンコード等は止めきれない（層 1 の限界。層 2・3 の pre-push と CI で補う）。
 #   ルールを足したら scripts/ci/test-guard.sh にも例を足して動作を確かめること。
 
 # ---- 共通（テンプレート既定）----
-deny|--no-verify は git フックの検査を飛ばす。手作業では使わない（AGENTS.md §13）|git[^;&|]*[[:space:]]--no-verify([[:space:]]|$)
-deny|SKIP_PREPUSH は自動化（cron 等）の定型データ更新専用。手作業では使わない（AGENTS.md §13）|SKIP_PREPUSH=1
-deny|main / staging へは直接 push しない。ブランチを切って PR を作る（AGENTS.md §13）|git[^;&|]*[[:space:]]push[^;&|]*[[:space:]:+](main|staging)([[:space:]]|$)
-ask|強制 push は履歴を書き換える|git[^;&|]*[[:space:]]push[^;&|]*[[:space:]](--force|-f|--force-with-lease)([=[:space:]]|$)
-ask|未コミットの作業を消す操作（先に git status を確認する）|git[^;&|]*[[:space:]](reset[[:space:]]+--hard|clean[[:space:]]+-[A-Za-z]*f|checkout[[:space:]]+(--[[:space:]]+)?\.([[:space:]]|$)|restore[[:space:]]+\.([[:space:]]|$))
+deny|--no-verify は git フックの検査を飛ばす。手作業では使わない（AGENTS.md §13）|git[^;&|]*[[:space:]]--no-verify([[:space:];&|)'"=]|$)
+deny|core.hooksPath の上書きは pre-push を丸ごと無効にする（AGENTS.md §13）|git[^;&|]*[[:space:]]-c[[:space:]]*core\.hooks[Pp]ath
+deny|SKIP_PREPUSH は自動化（cron 等）の定型データ更新専用。手作業では使わない（AGENTS.md §13）|SKIP_PREPUSH=["']?1
+deny|main / staging へは直接 push しない。ブランチを切って PR を作る（AGENTS.md §13）|git[^;&|]*[[:space:]]push[^;&|]*[[:space:]:+'"](refs/heads/)?(main|staging)([[:space:];&|)'"]|$)
+deny|--all / --mirror は main / staging も含めて push する（AGENTS.md §13）|git[^;&|]*[[:space:]]push[^;&|]*[[:space:]]--(all|mirror)([[:space:];&|]|$)
+ask|強制 push は履歴を書き換える|git[^;&|]*[[:space:]]push[^;&|]*([[:space:]](--force|-f|--force-with-lease|--force-if-includes)([=[:space:];&|]|$)|[[:space:]]\+[A-Za-z0-9_./:-])
+ask|未コミットの作業を消す操作（先に git status を確認する）|git[^;&|]*[[:space:]](reset[[:space:]]+--hard|clean([[:space:]]+-[A-Za-z]+)*[[:space:]]+-[A-Za-z]*f|checkout[[:space:]]+(-f([[:space:];&|]|$)|(--[[:space:]]+)?\.([[:space:];&|]|$))|restore[[:space:]]+(--[[:space:]]+)?\.([[:space:];&|]|$))
 ask|PR のマージ（感度の高い変更はユーザー承認が必要。AGENTS.md §13）|gh[[:space:]]+pr[[:space:]]+merge
-ask|.env の中身を表示すると秘密値が会話ログに残る（AGENTS.md §3）|(^|[;&|[:space:]])(cat|less|more|head|tail|type|bat)[[:space:]][^;&|]*\.env([[:space:]]|$)
+ask|.env の中身を表示すると秘密値が会話ログに残る（AGENTS.md §3）|(^|[;&|[:space:]])(cat|less|more|head|tail|type|bat|grep|sed|awk|nl|strings|xxd|od)[[:space:]][^;&|]*\.env(\.(local|production|prod|development|dev|staging|test))?([[:space:];&|)'"]|$)
 
 # ---- プロジェクト固有（AGENTS.md §1・§2 に合わせて追記する）----
-deny|本番(8080)・公開ドメインの /api/notify は実ユーザー全員に push が届き取り消せない。動作確認は staging(8081) で行う（AGENTS.md §2）|(curl|wget|http|https)[^;&|]*(:8080|koinoyamai\.love)/api/notify
-ask|本番プロセス（mai-push-api / mai-push-worker / discord-bot）の再起動・停止は作業者の明示承認後のみ（AGENTS.md §6）|pm2[[:space:]]+(kill|(restart|reload|stop|delete|start)[^;&|]*[[:space:]](mai-push-api|mai-push-worker|discord-bot|all|ecosystem\.config\.js)([[:space:]]|$))
+deny|本番(8080)・公開ドメインの /api/notify は実ユーザー全員に push が届き取り消せない。動作確認は staging(8081) で行う（AGENTS.md §2）|(curl|wget|https?|fetch|node|python3?)[^;&|]*(:8080|[Kk][Oo][Ii][Nn][Oo][Yy][Aa][Mm][Aa][Ii]\.[Ll][Oo][Vv][Ee](:443)?)["']?/+api/+(\.\./+api/+)?notify
+ask|pm2 のプロセス操作は本番（mai-push-api / mai-push-worker / discord-bot）に当たり得る。本番は作業者の明示承認後のみ（AGENTS.md §6）|pm2[[:space:]]+(kill|restart|reload|gracefulReload|stop|delete|start|scale)([[:space:];&|]|$)
+ask|プロセスの kill は本番に当たり得る（AGENTS.md §6）|(^|[;&|(`[:space:]])(kill|pkill|killall)[[:space:]][^;&|]*(mai-push|discord-bot|server\.js|main\.js|node)
 ask|本番の nginx・依存・メンテナンスへの反映（AGENTS.md §5・§6.7）|(nginx/deploy\.sh|npm-deploy\.sh)[^;&|]*--apply|apply-maintenance\.(sh|js)[^;&|]*--(on|off)
-ask|systemd サービスの再起動・停止（llama-embed / pi-vector / nginx など）|systemctl[[:space:]]+(--user[[:space:]]+)?(restart|reload|stop|disable)
+ask|サービスの再起動・停止（llama-embed / pi-vector / nginx など）|systemctl[[:space:]]+(--user[[:space:]]+)?(restart|reload|stop|disable)|service[[:space:]]+[^[:space:];&|]+[[:space:]]+(restart|reload|stop)

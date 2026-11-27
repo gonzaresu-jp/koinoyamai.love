@@ -41,6 +41,10 @@ json_escape() {
   printf '%s' "$s"
 }
 
+# 行末の \ による継続行をつなぐ（つながないと「git push \⏎ origin main」が行ごとの照合をすり抜ける）
+cmd="${cmd//$'\\\r\n'/ }"
+cmd="${cmd//$'\\\n'/ }"
+
 ask_reason=""
 while IFS= read -r line || [ -n "$line" ]; do
   line="${line%$'\r'}"
@@ -51,10 +55,15 @@ while IFS= read -r line || [ -n "$line" ]; do
   if [ "$rest" = "$line" ] || [ "$re" = "$rest" ] || [ -z "$re" ]; then
     fail_closed "ルールの書式が不正（$line）"
   fi
-  printf '%s\n' "$cmd" | grep -Eq -- "$re"
+  # パイプにすると、長いコマンドで grep -q が先に終わり printf が SIGPIPE（rc=141）になって
+  # 「一致なし」と誤判定する（fail-open）。here-string で渡し、0 / 1 以外はすべて止める。
+  grep -Eq -- "$re" <<<"$cmd"
   rc=$?
-  if [ "$rc" -eq 2 ]; then fail_closed "ルールの正規表現が不正（$re）"; fi
-  [ "$rc" -ne 0 ] && continue
+  case "$rc" in
+    0) ;;
+    1) continue ;;
+    *) fail_closed "ルールの照合に失敗（rc=$rc, $re）" ;;
+  esac
   case "$kind" in
     deny)
       echo "[guard] このコマンドは実行できません: $reason" >&2

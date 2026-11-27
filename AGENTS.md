@@ -150,9 +150,11 @@
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
 - **ルールを仕組みで守る 3 層（2026-11-27 追加）**:
   1. エージェントのコマンド: `.claude/hooks/guard-bash.sh`（Claude Code の PreToolUse）が `.claude/hooks/guard-rules.txt`
-     に従い止める（deny）/ ユーザーに確認する（ask）。本番 `/api/notify`（§2）・本番 pm2 の再起動（§6）・
-     nginx / 依存の `--apply`・`--no-verify`・手作業の `SKIP_PREPUSH=1`・main / staging への push など。
+     に従い止める（deny）/ ユーザーに確認する（ask）。拒否: 本番 `/api/notify`（§2）・`--no-verify`・
+     `core.hooksPath` の上書き・手作業の `SKIP_PREPUSH=1`・main / staging への push。確認: pm2 のプロセス操作
+     （数値 ID でも本番に当たり得るため staging も含む。§6）・プロセスの kill・nginx / 依存の `--apply`・systemctl など。
      判定できないときは止める。**Claude Code 以外の AI ツール（OpenCode 等）には効かない**。
+     正規表現による照合なので、変数経由（`$URL/api/notify`）や URL エンコード等は止めきれない（層 1 の限界）。
   2. git: `scripts/hooks/pre-push` が保護ブランチへの push と、送信するコミット中の秘密値を止める（どのツールにも効く）。
   3. CI: 秘密値の検出とガードの判定テストを PR ごとに実行する。
   ガードに止められたら回避せず、理由を添えてユーザーに判断を仰ぐ。ルールを変えたら `scripts/ci/test-guard.sh` に例を足す。
