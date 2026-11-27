@@ -116,19 +116,23 @@
    統計カード
    ========================= */
 .stats-card {
-  background-color: rgba(255, 255, 255, 0.28);
-  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.44) 0%, rgba(252, 240, 249, 0.32) 55%, rgba(243, 236, 255, 0.34) 100%);
+  border-radius: 18px;
   padding: 1.5rem;
   margin-bottom: 2rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 14px 38px -6px rgba(177, 30, 124, 0.22),
+    0 5px 18px -2px rgba(138, 79, 255, 0.13),
+    0 0 0 1px rgba(255, 255, 255, 0.48) inset,
+    0 1px 0 rgba(255, 255, 255, 0.88) inset;
   text-align: center;
-  border: 0.14em solid var(--color-primary);
+  border: 1.5px solid rgba(177, 30, 124, 0.46);
   margin-top: 85px;
   position: relative;
   overflow: visible;
   animation: fadeInScale 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .count-page {
@@ -170,13 +174,41 @@
   will-change: transform;
   transition: filter 0.3s ease, scale 0.3s cubic-bezier(0.22, 0.61, 0.36, 1), translate 0.3s cubic-bezier(0.22, 0.61, 0.36, 1);
   animation: float 4s ease-in-out infinite;
-  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.18));
+  filter:
+    drop-shadow(0 12px 24px rgba(177, 30, 124, 0.24))
+    drop-shadow(0 4px 12px rgba(138, 79, 255, 0.16));
 }
 
 .count-bg-mai:hover {
   scale: 1.02;
   translate: 0 -6px;
-  filter: drop-shadow(0 16px 28px rgba(177, 30, 124, 0.32));
+  filter:
+    drop-shadow(0 18px 34px rgba(177, 30, 124, 0.38))
+    drop-shadow(0 6px 18px rgba(168, 85, 247, 0.24));
+}
+
+/* PC: 3dmai.webp に被らないようカウントボックス群を右寄せ＋横幅制限 */
+@media (min-width: 900px) {
+  .count-bg-mai {
+    left: 14px;
+    top: -92px;
+    width: clamp(250px, 29vw, 355px);
+  }
+
+  .count-page .stats-grid {
+    width: calc(100% - clamp(265px, 31vw, 375px));
+    max-width: 710px;
+    margin-left: auto;
+    gap: 1rem;
+  }
+
+  .count-page .stat-wide .value {
+    font-size: clamp(1.55rem, 2.6vw, 2.05rem);
+  }
+
+  .count-page .stat-half .value {
+    font-size: clamp(1.25rem, 2.1vw, 1.75rem);
+  }
 }
 
 
@@ -243,18 +275,35 @@
 
 .stat-item {
   position: relative;
-  background-color: #f4f0f8;
+  background: linear-gradient(158deg, rgba(255, 255, 255, 0.94) 0%, rgba(248, 240, 251, 0.88) 100%);
   padding: 1rem;
-  border-radius: 10px;
-  border: 1px solid rgba(177, 30, 124, 0.12);
+  border-radius: 12px;
+  border: 1px solid rgba(177, 30, 124, 0.18);
+  box-shadow:
+    0 8px 22px -6px rgba(177, 30, 124, 0.17),
+    0 2px 10px -2px rgba(138, 79, 255, 0.11),
+    0 1px 0 rgba(255, 255, 255, 0.94) inset;
   min-width: 325px;
-  transition: transform 0.25s cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 0.25s ease;
+  transition: transform 0.25s cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 0.25s ease, border-color 0.25s ease;
   animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.stat-item.stat-wide {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.96) 0%, rgba(253, 242, 250, 0.92) 60%, rgba(244, 238, 255, 0.90) 100%);
+  border-color: rgba(177, 30, 124, 0.24);
+  box-shadow:
+    0 10px 26px -6px rgba(177, 30, 124, 0.22),
+    0 3px 12px -2px rgba(138, 79, 255, 0.14),
+    0 1px 0 rgba(255, 255, 255, 0.96) inset;
 }
 
 .stat-item:hover {
   transform: translateY(-3px);
-  box-shadow: 0 6px 18px rgba(177, 30, 124, 0.14);
+  border-color: rgba(177, 30, 124, 0.38);
+  box-shadow:
+    0 14px 30px -6px rgba(177, 30, 124, 0.28),
+    0 4px 14px -2px rgba(138, 79, 255, 0.18),
+    0 1px 0 rgba(255, 255, 255, 0.96) inset;
 }
 
 .stat-copy-btn {
@@ -290,6 +339,7 @@
   color: var(--color-primary);
   line-height: 1.25;
   overflow-wrap: anywhere;
+  text-shadow: 0 2px 12px rgba(177, 30, 124, 0.18);
   transition: transform 0.3s cubic-bezier(0.22, 0.61, 0.36, 1);
   display: inline-block;
 }
@@ -342,7 +392,7 @@
   width: 100%;
   overflow-x: hidden;
   overflow-y: visible;
-  padding: 0 12px;
+  padding: 6px 12px 14px;
 }
 
 
@@ -401,6 +451,7 @@
   transform: scale(1.5);
   width: 20px;
   border-radius: 4px;
+  box-shadow: 0 0 10px rgba(177, 30, 124, 0.45);
 }
 
 /* カルーセル矢印 */
@@ -514,14 +565,17 @@
   flex-direction: column;
   margin: 6px;
 
-  background-color: rgba(255, 255, 255, 0.6);
+  background-color: rgba(255, 255, 255, 0.68);
 
   transition:
     background 0.2s,
-    box-shadow 0.25s ease;
+    box-shadow 0.25s ease,
+    transform 0.25s ease;
 
-  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.35),
-    0 1px 0 rgba(255, 255, 255, 0.8) inset;
+  box-shadow:
+    0 6px 18px -5px rgba(177, 30, 124, 0.14),
+    0 2px 8px -2px rgba(138, 79, 255, 0.08),
+    0 1px 0 rgba(255, 255, 255, 0.88) inset;
 
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.9);
@@ -568,7 +622,10 @@
 
 .week-row:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.10), 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+  box-shadow:
+    0 10px 24px -4px rgba(177, 30, 124, 0.2),
+    0 4px 12px -2px rgba(138, 79, 255, 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.92) inset;
 }
 
 .week-row:last-child {
@@ -577,9 +634,12 @@
 
 /* 「今日」のハイライト */
 .week-row.is-today {
-  background: #ffd7f0ad;
+  background: linear-gradient(180deg, rgba(255, 224, 244, 0.86) 0%, rgba(250, 214, 242, 0.78) 100%);
   /* ほんのりピンク（テーマ色に合わせ） */
-  box-shadow: 0 4px 10px rgba(177, 30, 124, 0.35);
+  box-shadow:
+    0 8px 22px -4px rgba(177, 30, 124, 0.32),
+    0 2px 10px -2px rgba(138, 79, 255, 0.16),
+    0 1px 0 rgba(255, 255, 255, 0.85) inset;
   border: 1px solid var(--color-primary);
 }
 
@@ -894,11 +954,14 @@
 
 /* ---- グラフカード ---- */
 .sub-graph-card {
-  background: #ffffff;
-  border: 1px solid #e0e0e0;
-  border-radius: 12px;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.96) 0%, rgba(252, 246, 252, 0.94) 100%);
+  border: 1px solid rgba(177, 30, 124, 0.16);
+  border-radius: 14px;
   padding: 10px 12px 8px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 8px 24px -6px rgba(177, 30, 124, 0.16),
+    0 2px 10px -2px rgba(138, 79, 255, 0.10),
+    0 1px 0 rgba(255, 255, 255, 0.95) inset;
   margin-bottom: 10px;
 }
 
@@ -1020,15 +1083,19 @@
 }
 
 .sub-rec-card {
-  background: #ffffffef;
-  border: 1px solid #e8e8e8;
-  border-radius: 10px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.95) 0%, rgba(249, 242, 252, 0.9) 100%);
+  border: 1px solid rgba(177, 30, 124, 0.16);
+  border-radius: 12px;
   padding: 8px 6px;
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 1px;
+  box-shadow:
+    0 6px 18px -5px rgba(177, 30, 124, 0.14),
+    0 2px 8px -2px rgba(138, 79, 255, 0.09),
+    0 1px 0 rgba(255, 255, 255, 0.92) inset;
 }
 
 .sub-rec-label {
@@ -1877,11 +1944,23 @@
 #next-event.show { display: flex; }
 #next-event.ne-card {
   align-items: center; gap: 12px; text-decoration: none; color: var(--color-text, #2c2c3e);
-  margin: 12px auto 4px; padding: 10px 12px; max-width: 760px; border-radius: 12px;
-  background: linear-gradient(135deg, #fff, #fbeef6); border: 1px solid rgba(177,30,124,.18);
-  box-shadow: 0 3px 12px rgba(177,30,124,.12); transition: transform .2s ease, box-shadow .2s ease;
+  margin: 12px auto 4px; padding: 10px 12px; max-width: 760px; border-radius: 14px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(251, 238, 246, 0.92));
+  border: 1px solid rgba(177,30,124,.22);
+  box-shadow:
+    0 8px 24px -5px rgba(177, 30, 124, 0.2),
+    0 3px 10px -2px rgba(138, 79, 255, 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.94) inset;
+  transition: transform .2s ease, box-shadow .25s ease, border-color .2s ease;
 }
-#next-event.ne-card:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(177,30,124,.18); }
+#next-event.ne-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(177,30,124,.38);
+  box-shadow:
+    0 14px 30px -5px rgba(177, 30, 124, 0.3),
+    0 5px 16px -2px rgba(138, 79, 255, 0.18),
+    0 1px 0 rgba(255, 255, 255, 0.96) inset;
+}
 #next-event .ne-thumb { flex: 0 0 auto; width: 124px; height: 70px; border-radius: 8px; overflow: hidden; background: #eadcef; }
 #next-event .ne-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 #next-event.no-thumb .ne-thumb { display: none; }
@@ -1906,8 +1985,15 @@
 
 /* --- 通知履歴: リスト / ヒートマップ タブ切替（ヒートマップ側に詳細統計を内包） --- */
 .hist-radio { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.hist-tabs { display: inline-flex; gap: 4px; margin: 4px 0 12px; padding: 4px; border-radius: 999px; background: #efe3f0; }
-.hist-tab { padding: 6px 18px; border-radius: 999px; font-size: .85rem; font-weight: 700; color: #8a6b7d; cursor: pointer; user-select: none; transition: background .15s, color .15s; }
+.hist-tabs {
+  display: inline-flex; gap: 4px; margin: 4px 0 12px; padding: 4px; border-radius: 999px;
+  background: rgba(244, 232, 245, 0.9);
+  border: 1px solid rgba(177, 30, 124, 0.16);
+  box-shadow:
+    0 6px 16px -5px rgba(177, 30, 124, 0.16),
+    0 1px 0 rgba(255, 255, 255, 0.85) inset;
+}
+.hist-tab { padding: 6px 18px; border-radius: 999px; font-size: .85rem; font-weight: 700; color: #8a6b7d; cursor: pointer; user-select: none; transition: background .15s, color .15s, box-shadow .2s; }
 /* JSで .log-section に .hist-heat を付け外しして切替（CSSセレクタ依存なし＝全WebViewで確実）。
    JS未実行時のフォールバックとして ~(兄弟結合子) も併記。 */
 /* --- クラス駆動（主） --- */
@@ -1918,7 +2004,11 @@
 .log-section:not(.hist-heat) #notification-heatmap,
 .log-section:not(.hist-heat) #notification-stats { display: none !important; }
 .log-section.hist-heat .hist-tab[for="histtab-heat"],
-.log-section:not(.hist-heat) .hist-tab[for="histtab-list"] { background: var(--color-primary, #B11E7C); color: #fff; }
+.log-section:not(.hist-heat) .hist-tab[for="histtab-list"] {
+  background: linear-gradient(135deg, #c22488, var(--color-primary, #B11E7C));
+  color: #fff;
+  box-shadow: 0 4px 12px -2px rgba(177, 30, 124, 0.42);
+}
 /* --- ~(フォールバック) --- */
 #histtab-heat:checked ~ #logs,
 #histtab-heat:checked ~ #more-logs-button,

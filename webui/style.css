@@ -25,6 +25,12 @@
   --tooltip-color: #fff;
   --tooltip-radius: 6px;
 
+  /* ライティング・カラーシャドウ */
+  --glow-pink: rgba(177, 30, 124, 0.22);
+  --glow-pink-strong: rgba(177, 30, 124, 0.34);
+  --glow-violet: rgba(138, 79, 255, 0.14);
+  --glow-highlight: rgba(255, 255, 255, 0.88);
+
   /* パネル幅（左スワイプ用） */
   --panel-width: 50vw;
 }
@@ -35,23 +41,30 @@
 
 .load-more-btn {
   appearance: none;
-  background-color: #B11E7C;
+  background: linear-gradient(135deg, #c22488 0%, #B11E7C 60%, #981d78 100%);
   color: white;
-  border: none;
-  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 10px;
   padding: 12px 30px;
   font-size: 16px;
   font-weight: bold;
   cursor: pointer;
   margin: 20px auto 30px;
   display: block;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  transition: background-color 0.2s, transform 0.2s;
+  box-shadow:
+    0 8px 22px -4px rgba(177, 30, 124, 0.42),
+    0 3px 10px -2px rgba(138, 79, 255, 0.24),
+    0 1px 0 rgba(255, 255, 255, 0.35) inset;
+  transition: filter 0.2s ease, transform 0.2s ease, box-shadow 0.25s ease;
 }
 
 .load-more-btn:hover {
-  background-color: #901764;
+  filter: brightness(1.06);
   transform: translateY(-2px);
+  box-shadow:
+    0 12px 28px -4px rgba(177, 30, 124, 0.52),
+    0 4px 14px -2px rgba(138, 79, 255, 0.3),
+    0 1px 0 rgba(255, 255, 255, 0.45) inset;
 }
 
 /* =========================
@@ -220,16 +233,21 @@ body::after {
    ヘッダー
    ========================= */
 header {
-  background-color: var(--color-primary-alpha);
+  background: linear-gradient(135deg, rgba(177, 30, 124, 0.82) 0%, rgba(154, 29, 118, 0.78) 60%, rgba(127, 37, 88, 0.82) 100%);
   color: var(--color-light-text);
   padding: 0 1rem;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28), 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+  box-shadow:
+    0 6px 24px -2px rgba(177, 30, 124, 0.34),
+    0 2px 12px rgba(96, 30, 120, 0.22),
+    0 1px 0 rgba(255, 255, 255, 0.2) inset;
   position: relative;
   display: flex;
   justify-content: space-between;
   align-items: center;
   z-index: 5;
   overflow: hidden;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 header h1 {
@@ -721,17 +739,25 @@ main {
 
 .controls .toolbar-btn {
   color: var(--color-primary);
-  border: 1px solid var(--color-primary);
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(177, 30, 124, 0.35);
   padding: 0.5rem;
-  border-radius: 8px;
+  border-radius: 9px;
   cursor: pointer;
   font-weight: 500;
+  box-shadow:
+    0 4px 12px -3px rgba(177, 30, 124, 0.18),
+    0 1px 0 rgba(255, 255, 255, 0.9) inset;
   transition: all 0.2s ease;
   margin: 4px;
 }
 
 .controls .toolbar-btn:hover {
   background: var(--color-highlight-bg);
+  transform: translateY(-1px);
+  box-shadow:
+    0 6px 16px -3px rgba(177, 30, 124, 0.3),
+    0 2px 6px rgba(138, 79, 255, 0.14);
 }
 
 /* =========================
@@ -801,10 +827,12 @@ main {
   gap: 1rem;
   padding: 1rem;
   margin-bottom: 10px;
-  background-color: rgba(255, 255, 255, 0.85);
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.92) 0%, rgba(252, 245, 251, 0.86) 100%);
   border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06),
-    0 1px 0 rgba(255, 255, 255, 0.8) inset;
+  box-shadow:
+    0 6px 20px -5px rgba(177, 30, 124, 0.16),
+    0 2px 8px -2px rgba(138, 79, 255, 0.10),
+    0 1px 0 rgba(255, 255, 255, 0.92) inset;
   border-left: 5px solid var(--color-primary);
   transition:
     transform 0.3s cubic-bezier(0.22, 0.61, 0.36, 1),
@@ -815,8 +843,8 @@ main {
   overflow-x: hidden;
   overflow-y: auto; /* max-height(500px)を超えたら縦スクロール可能にする */
   max-height: 500px;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 .card .body {
@@ -827,7 +855,10 @@ main {
 
 .card:hover {
   transform: translateY(-3px) scale(1.01) !important;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12), 0 8px 24px rgba(177, 30, 124, 0.15);
+  box-shadow:
+    0 14px 32px -4px rgba(177, 30, 124, 0.26),
+    0 6px 18px -2px rgba(138, 79, 255, 0.16),
+    0 1px 0 rgba(255, 255, 255, 0.96) inset;
   background-color: rgba(255, 255, 255, 0.98);
 }
 
@@ -857,11 +888,17 @@ main {
 }
 
 .history {
-  background-color: rgba(255, 255, 255, 0.25);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.56) 0%, rgba(250, 236, 248, 0.44) 100%);
   border-left: 5px solid var(--color-primary);
   padding: 1rem;
-  border-radius: 10px;
+  border-radius: 12px;
   align-items: center;
+  box-shadow:
+    0 8px 22px -6px rgba(177, 30, 124, 0.18),
+    0 2px 10px -2px rgba(138, 79, 255, 0.10),
+    0 1px 0 rgba(255, 255, 255, 0.82) inset;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 
 .view-list {
