@@ -23,6 +23,7 @@
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   overflow: hidden;
+  animation: fadeInScale var(--dur-slow, 0.62s) var(--ease-mai, cubic-bezier(0.22, 1, 0.36, 1)) both;
 }
 
 /* ---------- ページヘッダー帯 ---------- */

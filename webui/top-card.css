@@ -167,23 +167,81 @@
   pointer-events: auto;
   opacity: 1;
   cursor: pointer;
-  /* transform は animation(float) が制御するため transition から除外。
-     transform と transition を同時に当てるとブラウザがフレーム毎にイージングを
-     再計算してアニメーションをカクつかせる。will-change は transform のみに絞る。 */
+  /* transform は mai-voice.js のスクロール＆マウス追従パララックスに委ね、
+     呼吸・ホバー・タップ弾みは独立プロパティ（translate / scale）で衝突させない */
   will-change: transform;
-  transition: filter 0.3s ease, scale 0.3s cubic-bezier(0.22, 0.61, 0.36, 1), translate 0.3s cubic-bezier(0.22, 0.61, 0.36, 1);
-  animation: float 4s ease-in-out infinite;
+  transform-origin: center 75%;
+  transition: filter 0.3s ease, scale 0.3s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1)), translate 0.3s var(--ease-mai, cubic-bezier(0.22, 1, 0.36, 1));
+  animation: maiBreathe 4.6s ease-in-out infinite;
   filter:
     drop-shadow(0 12px 24px rgba(177, 30, 124, 0.24))
     drop-shadow(0 4px 12px rgba(138, 79, 255, 0.16));
 }
 
 .count-bg-mai:hover {
-  scale: 1.02;
-  translate: 0 -6px;
+  scale: 1.03;
+  translate: 0 -8px;
   filter:
     drop-shadow(0 18px 34px rgba(177, 30, 124, 0.38))
     drop-shadow(0 6px 18px rgba(168, 85, 247, 0.24));
+}
+
+.count-bg-mai.is-squish {
+  animation: maiSquish 0.56s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1)) both;
+}
+
+.count-bg-mai.is-speaking {
+  animation: maiBreathe 4.6s ease-in-out infinite, maiSpeakAura 1.5s ease-in-out infinite;
+}
+
+.count-bg-mai.is-squish.is-speaking {
+  animation: maiSquish 0.56s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1)) both, maiSpeakAura 1.5s ease-in-out infinite;
+}
+
+@keyframes maiBreathe {
+  0%, 100% {
+    translate: 0 0;
+    scale: 1 1;
+  }
+  50% {
+    translate: 0 -6px;
+    scale: 1.014 0.992;
+  }
+}
+
+@keyframes maiSquish {
+  0% {
+    scale: 1 1;
+  }
+  28% {
+    scale: 1.08 0.91;
+    translate: 0 4px;
+  }
+  58% {
+    scale: 0.96 1.05;
+    translate: 0 -9px;
+  }
+  80% {
+    scale: 1.02 0.99;
+    translate: 0 -2px;
+  }
+  100% {
+    scale: 1 1;
+    translate: 0 0;
+  }
+}
+
+@keyframes maiSpeakAura {
+  0%, 100% {
+    filter:
+      drop-shadow(0 14px 28px rgba(177, 30, 124, 0.34))
+      drop-shadow(0 0 18px rgba(214, 51, 152, 0.28));
+  }
+  50% {
+    filter:
+      drop-shadow(0 18px 36px rgba(177, 30, 124, 0.56))
+      drop-shadow(0 0 30px rgba(214, 51, 152, 0.52));
+  }
 }
 
 /* PC: 3dmai.webp に被らないよう「デビューから」ボックスのみ右列へ配置（他4セルは従来通り） */
@@ -217,9 +275,13 @@
   box-shadow: 0 6px 24px rgba(177, 30, 124, 0.22), 0 2px 10px rgba(0, 0, 0, 0.10);
   cursor: pointer;
   opacity: 0;
+  filter: blur(8px);
   pointer-events: none;
-  transform: translateX(10px) scale(0.92);
-  transition: opacity 0.25s cubic-bezier(0.22, 1, 0.36, 1), transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translateX(12px) scale(0.9);
+  transition:
+    opacity 0.28s var(--ease-mai, cubic-bezier(0.22, 1, 0.36, 1)),
+    filter 0.28s var(--ease-mai, cubic-bezier(0.22, 1, 0.36, 1)),
+    transform 0.34s var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1));
 }
 
 /* 左向き三角（吹き出しのしっぽ）- アウトライン付き */
@@ -248,6 +310,7 @@
 
 .mai-voice-popup.is-open {
   opacity: 1;
+  filter: none;
   transform: translateX(0) scale(1);
   pointer-events: auto;
 }
@@ -1739,96 +1802,33 @@
 
 
 /* ==============================================
-   追加アニメーション・リッチ強化 (v2.53)
+   追加アニメーション・リッチ強化（共通キーフレームは style.css から継承）
    ============================================== */
-
-/* キーフレーム定義（top-card 内用） */
-@keyframes fadeInUp {
-  0% {
-    opacity: 0;
-    transform: translateY(18px);
-  }
-
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
 
 @keyframes fadeInOutOfMonth {
   0% {
     opacity: 0;
     transform: translateY(6px);
-    filter: blur(4px);
+    filter: blur(5px);
   }
 
   100% {
     opacity: 0.35;
-    transform: translateY(0);
-    filter: blur(0);
-  }
-}
-
-@keyframes fadeIn {
-  0% {
-    opacity: 0;
-    transform: translateY(6px);
-    filter: blur(4px);
-  }
-
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-    filter: blur(0);
-  }
-}
-
-@keyframes fadeInScale {
-  0% {
-    opacity: 0;
-    transform: scale(0.94);
-  }
-
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes float {
-
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-
-  50% {
-    transform: translateY(-6px);
-  }
-}
-
-@keyframes glowPulse {
-
-  0%,
-  100% {
-    box-shadow: 0 2px 10px rgba(177, 30, 124, 0.28);
-  }
-
-  50% {
-    box-shadow: 0 2px 18px rgba(177, 30, 124, 0.52), 0 0 0 4px rgba(177, 30, 124, 0.12);
+    transform: none;
+    filter: none;
   }
 }
 
 /* weekly-message フェードイン */
 #weekly-message:not(.is-empty) {
-  animation: fadeIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: fadeIn var(--dur-base, 0.48s) var(--ease-mai, cubic-bezier(0.22, 1, 0.36, 1)) both;
 }
 
 /* stats-page スライド入場 */
 .stats-page {
   flex: 0 0 100%;
   width: 100%;
-  animation: fadeInScale 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: fadeInScale var(--dur-base, 0.48s) var(--ease-mai, cubic-bezier(0.22, 1, 0.36, 1)) both;
 }
 
 /* sub-tab ホバー強化 */
@@ -2011,6 +2011,13 @@
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   margin-bottom: 24px;
+  animation: fadeInUp var(--dur-slow, 0.62s) var(--ease-mai, cubic-bezier(0.22, 1, 0.36, 1)) 0.08s both;
+}
+
+.log-section:not(.hist-heat) #logs,
+.log-section.hist-heat #notification-heatmap,
+.log-section.hist-heat #notification-stats {
+  animation: fadeIn var(--dur-base, 0.42s) var(--ease-mai, cubic-bezier(0.22, 1, 0.36, 1)) both;
 }
 
 /* --- 通知履歴ヘッダーバー（パネル上部に一体化） --- */

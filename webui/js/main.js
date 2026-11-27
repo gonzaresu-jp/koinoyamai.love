@@ -14,6 +14,7 @@ import {
   loadPlatformSettingsUIFromServer
 } from './uiController.js?v=20260317a';
 import './palette.js';
+import './mai-motion.js';
 
 function isAndroidApp() {
   try {
