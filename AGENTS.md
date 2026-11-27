@@ -180,6 +180,8 @@ PR に無関係なコミットが混入する）。以後、物理的に分離�
 - **PR 本文に「この PR が含むべきファイル一覧」を書く**。レビュアーは `git diff --stat` で
   混入を検出する（PR #83 で実際に機能した）。
 - **後始末**: `git -C /var/www/html/koinoyamai.love worktree remove <path>` で worktree を削除する。
+  ブランチはスカッシュマージだと `git branch -d` が「未マージ」と拒否するため、中身が main に取り込まれたことを
+  確かめてから `git branch -D` で消す。
 
 ### 14.2 ツール
 
@@ -187,8 +189,10 @@ PR に無関係なコミットが混入する）。以後、物理的に分離�
   **手動で呼ぶ安全確認用**（deploy / テスト前）。cron / pre-push からは呼ばない
   （staging ツリーが作業中ブランチ上だと毎回 fail して Cron が死ぬため）。
 - `scripts/ops/new-worktree.sh <slug> [base-ref]` … worktree を作成し、env.sh を出力する。
-- `scripts/hooks/pre-push` … `main` / `staging` への直接 push を拒否するガードを追加（§13 の運用を機械化）。
-> detached HEAD では `git branch --show-current` が空を返すため、ガードは exit 1（fail-closed）になる。安全側に倒れるので問題ない。
+- `scripts/hooks/pre-push` … `main` / `staging` への直接 push を拒否するガード（§13 の運用を機械化）。
+  判定は git が標準入力で渡す**実際の push 先の ref** で行う（2026-11-27 変更）。旧方式は「今いるブランチ名」で
+  判定していたため、`git push origin agent/x:main` や別ブランチからの `git push origin main` を通していた
+  （PR #114 の独立レビューで指摘）。判定は `scripts/ci/test-pre-push.sh` が CI で毎回検査する。
 
 ### 14.3 node_modules の共有方針
 

@@ -15,7 +15,7 @@
 #   4. 回帰テスト（npm test / scripts/ops/regression-test.js）
 #
 # 回避:
-#   git push --no-verify        … フック全体をスキップ
+#   git push --no-verify        … フック全体をスキップ（人間が判断した場合のみ。エージェントはガードで拒否される）
 #   SKIP_PREPUSH_REGRESSION=1   … 回帰テストのみスキップ（構文検査は実行）
 #   SKIP_PREPUSH=1              … フック全体をスキップ（cron の自動 push 用）
 set -uo pipefail
@@ -26,12 +26,37 @@ cd "$ROOT"
 # --- 0a. 保護ブランチへの直接 push を拒否 ---
 #   main / staging は PR 経由でのみ変更する（AGENTS.md §13）。
 #   例外: 日次 cron の自動 push（SKIP_PREPUSH=1）のみ。
-BRANCH=$(git branch --show-current 2>/dev/null || echo "")
-if [ "$BRANCH" = "main" ] || [ "$BRANCH" = "staging" ]; then
-  if [ "${SKIP_PREPUSH:-0}" != "1" ]; then
-    echo "[pre-push] ${BRANCH} への直接 push は禁止されています（PR 経由で変更してください）" >&2
-    exit 1
+#   判定は「今いるブランチ名」ではなく、git が標準入力で渡す**実際の push 先の ref** で行う
+#   （ブランチ名だと `git push origin agent/x:main` や他ブランチからの `git push origin main` を通してしまう）。
+#   標準入力の各行: <local ref> <local sha> <remote ref> <remote sha>
+ZERO_SHA="0000000000000000000000000000000000000000"
+PROTECTED_REFS="refs/heads/main refs/heads/staging"
+blocked_ref=""
+SECRET_RANGES=()
+while read -r _local_ref local_sha remote_ref remote_sha; do
+  [ -z "${remote_ref:-}" ] && continue
+  for p in $PROTECTED_REFS; do
+    [ "$remote_ref" = "$p" ] && blocked_ref="$remote_ref"
+  done
+  # 秘密値の検査範囲（この push で新しく送るコミット）。削除 push は対象外
+  [ "$local_sha" = "$ZERO_SHA" ] && continue
+  if [ "$remote_sha" != "$ZERO_SHA" ] && git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
+    SECRET_RANGES+=("$remote_sha..$local_sha")
+  else
+    nb_base="$(git merge-base "$local_sha" origin/main 2>/dev/null || true)"
+    if [ -n "$nb_base" ]; then
+      SECRET_RANGES+=("$nb_base..$local_sha")
+    else
+      # 共通の祖先が無い（origin/main 未取得など）ときは、ルートからすべて見る
+      nb_root="$(git rev-list --max-parents=0 "$local_sha" | tail -n 1)"
+      SECRET_RANGES+=("$nb_root..$local_sha")
+    fi
   fi
+done
+
+if [ -n "$blocked_ref" ] && [ "${SKIP_PREPUSH:-0}" != "1" ]; then
+  echo "[pre-push] ${blocked_ref#refs/heads/} への直接 push は禁止されています（ブランチを切って PR を作ってください。AGENTS.md §13）" >&2
+  exit 1
 fi
 
 if [ "${SKIP_PREPUSH:-0}" = "1" ]; then
@@ -108,7 +133,7 @@ fi
 
 # 構文エラーがあれば回帰テストを浪費せず打ち切る
 if [ $fail -ne 0 ]; then
-  echo "${RED}[pre-push] 構文エラーのため中断（--no-verify で回避可能）${RST}"
+  echo "${RED}[pre-push] 構文エラーのため中断（--no-verify は人間が判断した場合のみ。AGENTS.md §13）${RST}"
   exit 1
 fi
 
@@ -129,18 +154,21 @@ fi
 # --- 3b. 秘密値（トークン・鍵）の検出（AGENTS.md §3） ---
 #   送信するコミットごとの追加行を見る（途中で入れて後で消したものも履歴に残るため止める）。
 #   SKIP_PREPUSH_REGRESSION より前に置き、回帰テストを飛ばしても必ず実行する。
-echo "[pre-push] 秘密値の検出（$RANGE）"
-if bash scripts/ci/secret-scan.sh --range "$RANGE"; then
-  echo "${GRN}[pre-push] ✓ 秘密値なし${RST}"
-else
-  echo "${RED}[pre-push] ✗ 送信するコミットに秘密値らしき文字列があります${RST}"
-  exit 1
-fi
+#   範囲は 0a で標準入力（実際に push する ref）から求めたもの。
+for sr in "${SECRET_RANGES[@]+"${SECRET_RANGES[@]}"}"; do
+  echo "[pre-push] 秘密値の検出（$sr）"
+  if bash scripts/ci/secret-scan.sh --range "$sr"; then
+    echo "${GRN}[pre-push] ✓ 秘密値なし${RST}"
+  else
+    echo "${RED}[pre-push] ✗ 送信するコミットに秘密値らしき文字列があります${RST}"
+    exit 1
+  fi
+done
 
 # --- 4. 回帰テスト ---
 if [ "${SKIP_PREPUSH_REGRESSION:-0}" = "1" ]; then
   echo "${YLW}[pre-push] SKIP_PREPUSH_REGRESSION=1 により回帰テストをスキップ${RST}"
-  # バージョン整合の失敗を握り潰さない（この exit で push まで通“因为しない）
+  # バージョン整合の失敗を握り潰さない（この exit で push まで通さない）
   exit $fail
 fi
 
@@ -149,7 +177,7 @@ if npm test; then
   echo "${GRN}[pre-push] ✓ 回帰テスト pass${RST}"
 else
   echo "${RED}[pre-push] ✗ 回帰テスト failed${RST}"
-  echo "          差し戻す場合は git push --no-verify"
+  echo "          原因を直してから push してください（--no-verify は人間が判断した場合のみ。AGENTS.md §13）"
   fail=1
 fi
 
