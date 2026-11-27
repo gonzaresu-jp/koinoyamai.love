@@ -187,27 +187,14 @@
     drop-shadow(0 6px 18px rgba(168, 85, 247, 0.24));
 }
 
-/* PC: 3dmai.webp に被らないようカウントボックス群を右寄せ＋横幅制限 */
+/* PC: 3dmai.webp に被らないよう「デビューから」ボックスのみ右列へ配置（他4セルは従来通り） */
 @media (min-width: 900px) {
   .count-bg-mai {
-    left: 14px;
-    top: -92px;
-    width: clamp(250px, 29vw, 355px);
+    width: min(380px, 38vw);
   }
 
-  .count-page .stats-grid {
-    width: calc(100% - clamp(265px, 31vw, 375px));
-    max-width: 710px;
-    margin-left: auto;
-    gap: 1rem;
-  }
-
-  .count-page .stat-wide .value {
-    font-size: clamp(1.55rem, 2.6vw, 2.05rem);
-  }
-
-  .count-page .stat-half .value {
-    font-size: clamp(1.25rem, 2.1vw, 1.75rem);
+  .count-page .stat-wide {
+    grid-column: 2 / 3;
   }
 }
 
