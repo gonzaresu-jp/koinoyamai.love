@@ -11,14 +11,30 @@ trap 'rm -rf "$W"' EXIT
 # ---- 代役（PATH の先頭に置く）----
 mkdir -p "$W/bin"
 # pm2 の代役: 呼び出しを記録。jlist には discord-bot の状態を返す
-# （本番の app.txt が BOT_BAD と同じなら errored ＝ 悪いコミットで Bot が落ちる）
+#   BOT_BAD   … 本番の app.txt がこの値なら errored（悪いコミットで Bot が落ちる）
+#   BOT_CRASH … 本番の app.txt がこの値なら online のまま再起動回数が増え続ける（クラッシュループ）
+#   BOT_INITIAL … stopped / missing。運用で止めている・未登録（自動デプロイは触らないので変わらない）
+#   JLIST_NOISE=1 … JSON の前に pm2 の警告行を出す
 cat > "$W/bin/pm2" <<'EOF'
 #!/usr/bin/env bash
 echo "pm2 $*" >> "$TEST_LOG"
 if [ "${1:-}" = "jlist" ]; then
-  st=online
-  if [ -n "${BOT_BAD:-}" ] && [ "$(tr -d '\r\n' < "$AUTO_DEPLOY_PROD_DIR/app.txt" 2>/dev/null)" = "$BOT_BAD" ]; then st=errored; fi
-  printf '[{"name":"mai-push-api","pm2_env":{"status":"online"}},{"name":"discord-bot","pm2_env":{"status":"%s"}}]\n' "$st"
+  content="$(tr -d '\r\n' < "$AUTO_DEPLOY_PROD_DIR/app.txt" 2>/dev/null)"
+  st=online; rt=0
+  [ -n "${BOT_INITIAL:-}" ] && st="$BOT_INITIAL"
+  if [ -n "${BOT_BAD:-}" ] && [ "$content" = "$BOT_BAD" ]; then st=errored; fi
+  if [ -n "${BOT_CRASH:-}" ] && [ "$content" = "$BOT_CRASH" ]; then
+    rt=$(( $(cat "$TEST_LOG.rt" 2>/dev/null || echo 0) + 1 )); echo "$rt" > "$TEST_LOG.rt"
+  fi
+  if [ "${JLIST_NOISE:-}" = "1" ]; then
+    echo ">>>> In-memory PM2 is out-of-date, do:"
+    echo ">>>> \$ pm2 update"
+  fi
+  if [ "$st" = "missing" ]; then
+    printf '[{"name":"mai-push-api","pm2_env":{"status":"online","restart_time":0}}]\n'
+  else
+    printf '[{"name":"mai-push-api","pm2_env":{"status":"online","restart_time":0}},{"name":"discord-bot","pm2_env":{"status":"%s","restart_time":%s}}]\n' "$st" "$rt"
+  fi
 fi
 EOF
 cat > "$W/bin/gh" <<'EOF'
@@ -81,7 +97,7 @@ export PYTHONIOENCODING=utf-8
 g() { git -c user.email=t@t -c user.name=t -c core.autocrlf=false "$@"; }
 
 setup() { # 新しいリモート・本番・staging を作る（main に A、本番は A、staging は別ブランチ、main に B を追加）
-  rm -rf "$W/remote.git" "$W/prod" "$W/stg" "$W/dev" "$W/state" "$W/lock" "$TEST_LOG" "$TEST_LOG.concurrent" "$W/out"
+  rm -rf "$W/remote.git" "$W/prod" "$W/stg" "$W/dev" "$W/state" "$W/lock" "$TEST_LOG" "$TEST_LOG.concurrent" "$TEST_LOG.rt" "$W/out"
   : > "$TEST_LOG"
   g init -q --bare -b main "$W/remote.git"
   g clone -q "$W/remote.git" "$W/dev" 2>/dev/null
@@ -195,6 +211,22 @@ setup; CI_STATE=success BOT_BAD=B run
 check "discord-bot 異常なら A に戻す" "$(t test "$(prod_head)" = "$A")"
 check "discord-bot 異常も rolled-back" "$(t test "$(state status)" = "rolled-back")"
 check "discord-bot を再起動（配置時とロールバック時）" "$(t test "$(grep -c 'pm2 restart discord-bot --update-env' "$TEST_LOG")" = "2")"
+
+# 10c. discord-bot がクラッシュループ（online に見えるが再起動回数が増え続ける）→ ロールバック
+setup; CI_STATE=success BOT_CRASH=B run
+check "クラッシュループなら A に戻す" "$(t test "$(prod_head)" = "$A")"
+
+# 10d. pm2 jlist の前に警告行が出ても、正しく読んで配置する（誤ってロールバックしない）
+setup; CI_STATE=success JLIST_NOISE=1 run
+check "jlist に警告行があっても本番は B" "$(t test "$(prod_head)" = "$B")"
+check "jlist に警告行があっても success" "$(t test "$(state status)" = "success")"
+
+# 10e. discord-bot を運用で止めている / 未登録 → 起こさず、確認もしない（配置は成功する）
+for init in stopped missing; do
+  setup; CI_STATE=success BOT_INITIAL=$init run
+  check "discord-bot が $init なら配置は成功" "$(t test "$(prod_head)" = "$B")"
+  check "discord-bot が $init なら再起動しない" "$(t bash -c "! grep -q 'pm2 restart discord-bot' '$TEST_LOG'")"
+done
 
 # 11. 戻しても直らない → rolled-back-unhealthy
 setup; CI_STATE=success PROD_CODE=500 run

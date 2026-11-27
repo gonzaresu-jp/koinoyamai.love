@@ -100,7 +100,10 @@ bash scripts/ops/auto-deploy.sh     # main の新コミット → CI 確認 → 
   来ると 5 分以内に main で上書きされる。長く確かめたいときは、その間 cron 行を止めるか、main への
   マージを待ってもらう。
 - 本番: `git merge --ff-only` で進め（`reset --hard` で消さない）、**API・ワーカー・discord-bot を再起動**し、
-  本番 smoke test ＋ワーカーの `/api/health/live`（:3002）＋ discord-bot が pm2 で online であること（2 回続けて）を確認。
+  本番 smoke test ＋ワーカーの `/api/health/live`（:3002）＋ discord-bot が pm2 で online のまま再起動回数が増えないこと（2 回続けて）を確認。
+  discord-bot は**配置前に online だったときだけ**再起動・確認する（運用で止めている・未登録なら触らない。
+  止めたまま運用したいときは、そのまま止めておけばよい）。名前指定の `pm2 restart` なので ecosystem の
+  interpreter・env の変更は反映されない（その場合は `scripts/deploy/restart.sh`。§5）。
 - 止まり方は 2 種類（状態ファイル `/var/lib/mai-push/auto-deploy-state.json` の `status`）:
   - **失敗**（コミット自体が悪い: `ci-failed` / `staging-failed` / `rolled-back` / `rolled-back-unhealthy` /
     `rollback-skipped`）→ `failedCommit` に記録し、**新しいコミットが来るまで再試行しない**（再起動・通知の連発を防ぐ）。
@@ -115,7 +118,7 @@ bash scripts/ops/auto-deploy.sh     # main の新コミット → CI 確認 → 
 - 実行中に自分自身（本番ツリーのファイル）が書き換わっても影響しないよう、一時コピーに移ってから実行する。
 - Discord の通知本文は python で JSON にする（コミットメッセージの改行・`"` で壊れない）。Bot トークンは
   コマンド引数に出さない（`curl -K <(...)`）。
-- 判定テスト: `scripts/ci/test-auto-deploy.sh`（使い捨てのリポジトリと pm2 / gh / curl の代役で 13 の場面・46 項目を
+- 判定テスト: `scripts/ci/test-auto-deploy.sh`（使い捨てのリポジトリと pm2 / gh / curl の代役で 16 の場面・53 項目を
   再現。CI で実行）。
 - cron: `*/5 * * * *`。
 
