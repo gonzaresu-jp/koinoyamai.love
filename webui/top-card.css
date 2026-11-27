@@ -261,7 +261,7 @@
 
 .stat-item {
   position: relative;
-  background: rgba(255, 255, 255, 0.88);
+  background-color: rgba(255, 255, 255, 0.88);
   padding: 1.05rem 1rem;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.94);
@@ -276,7 +276,7 @@
 }
 
 .stat-item.stat-wide {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.94) 0%, rgba(253, 246, 251, 0.90) 100%);
+  background-color: rgba(255, 251, 254, 0.93);
   box-shadow:
     0 10px 26px -8px rgba(177, 30, 124, 0.18),
     0 3px 12px -3px rgba(138, 79, 255, 0.11),
@@ -286,7 +286,7 @@
 
 .stat-item:hover {
   transform: translateY(-2px);
-  background: rgba(255, 255, 255, 0.96);
+  background-color: rgba(255, 255, 255, 0.97);
   box-shadow:
     0 14px 28px -8px rgba(177, 30, 124, 0.24),
     0 4px 14px -3px rgba(138, 79, 255, 0.14),

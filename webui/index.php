@@ -488,7 +488,7 @@
                         <h2 class="history fade" id="log-heading">通知履歴</h2>
                         <div class="hist-tabs" role="tablist" aria-label="通知履歴の表示切替">
                             <label class="hist-tab" for="histtab-list">リスト</label>
-                            <label class="hist-tab" for="histtab-heat">ヒートマップ</label>
+                            <label class="hist-tab" for="histtab-heat">統計</label>
                         </div>
                     </div>
 
