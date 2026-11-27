@@ -18,27 +18,6 @@
     <link rel="manifest" href="./manifest.json" />
     <link rel="stylesheet" href="./heatmap.min.css?v=<?= @filemtime(__DIR__ . '/heatmap.min.css') ?: time(); ?>" />
 
-    <!-- =====================================================
-         構造化データ（JSON-LD）
-         WebSite スキーマ：サイト名・URL・検索アクション
-         ===================================================== -->
-    <?php require_once __DIR__ . '/_domain.php'; ?>
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      "name": "まいちゃん通知",
-      "alternateName": "恋乃夜まい 通知ダッシュボード",
-      "url": "<?= htmlspecialchars($domain) ?>/",
-      "description": "恋乃夜まい（koinoyamai）の配信・活動をリアルタイムで通知する非公式ファンサービス。",
-      "inLanguage": "ja",
-      "author": {
-        "@type": "Person",
-        "name": "honna-yuzuki"
-      }
-    }
-    </script>
-
 
     <!-- =====================================================
          preconnect（実際に外部フェッチが発生するホストのみ）
@@ -696,7 +675,58 @@
                 </div>
 
                 <div id="logs" class="log-container" aria-live="polite" aria-atomic="false">
+                    <?php
+                    // SEO / 初期描画高速化: history.json の最新6件をサーバー側で初期出力（JS 読込後にライブ表示へ置換）
+                    $ssrLogs = [];
+                    $ssrHistoryRaw = @file_get_contents(__DIR__ . '/history.json');
+                    if (is_string($ssrHistoryRaw) && $ssrHistoryRaw !== '') {
+                        $ssrDecoded = @json_decode($ssrHistoryRaw, true);
+                        if (is_array($ssrDecoded) && isset($ssrDecoded['logs']) && is_array($ssrDecoded['logs'])) {
+                            $ssrLogs = array_slice($ssrDecoded['logs'], 0, 6);
+                        }
+                    }
+                    if (!empty($ssrLogs)):
+                        $ssrTz = new DateTimeZone('Asia/Tokyo');
+                        foreach ($ssrLogs as $ssrLog):
+                            $ssrTitle = isset($ssrLog['title']) ? trim((string)$ssrLog['title']) : '';
+                            $ssrBody = isset($ssrLog['body']) ? trim((string)$ssrLog['body']) : '';
+                            $ssrUrl = isset($ssrLog['url']) ? trim((string)$ssrLog['url']) : '';
+                            $ssrSafeUrl = (preg_match('#^https?://#i', $ssrUrl) === 1) ? $ssrUrl : '';
+                            $ssrPlat = isset($ssrLog['platform']) ? (string)$ssrLog['platform'] : '通知';
+                            $ssrTs = isset($ssrLog['timestamp']) ? (int)$ssrLog['timestamp'] : 0;
+                            $ssrDateStr = $ssrTs > 0
+                                ? (new DateTimeImmutable('@' . $ssrTs))->setTimezone($ssrTz)->format('Y/m/d H:i')
+                                : '';
+                    ?>
+                    <article class="card sns-post">
+                        <div class="sns-avatar-wrap">
+                            <img src="/icon.webp" alt="" class="icon sns-avatar" loading="lazy" width="44" height="44" />
+                        </div>
+                        <div class="card-content sns-main">
+                            <div class="sns-head">
+                                <span class="sns-plat-pill tone-default"><?= htmlspecialchars($ssrPlat, ENT_QUOTES, 'UTF-8') ?></span>
+                                <?php if ($ssrDateStr !== ''): ?>
+                                    <time class="sns-time"><?= htmlspecialchars($ssrDateStr, ENT_QUOTES, 'UTF-8') ?></time>
+                                <?php endif; ?>
+                            </div>
+                            <h3 class="sns-title">
+                                <?php if ($ssrSafeUrl !== ''): ?>
+                                    <a href="<?= htmlspecialchars($ssrSafeUrl, ENT_QUOTES, 'UTF-8') ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars($ssrTitle !== '' ? $ssrTitle : $ssrPlat, ENT_QUOTES, 'UTF-8') ?></a>
+                                <?php else: ?>
+                                    <?= htmlspecialchars($ssrTitle !== '' ? $ssrTitle : $ssrPlat, ENT_QUOTES, 'UTF-8') ?>
+                                <?php endif; ?>
+                            </h3>
+                            <?php if ($ssrBody !== ''): ?>
+                                <p class="sns-body"><?= htmlspecialchars($ssrBody, ENT_QUOTES, 'UTF-8') ?></p>
+                            <?php endif; ?>
+                        </div>
+                    </article>
+                    <?php
+                        endforeach;
+                    else:
+                    ?>
                     <p class="status-message info-message">履歴を読み込んでいます...</p>
+                    <?php endif; ?>
                 </div>
 
                 <button id="more-logs-button" class="load-more-btn" type="button"

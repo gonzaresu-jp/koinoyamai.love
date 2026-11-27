@@ -4,8 +4,9 @@
 <head>
     <?php
     require_once __DIR__ . '/_domain.php';
-    $pageTitle = "配信アーカイブ検索";
+    $pageTitle = "恋乃夜まい 配信アーカイブ検索";
     $pageDesc = "恋乃夜まいの配信アーカイブを横断検索できるページ。タイトル・文字起こし・コメント・ライブチャットを全文検索し、該当箇所のタイムスタンプ付きURLからYouTubeへ直接ジャンプできます。";
+    $canonicalPath = '/archive/';
 
     // ---- SEO: 検索クエリ付きページはインデックスしない（アーカイブ本文のみインデックス） ----
     $robotsNoindex = !empty($_GET['q']) && trim((string)$_GET['q']) !== '';
@@ -70,7 +71,7 @@
             '@type' => 'CollectionPage',
             'name' => '恋乃夜まい 配信アーカイブ一覧',
             'description' => '恋乃夜まい（まいちゃん）の配信アーカイブ。YouTubeで公開されたアーカイブを一覧掲載。タイトル・文字起こし・コメント検索にも対応。',
-            'url' => $domain . '/archive',
+            'url' => $domain . '/archive/',
             'mainEntity' => array(
                 '@type' => 'ItemList',
                 'itemListElement' => $itemList,
@@ -108,13 +109,6 @@
                 キーワード検索では<strong>タイトル・文字起こし・コメント・ライブチャット</strong>を検索し、該当箇所のタイムスタンプ付きURLを表示します（「かわいい / 可愛い / カワイイ」のような表記ゆれも同じ結果になります）。
 </p>
             </section>
-
-        <?php if (!empty($seoCategories)): ?>
-        <?php endif; ?>
-
-        <?php if (!empty($seoArchives)): ?>
-
-        <?php endif; ?>
 
         <form class="ar-form" id="ar-form" role="search">
             <div class="ar-field grow">
@@ -173,7 +167,40 @@
 
         <p class="ar-status" id="ar-status" aria-live="polite"></p>
 
-        <div class="ar-results" id="ar-results"></div>
+        <div class="ar-results" id="ar-results">
+            <?php if (!empty($seoArchives)): ?>
+                <?php foreach ($seoArchives as $row):
+                    $rowTitle = isset($row['title']) ? (string)$row['title'] : '';
+                    $rawRowUrl = isset($row['url']) ? trim((string)$row['url']) : '';
+                    $rowUrl = (preg_match('#^https?://#i', $rawRowUrl) === 1) ? $rawRowUrl : '';
+                    $rowDate = isset($row['stream_date_jst']) ? substr((string)$row['stream_date_jst'], 0, 10) : '';
+                    $rowCat = isset($row['category']) ? (string)$row['category'] : '';
+                    $rawThumb = isset($row['thumbnail']) ? trim((string)$row['thumbnail']) : '';
+                    $rowThumb = (preg_match('#^(/|https?://)#i', $rawThumb) === 1) ? $rawThumb : '';
+                ?>
+                <article class="ar-card">
+                    <?php if ($rowThumb !== ''): ?>
+                    <div class="ar-thumb">
+                        <img src="<?= htmlspecialchars($rowThumb) ?>" alt="<?= htmlspecialchars($rowTitle) ?>" loading="lazy" decoding="async" />
+                    </div>
+                    <?php endif; ?>
+                    <div class="ar-body">
+                        <h2 class="ar-title">
+                            <?php if ($rowUrl !== ''): ?>
+                                <a href="<?= htmlspecialchars($rowUrl) ?>" target="_blank" rel="noopener noreferrer"><?= htmlspecialchars($rowTitle) ?></a>
+                            <?php else: ?>
+                                <?= htmlspecialchars($rowTitle) ?>
+                            <?php endif; ?>
+                        </h2>
+                        <div class="ar-meta">
+                            <?php if ($rowDate !== ''): ?><span><?= htmlspecialchars($rowDate) ?></span><?php endif; ?>
+                            <?php if ($rowCat !== ''): ?><span><?= htmlspecialchars($rowCat) ?></span><?php endif; ?>
+                        </div>
+                    </div>
+                </article>
+                <?php endforeach; ?>
+            <?php endif; ?>
+        </div>
 
         <div class="ar-load-more" id="ar-load-more-wrap" hidden>
             <button type="button" class="ar-btn" id="ar-load-more">さらに読み込む</button>

@@ -1,14 +1,14 @@
 User-agent: *
 Allow: /
 
-# Googlebot には全ページを許可し、サイトマップを明示
-User-agent: Googlebot
-Allow: /
-
-# API・内部データはクロール不要
-Disallow: /api/
-Disallow: /data/
-Disallow: /js/
-Disallow: /history.json
+# 非公開・管理・テスト用ページのみクロール対象外にする
+# （/js/・/api/・公開データは Googlebot のページ描画に必要なためブロックせず、
+#   /api/ 自体はサーバー側で X-Robots-Tag: noindex, nofollow を返す）
+Disallow: /admin/
+Disallow: /admin.html
+Disallow: /test/
+Disallow: /test.php
+Disallow: /chat.html
+Disallow: /compare.html
 
 Sitemap: https://koinoyamai.love/sitemap.xml

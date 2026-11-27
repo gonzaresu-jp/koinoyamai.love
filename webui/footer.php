@@ -112,5 +112,16 @@ foreach ($updateLogs as $log) {
     </a>
 
   </div>
-  <p><a href="/logs">Last updated <?= htmlspecialchars($lastUpdatedDate) ?></a></p>
+  <nav class="footer-site-nav" aria-label="サイト内リンク">
+    <a href="/">ホーム</a>
+    <a href="/archive/">配信アーカイブ検索</a>
+    <a href="/twitter-media/">メディアアーカイブ</a>
+    <a href="/guide/">使い方・対応一覧</a>
+    <a href="/download/">アプリダウンロード</a>
+    <a href="/logs/">アップデート履歴</a>
+    <a href="/status/">稼働状況</a>
+    <a href="/info/">このサービスについて</a>
+    <a href="/future/">今後の予定</a>
+  </nav>
+  <p><a href="/logs/">Last updated <?= htmlspecialchars($lastUpdatedDate) ?></a></p>
 </footer>

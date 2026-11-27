@@ -115,7 +115,7 @@
 
             <h2>アーカイブや過去の配信を探したい場合</h2>
             <p>
-                恋乃夜まいの過去の配信は、<a href="/archive">配信アーカイブ検索</a>ページから検索できます。
+                恋乃夜まいの過去の配信は、<a href="/archive/">配信アーカイブ検索</a>ページから検索できます。
                 タイトルはもちろん、<strong>配信の文字起こし・コメント・ライブチャット</strong>まで全文検索できるので、
                 「この歌枠で何を歌ってた？」といった探し方もできます。ツイートに載せられたメディア（画像・動画）のアーカイブは
                 <a href="/twitter-media/">メディアアーカイブ</a>をご覧ください。
@@ -134,10 +134,10 @@
             <h2>関連ページ</h2>
             <div class="link-row">
                 <a href="/">通知ダッシュボード</a>
-                <a href="/archive">配信アーカイブ検索</a>
+                <a href="/archive/">配信アーカイブ検索</a>
                 <a href="/twitter-media/">メディアアーカイブ</a>
                 <a href="/logs/">更新履歴</a>
-                <a href="/status">システム稼働状況</a>
+                <a href="/status/">システム稼働状況</a>
                 <a href="/info/">このサービスについて</a>
                 <a href="/future/">今後の開発予定</a>
                 <a href="/download/">アプリダウンロード（Android / Windows）</a>
