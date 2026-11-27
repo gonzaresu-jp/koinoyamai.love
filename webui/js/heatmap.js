@@ -64,7 +64,7 @@ function renderHeatmap(container, stats) {
     html += '<div class="heatmap-scroll-container">';
     
     // Month labels
-    html += `<div class="heatmap-month-labels" style="grid-template-columns: repeat(${actualWeeks}, 12px);">`;
+    html += `<div class="heatmap-month-labels" style="--hm-weeks: ${actualWeeks};">`;
     const monthNames = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
     let lastMonth = -1;
     const tempDate = new Date(startDate);
@@ -87,7 +87,7 @@ function renderHeatmap(container, stats) {
     }
     html += '</div>';
 
-    html += `<div class="heatmap-container" style="grid-template-columns: repeat(${actualWeeks}, 12px);">`;
+    html += `<div class="heatmap-container" style="--hm-weeks: ${actualWeeks};">`;
 
     const currentDate = new Date(startDate);
     const dayCount = actualWeeks * 7;
@@ -197,14 +197,14 @@ function renderHeatmapSkeleton(container) {
     html += '<div class="heatmap-scroll-container">';
     
     // Month labels skeleton
-    html += `<div class="heatmap-month-labels" style="grid-template-columns: repeat(${weeks}, 12px);">`;
+    html += `<div class="heatmap-month-labels" style="--hm-weeks: ${weeks};">`;
     for (let w = 0; w < weeks; w++) {
         if (w % 4 === 0) html += '<span class="skeleton" style="grid-column: span 2; width: 24px;"></span>';
         else if (w % 4 !== 1) html += '<span></span>';
     }
     html += '</div>';
     
-    html += `<div class="heatmap-container" style="grid-template-columns: repeat(${weeks}, 12px);">`;
+    html += `<div class="heatmap-container" style="--hm-weeks: ${weeks};">`;
     for (let i = 0; i < weeks * 7; i++) {
         html += '<div class="heatmap-cell skeleton"></div>';
     }
