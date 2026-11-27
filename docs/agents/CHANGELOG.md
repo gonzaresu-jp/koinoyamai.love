@@ -2,6 +2,8 @@
 
 > `AGENTS.md` 末尾にあった「最終更新」行を移設したもの（新しい順）。§番号は分割前と共通。
 
+最終更新: 2026-11-27（AGENTS.md を必読ルール＋索引（§0）と `docs/agents/` に分割（#107）/ 回帰テストを `scripts/ops/regression/NN-*.js` に分割し `--only` を追加（#109）/ §13 の「小さな修正は main へ直接 push 可」を §14.1 に合わせて「すべて PR 経由・独立レビューは感度の高い変更のみ」に統一。`SKIP_PREPUSH=1` は日次 cron 専用と明記）
+
 最終更新: 2026-11-09（§7.8 バックアップの別ホスト複製を新設：`scripts/ops/backup-offsite.sh` が nassy の別ディスク `/mnt/4TB/mai-push-backups` へ `data-*.db` / `env-*.env` を複製し、最新ファイルの sha256 一致を検証。失敗時は Discord 通知・flock で多重起動防止・リモート保持 90 日。世代整理は `env-*.env` の mtime が古いまま（`cp -p`）なので **ファイル名の日付**で判定する。§7.6 の cron 表への登録は本番反映後。§12 に更新先を追加）
 
 最終更新: 2026-11-06（§6.7 まいAI チャットを elza vhost で tailnet/LAN 限定配信するルールを追加：scripts/nginx/apply-mai-chat-elza.sh ＝ 2026-11-06 に admin.html の「まいAI チャットを開く」が 404 になっていた原因＝elza vhost に chat 系 location が無かったことへの対処。§12 の nginx 行に §6.7 を追記）
