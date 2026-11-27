@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "scripts/guard/adapters/cursor.sh",
+        "failClosed": true
+      }
+    ]
+  },
+  "version": 1
+}

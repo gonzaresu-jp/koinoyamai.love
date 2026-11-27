@@ -57,7 +57,7 @@ jobs:
       - name: 秘密値（トークン・鍵）の検出（AGENTS.md §3）
         run: bash scripts/ci/secret-scan.sh
 
-      - name: エージェント用ガード（.claude/hooks）の判定テスト
+      - name: エージェント用ガード（核＋アダプタ）の判定テスト
         run: bash scripts/ci/test-guard.sh
 
       - name: pre-push の保護ブランチ判定テスト

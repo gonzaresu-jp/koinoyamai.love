@@ -61,7 +61,10 @@ mai_notification/app/google-services.json
 /ytcommunity_debug
 /gipt_debug
 /.ytprofile
-/.opencode
+/.opencode/*
+!/.opencode/plugins/
+/.opencode/plugins/*
+!/.opencode/plugins/agent-guard.js
 /kernel.errors.txt
 
 # webui 配下のランタイムデータ（登録者数の日次更新。AGENTS.md §7.5）
