@@ -27,6 +27,14 @@ if [ -z "$OUT_DIR" ]; then
   OUT_DIR="$(mktemp -d /tmp/nginx-render.XXXXXX)"
 fi
 mkdir -p "$OUT_DIR"
+# フェーズ1では本番へ書かない。出力先が /etc/nginx 配下なら明示的に拒否する
+OUT_DIR_ABS="$(cd "$OUT_DIR" && pwd)"
+case "$OUT_DIR_ABS" in
+  /etc/nginx|/etc/nginx/*)
+    echo "[render] ERROR: 出力先に /etc/nginx は指定できません（フェーズ1は生成のみ）" >&2
+    exit 1
+    ;;
+esac
 
 ENV_FILE="${ENV_FILE:-$REPO_ROOT/.env}"
 if [ ! -f "$ENV_FILE" ]; then
