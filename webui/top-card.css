@@ -116,23 +116,22 @@
    統計カード
    ========================= */
 .stats-card {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.44) 0%, rgba(252, 240, 249, 0.32) 55%, rgba(243, 236, 255, 0.34) 100%);
-  border-radius: 18px;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.54) 0%, rgba(252, 245, 251, 0.44) 60%, rgba(246, 242, 255, 0.46) 100%);
+  border-radius: 22px;
   padding: 1.5rem;
-  margin-bottom: 2rem;
+  margin-bottom: 1.25rem;
   box-shadow:
-    0 14px 38px -6px rgba(177, 30, 124, 0.22),
-    0 5px 18px -2px rgba(138, 79, 255, 0.13),
-    0 0 0 1px rgba(255, 255, 255, 0.48) inset,
-    0 1px 0 rgba(255, 255, 255, 0.88) inset;
+    0 16px 40px -10px rgba(177, 30, 124, 0.18),
+    0 4px 16px -4px rgba(138, 79, 255, 0.11),
+    0 1px 0 rgba(255, 255, 255, 0.92) inset;
   text-align: center;
-  border: 1.5px solid rgba(177, 30, 124, 0.46);
+  border: 1px solid rgba(255, 255, 255, 0.78);
   margin-top: 85px;
   position: relative;
   overflow: visible;
   animation: fadeInScale 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 
 .count-page {
@@ -262,53 +261,57 @@
 
 .stat-item {
   position: relative;
-  background: linear-gradient(158deg, rgba(255, 255, 255, 0.94) 0%, rgba(248, 240, 251, 0.88) 100%);
-  padding: 1rem;
-  border-radius: 12px;
-  border: 1px solid rgba(177, 30, 124, 0.18);
+  background: rgba(255, 255, 255, 0.88);
+  padding: 1.05rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.94);
   box-shadow:
-    0 8px 22px -6px rgba(177, 30, 124, 0.17),
-    0 2px 10px -2px rgba(138, 79, 255, 0.11),
-    0 1px 0 rgba(255, 255, 255, 0.94) inset;
+    0 8px 22px -8px rgba(177, 30, 124, 0.15),
+    0 2px 10px -3px rgba(138, 79, 255, 0.09),
+    0 0 0 1px rgba(177, 30, 124, 0.07),
+    0 1px 0 rgba(255, 255, 255, 0.98) inset;
   min-width: 325px;
-  transition: transform 0.25s cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 0.25s ease, border-color 0.25s ease;
+  transition: transform 0.25s cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 0.25s ease, background-color 0.25s ease;
   animation: fadeInUp 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .stat-item.stat-wide {
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.96) 0%, rgba(253, 242, 250, 0.92) 60%, rgba(244, 238, 255, 0.90) 100%);
-  border-color: rgba(177, 30, 124, 0.24);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.94) 0%, rgba(253, 246, 251, 0.90) 100%);
   box-shadow:
-    0 10px 26px -6px rgba(177, 30, 124, 0.22),
-    0 3px 12px -2px rgba(138, 79, 255, 0.14),
-    0 1px 0 rgba(255, 255, 255, 0.96) inset;
+    0 10px 26px -8px rgba(177, 30, 124, 0.18),
+    0 3px 12px -3px rgba(138, 79, 255, 0.11),
+    0 0 0 1px rgba(177, 30, 124, 0.10),
+    0 1px 0 rgba(255, 255, 255, 0.98) inset;
 }
 
 .stat-item:hover {
-  transform: translateY(-3px);
-  border-color: rgba(177, 30, 124, 0.38);
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.96);
   box-shadow:
-    0 14px 30px -6px rgba(177, 30, 124, 0.28),
-    0 4px 14px -2px rgba(138, 79, 255, 0.18),
-    0 1px 0 rgba(255, 255, 255, 0.96) inset;
+    0 14px 28px -8px rgba(177, 30, 124, 0.24),
+    0 4px 14px -3px rgba(138, 79, 255, 0.14),
+    0 0 0 1px rgba(177, 30, 124, 0.18),
+    0 1px 0 rgba(255, 255, 255, 1) inset;
 }
 
 .stat-copy-btn {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  border: 1px solid #d2d2dc;
-  background: #fff;
-  color: var(--color-text);
+  top: 9px;
+  right: 9px;
+  border: none;
+  background: rgba(177, 30, 124, 0.07);
+  color: rgba(177, 30, 124, 0.72);
   font-size: 0.72rem;
   line-height: 1;
-  padding: 0.28rem 0.42rem;
-  border-radius: 6px;
+  padding: 0.32rem 0.46rem;
+  border-radius: 8px;
   cursor: pointer;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
 }
 
 .stat-copy-btn:hover {
-  background: #f6f6fb;
+  background: rgba(177, 30, 124, 0.15);
+  color: var(--color-primary);
 }
 
 .stat-copy-btn.copied i {
@@ -326,26 +329,31 @@
   color: var(--color-primary);
   line-height: 1.25;
   overflow-wrap: anywhere;
-  text-shadow: 0 2px 12px rgba(177, 30, 124, 0.18);
+  text-shadow: 0 2px 10px rgba(177, 30, 124, 0.14);
   transition: transform 0.3s cubic-bezier(0.22, 0.61, 0.36, 1);
   display: inline-block;
 }
 
 .stat-item:hover .value {
-  transform: scale(1.04);
+  transform: scale(1.03);
 }
 
 .stat-item .label {
-  font-size: 0.9rem;
-  color: var(--color-text);
-  margin-top: 0.25rem;
-  font-weight: 500;
+  font-size: 0.84rem;
+  color: #5f586b;
+  margin-top: 0.15rem;
+  margin-bottom: 0.15rem;
+  font-weight: 600;
 }
 
 .stat-item .label-date {
-  font-size: 0.78em;
-  font-weight: 600;
-  color: #b11e7c;
+  display: inline-block;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  background: rgba(177, 30, 124, 0.09);
+  padding: 1px 8px;
+  border-radius: 999px;
   margin-left: 0.35em;
   white-space: nowrap;
 }
@@ -446,34 +454,44 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
+  margin: 0 0 18px;
 }
 
 .carousel-arrow {
-  background: none;
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.85) !important;
   cursor: pointer;
-  color: #fff;
-  opacity: 0.75;
-  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 0.2s ease;
+  color: var(--color-primary);
+  opacity: 0.92;
+  transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.22, 0.61, 0.36, 1), box-shadow 0.2s ease, background-color 0.2s ease, color 0.2s ease;
   line-height: 1;
-  width: 32px !important;
-  height: 32px !important;
-  background-color: var(--color-primary) !important;
-  font-size: 24px;
-  margin: 0 24px;
+  width: 34px !important;
+  height: 34px !important;
+  background-color: rgba(255, 255, 255, 0.86) !important;
+  font-size: 16px;
+  margin: 0 18px;
   border-radius: 50%;
-  box-shadow: 0 2px 8px rgba(177, 30, 124, 0.35);
+  box-shadow:
+    0 6px 16px -4px rgba(177, 30, 124, 0.18),
+    0 2px 6px -2px rgba(138, 79, 255, 0.1),
+    0 1px 0 rgba(255, 255, 255, 0.95) inset;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .carousel-arrow:hover:not(:disabled) {
   opacity: 1;
-  transform: scale(1.12);
-  box-shadow: 0 4px 14px rgba(177, 30, 124, 0.5);
+  color: #fff;
+  background-color: var(--color-primary) !important;
+  transform: scale(1.08);
+  box-shadow: 0 8px 20px -4px rgba(177, 30, 124, 0.4);
 }
 
 .carousel-arrow:disabled {
-  opacity: 0.2;
+  opacity: 0.35;
   cursor: default;
 }
 
@@ -1930,23 +1948,27 @@
 #next-event { display: none; }
 #next-event.show { display: flex; }
 #next-event.ne-card {
-  align-items: center; gap: 12px; text-decoration: none; color: var(--color-text, #2c2c3e);
-  margin: 12px auto 4px; padding: 10px 12px; max-width: 760px; border-radius: 14px;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(251, 238, 246, 0.92));
-  border: 1px solid rgba(177,30,124,.22);
+  align-items: center; gap: 14px; text-decoration: none; color: var(--color-text, #2c2c3e);
+  margin: 0 0 18px; padding: 12px 14px; max-width: none; width: 100%; border-radius: 14px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  border-left: 3px solid rgba(177, 30, 124, 0.65);
   box-shadow:
-    0 8px 24px -5px rgba(177, 30, 124, 0.2),
-    0 3px 10px -2px rgba(138, 79, 255, 0.12),
-    0 1px 0 rgba(255, 255, 255, 0.94) inset;
-  transition: transform .2s ease, box-shadow .25s ease, border-color .2s ease;
+    0 8px 24px -8px rgba(177, 30, 124, 0.16),
+    0 2px 10px -3px rgba(138, 79, 255, 0.10),
+    0 1px 0 rgba(255, 255, 255, 0.96) inset;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: transform .2s ease, box-shadow .25s ease, background-color .2s ease, border-color .2s ease;
 }
 #next-event.ne-card:hover {
   transform: translateY(-2px);
-  border-color: rgba(177,30,124,.38);
+  background: rgba(255, 255, 255, 0.96);
+  border-left-color: var(--color-primary);
   box-shadow:
-    0 14px 30px -5px rgba(177, 30, 124, 0.3),
-    0 5px 16px -2px rgba(138, 79, 255, 0.18),
-    0 1px 0 rgba(255, 255, 255, 0.96) inset;
+    0 14px 30px -8px rgba(177, 30, 124, 0.24),
+    0 4px 14px -3px rgba(138, 79, 255, 0.14),
+    0 1px 0 rgba(255, 255, 255, 1) inset;
 }
 #next-event .ne-thumb { flex: 0 0 auto; width: 124px; height: 70px; border-radius: 8px; overflow: hidden; background: #eadcef; }
 #next-event .ne-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -1970,17 +1992,43 @@
    log-sectionを前面に出すことでアプリ(WebView)でもタブのタップが確実に届く。 */
 .log-section { position: relative; z-index: 3; }
 
+/* --- 通知履歴ヘッダーバー（見出し・タブ・操作を1行に統合） --- */
+.log-section-header {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-bottom: 14px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 8px 24px -8px rgba(177, 30, 124, 0.15),
+    0 2px 10px -3px rgba(138, 79, 255, 0.09),
+    0 1px 0 rgba(255, 255, 255, 0.95) inset;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.log-header-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 /* --- 通知履歴: リスト / ヒートマップ タブ切替（ヒートマップ側に詳細統計を内包） --- */
 .hist-radio { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .hist-tabs {
-  display: inline-flex; gap: 4px; margin: 4px 0 12px; padding: 4px; border-radius: 999px;
-  background: rgba(244, 232, 245, 0.9);
-  border: 1px solid rgba(177, 30, 124, 0.16);
-  box-shadow:
-    0 6px 16px -5px rgba(177, 30, 124, 0.16),
-    0 1px 0 rgba(255, 255, 255, 0.85) inset;
+  display: inline-flex; gap: 3px; margin: 0; padding: 3px; border-radius: 999px;
+  background: rgba(177, 30, 124, 0.07);
+  border: 1px solid rgba(177, 30, 124, 0.12);
 }
-.hist-tab { padding: 6px 18px; border-radius: 999px; font-size: .85rem; font-weight: 700; color: #8a6b7d; cursor: pointer; user-select: none; transition: background .15s, color .15s, box-shadow .2s; }
+.hist-tab { padding: 5px 15px; border-radius: 999px; font-size: .82rem; font-weight: 700; color: #7a6070; cursor: pointer; user-select: none; transition: background .15s, color .15s, box-shadow .2s; }
 /* JSで .log-section に .hist-heat を付け外しして切替（CSSセレクタ依存なし＝全WebViewで確実）。
    JS未実行時のフォールバックとして ~(兄弟結合子) も併記。 */
 /* --- クラス駆動（主） --- */
@@ -1994,12 +2042,19 @@
 .log-section:not(.hist-heat) .hist-tab[for="histtab-list"] {
   background: linear-gradient(135deg, #c22488, var(--color-primary, #B11E7C));
   color: #fff;
-  box-shadow: 0 4px 12px -2px rgba(177, 30, 124, 0.42);
+  box-shadow: 0 4px 12px -3px rgba(177, 30, 124, 0.42);
 }
 /* --- ~(フォールバック) --- */
 #histtab-heat:checked ~ #logs,
 #histtab-heat:checked ~ #more-logs-button,
 #histtab-heat:checked ~ #status,
-#histtab-heat:checked ~ .controls { display: none !important; }
+#histtab-heat:checked ~ .log-section-header .controls { display: none !important; }
 #histtab-list:checked ~ #notification-heatmap,
 #histtab-list:checked ~ #notification-stats { display: none !important; }
+
+@media (max-width: 640px) {
+  .log-section-header {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+}

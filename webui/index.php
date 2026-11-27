@@ -479,21 +479,21 @@
 
             <!-- ✅ section + aria-labelledby（セマンティック改善） -->
             <section class="log-section" aria-labelledby="log-heading">
-                <h2 class="history fade" id="log-heading">通知履歴</h2>
-
                 <!-- リスト/ヒートマップ タブ（ヒートマップ側に詳細統計を内包） -->
                 <input type="radio" name="histview" id="histtab-list" class="hist-radio" checked>
                 <input type="radio" name="histview" id="histtab-heat" class="hist-radio">
-                <div class="hist-tabs" role="tablist" aria-label="通知履歴の表示切替">
-                    <label class="hist-tab" for="histtab-list">リスト</label>
-                    <label class="hist-tab" for="histtab-heat">ヒートマップ</label>
-                </div>
 
-                <div id="notification-heatmap" class="heatmap-wrapper fade d3" role="region" aria-label="通知貢献グラフ"></div>
-                <div id="notification-stats" class="ns-wrapper fade d3" role="region" aria-label="通知の詳細統計"></div>
+                <div class="log-section-header">
+                    <div class="log-header-left">
+                        <h2 class="history fade" id="log-heading">通知履歴</h2>
+                        <div class="hist-tabs" role="tablist" aria-label="通知履歴の表示切替">
+                            <label class="hist-tab" for="histtab-list">リスト</label>
+                            <label class="hist-tab" for="histtab-heat">ヒートマップ</label>
+                        </div>
+                    </div>
 
-                <!-- ✅ role="toolbar" でボタン群の意味を明示 -->
-                <div class="controls" role="toolbar" aria-label="ログ操作">
+                    <!-- ✅ role="toolbar" でボタン群の意味を明示 -->
+                    <div class="controls" role="toolbar" aria-label="ログ操作">
                     <div class="controls-left">
                         <button id="btn-refresh" class="fade d2 toolbar-btn" type="button" aria-label="履歴を更新"><i
                                 class="fa-solid fa-arrow-rotate-right"></i></button>
@@ -684,6 +684,10 @@
                         <option value="50">追加読み込み</option>
                     </select>
                 </div>
+                </div><!-- /.log-section-header -->
+
+                <div id="notification-heatmap" class="heatmap-wrapper fade d3" role="region" aria-label="通知貢献グラフ"></div>
+                <div id="notification-stats" class="ns-wrapper fade d3" role="region" aria-label="通知の詳細統計"></div>
 
                 <!-- Lightbox -->
                 <div class="media-lightbox" id="media-lightbox">
