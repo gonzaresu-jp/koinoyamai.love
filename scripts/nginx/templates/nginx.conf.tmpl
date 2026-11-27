@@ -1,0 +1,1395 @@
+user www-data;
+worker_processes auto;
+
+error_log /var/log/nginx/error.log;
+pid /run/nginx.pid;
+
+events {
+    worker_connections 65535;
+    multi_accept on;
+    use epoll;
+}
+
+http {
+    # tailnet 自動認証: tailscale serve は remote_addr=127.0.0.1 から着信する。
+    # そのときだけ X-Tailnet-Admin に秘密値を立てる。Express は .env の
+    # TAILNET_ADMIN_SECRET と一致するときのみ信頼する（他経路の値は不一致）。
+    # tailnet 自動認証: tailscale serve (127.0.0.1) と tailnet 内の全端末を信頼する。
+    geo $tailnet_admin {
+        default             "";
+        127.0.0.1           "${TAILNET_ADMIN_SECRET}";
+        ::1                 "${TAILNET_ADMIN_SECRET}";
+        100.64.0.0/10       "${TAILNET_ADMIN_SECRET}";
+        fd7a:115c:a1e0::/48 "${TAILNET_ADMIN_SECRET}";
+    }
+    include /etc/nginx/mai-test.conf;
+    include /etc/nginx/media.conf;
+    include /etc/nginx/discord.conf;
+    include mime.types;
+    default_type application/octet-stream;
+    log_format withff '$remote_addr real=$realip_remote_addr xff="$http_x_forwarded_for" cf="$http_cf_connecting_ip" "$request" $status';
+    # honeypot-guard: ハニーポット用のログ（時刻・UA・クライアントIP 入り）
+    # ※ 判定に使う固定フィールド（ip/cf/xff/st/uri/bytes）は **UA より前**に並べる。
+    #   UA は攻撃者が自由に入れられるので、後ろに置いて解析を騙されないようにする。
+    log_format honeyfmt '$time_iso8601 ip=$remote_addr cf=$http_cf_connecting_ip xff="$http_x_forwarded_for" st=$status uri=$uri bytes=$body_bytes_sent req="$request" ref="$http_referer" ua="$http_user_agent"';
+access_log /var/log/nginx/access.log withff;
+
+    error_log /var/log/nginx/error.log notice;   # debug だとリクエスト行（クエリ=共有シークレット）が平文で残る
+
+    # 既出の is_discord_ua に加えて referer も判定
+# http {} 直下で読み込まれるファイルに置く（※ server{} の外）
+#map $http_user_agent $is_discord_ua {
+#    default 0;
+#    ~*Discordbot 1;
+#    ~*Discord   1;
+#}
+
+#map $http_referer $is_discord_ref {
+#    default 0;
+#    "~*^https?://(canary\.|ptb\.)?discord(app)?\.com" 1;
+#    "~*^https?://(cdn|media|images)\.discord(app)?\.(com|net)" 1;
+#}
+
+#map "$is_discord_ua$is_discord_ref" $discord_and_ok {
+#    default 0;
+#    "11" 1;  # UAもRefererもDiscord系のときOK
+#}
+
+
+
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 120;
+
+    types_hash_max_size 2048;
+    types_hash_bucket_size 128;
+    open_file_cache max=100000 inactive=60s;
+    # 静的ファイルを cp で置換した直後、古い size を保持したままだと
+    # 応答が途中で切れてしまう（2026-09-26 の実デプロイで実際に発生）。
+    # 120s -> 10s に短縮し、反映遅延を許容できる範囲に収める。
+    open_file_cache_valid 10s;
+    open_file_cache_min_uses 2;
+
+    # 大きいアップロードも通す（server内にも置いてあるが、http直下にもセット）
+    client_max_body_size 4G;
+    client_body_buffer_size 64m;
+ 
+
+	# HTTPサーバー
+    server {
+        client_max_body_size 4G;
+	# SSL設定 (コメントアウト)
+
+	 server_name ${TAILNET_HOSTNAME};
+         
+    # ---- 2026-09-13 漏えい遮断 ----
+    location ^~ /koinoyamai.love/ { deny all; }
+    location ~ /\.(?!well-known) { deny all; }
+    location ~* \.(env|db|db-wal|db-shm|sqlite|log|bak|key|pem|p12)$ { deny all; }
+    # -----------------------------
+
+	add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload";
+access_log /var/log/nginx/upload_access.log combined;
+    error_log  /var/log/nginx/upload_error.log notice;
+	
+
+        # ドキュメントルート
+        root /var/www/html;
+        index home.html;
+
+ #   location ^~ /discord/ {
+ #   alias /var/www/html/discord/;
+ #   autoindex off;
+
+#    if ($discord_and_ok = 0) { return 403; }
+
+#    add_header Accept-Ranges bytes always;
+#    add_header Cache-Control "public, max-age=3600, immutable" always;
+#    add_header X-Content-Type-Options "nosniff" always;
+
+    # ← try_files は置かない（alias だけでOK）
+#}
+
+# WebUI 配信
+location /pushweb/ {
+    alias /var/www/html/koinoyamai.love/webui/;
+    index index.html;
+
+    # 1. 実際の GET リクエストに対するヘッダー (OPTIONSが真でない場合)
+    # GETリクエストに対するヘッダーをここにも追加し、ifの外には置かないようにします。
+    if ($request_method = 'GET') {
+        # PNAに必須のヘッダー
+        add_header 'Access-Control-Allow-Private-Network' 'true';
+        # 従来のCORSヘッダー
+        add_header 'Access-Control-Allow-Origin' 'https://koinoyamai.love';
+        # 静的ファイルに対してキャッシュ無効化（必要に応じて）
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+    }
+
+    # 2. PNAに必須のヘッダーを OPTIONS プリフライトリクエストに追加
+    if ($request_method = 'OPTIONS') {
+        # ⚠️ PNA対応の最重要ヘッダー
+        add_header 'Access-Control-Allow-Private-Network' 'true'; 
+        
+        # 従来のCORSヘッダーもOPTIONSに応答するために必要
+        add_header 'Access-Control-Allow-Origin' 'https://koinoyamai.love';
+        add_header 'Access-Control-Allow-Methods' 'GET, OPTIONS';
+        add_header 'Access-Control-Allow-Headers' 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Access-Control-Request-Private-Network';
+        add_header 'Access-Control-Max-Age' 1728000;
+        add_header 'Content-Type' 'text/plain; charset=UTF-8';
+        add_header 'Content-Length' 0;
+        return 204;
+    }
+
+    # ここにあった add_header は全て削除します。
+}
+
+location /pushweb/test {
+    alias /var/www/html/koinoyamai.love/webui/;   # URL /pushweb/ → 実際の webui ディレクトリ
+    index test.html;
+    add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+location /pushweb/info {
+    alias /var/www/html/koinoyamai.love/webui/;   # URL /pushweb/ → 実際の webui ディレクトリ
+    index info.html;
+    add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+location /pushweb/mai_animation_data.json {
+    alias /var/www/html/koinoyamai.love/webui/;   # URL /pushweb/ → 実際の webui ディレクトリ
+    index mai_animation_data.json;
+    add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+
+# 管理画面: Tailnet (tailscale serve 経由=127.0.0.1) / LAN 直撃のみ
+location ^~ /admin/login/ {
+    allow 127.0.0.1;
+    allow ::1;
+    allow 192.168.0.0/16;
+    allow 100.64.0.0/10;
+    deny all;
+    alias /var/www/html/koinoyamai.love/admin/;
+    index login.html;
+    try_files $uri $uri/ /login.html =404;
+    add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+location = /admin.html {
+    allow 127.0.0.1;
+    allow ::1;
+    allow 192.168.0.0/16;
+    allow 100.64.0.0/10;
+    deny all;
+    root /var/www/html/koinoyamai.love/webui;
+    try_files /admin.html =404;
+}
+location = /chat.html {
+    allow 127.0.0.1;
+    allow ::1;
+    allow 192.168.0.0/16;
+    allow 100.64.0.0/10;
+    deny all;
+    root /var/www/html/koinoyamai.love/webui;
+    try_files /chat.html =404;
+    add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+location = /chat.js {
+    allow 127.0.0.1;
+    allow ::1;
+    allow 192.168.0.0/16;
+    allow 100.64.0.0/10;
+    deny all;
+    root /var/www/html/koinoyamai.love/webui;
+    try_files /chat.js =404;
+    add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+location = /icon.webp {
+    allow 127.0.0.1;
+    allow ::1;
+    allow 192.168.0.0/16;
+    allow 100.64.0.0/10;
+    deny all;
+    root /var/www/html/koinoyamai.love/webui;
+    try_files /icon.webp =404;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+location = /icon-192.webp {
+    allow 127.0.0.1;
+    allow ::1;
+    allow 192.168.0.0/16;
+    allow 100.64.0.0/10;
+    deny all;
+    root /var/www/html/koinoyamai.love/webui;
+    try_files /icon-192.webp =404;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+location ^~ /api/admin {
+    allow 127.0.0.1;
+    allow ::1;
+    allow 192.168.0.0/16;
+    allow 100.64.0.0/10;
+    deny all;
+    proxy_pass http://127.0.0.1:8080;
+    proxy_connect_timeout 30s;
+    proxy_read_timeout 180s;
+    proxy_send_timeout 180s;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Tailnet-Admin $tailnet_admin;
+    add_header Cache-Control "no-store" always;
+}
+# admin 静的リソース（elza vhost の root は /var/www/html のため webui を明示）
+location ^~ /css/ {
+    root /var/www/html/koinoyamai.love/webui;
+}
+location ^~ /js/admin- {
+    root /var/www/html/koinoyamai.love/webui;
+}
+location ^~ /fontawesome-free-7.2.0-web/ {
+    root /var/www/html/koinoyamai.love/webui;
+}
+# API (Express) リバースプロキシ
+location /api/ {
+    proxy_pass http://127.0.0.1:8080;
+        proxy_connect_timeout 30s;
+        proxy_read_timeout 180s;
+        proxy_send_timeout 180s;  # ←末尾の / を削除
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
+    proxy_set_header Host $host;
+    proxy_set_header X-Tailnet-Admin $tailnet_admin;
+    proxy_cache_bypass $http_upgrade;
+}
+
+location /api/photo/ {
+    proxy_pass http://127.0.0.1:3333/;
+    proxy_http_version 1.1;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+location /pushweb/login {
+    alias /var/www/html/koinoyamai.love/admin/;   # URL /pushweb/ → 実際の webui ディレクトリ
+    index login.html;
+    add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0";
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+
+# YouTube Webhook リバースプロキシ
+location ^~ /youtube-webhook {
+    proxy_pass http://127.0.0.1:3001;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+        access_log off;   # callback URL にトークンが含まれるため記録しない
+        error_log /var/log/nginx/error.log notice;   # トークン漏出防止
+    proxy_redirect off;
+}
+
+
+
+location = /pushweb/service-worker.js {
+    #alias /var/www/html/koinoyamai.love/webui/service-worker.js; <--- aliasは使わずにroot/try_filesを推奨
+    root /var/www/html/koinoyamai.love/webui/;
+    
+    # 配信されるファイル名は service-worker.js
+    try_files /service-worker.js =404; 
+
+    # キャッシュを無効化するヘッダーを追加（後述）
+    add_header Cache-Control "no-cache, max-age=0, must-revalidate";
+    
+    # MIMEタイプとスコープを明示
+    add_header Content-Type application/javascript;
+    add_header Service-Worker-Allowed "/";
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+
+
+# TwitCasting Webhook (ポート 3002) リバースプロキシ
+# Worker 死活監視エンドポイント (ポート 3002)
+location ^~ /api/worker-health {
+    proxy_pass http://127.0.0.1:3002;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_redirect off;
+}
+
+location ^~ /api/twitcasting-webhook {
+    # 💡 【修正】末尾のパスを削除し、/api が Express にそのまま渡るようにする
+    proxy_pass http://127.0.0.1:3002; 
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_redirect off;
+}
+
+# TwitCasting OAuth Callback (ポート 3002) リバースプロキシ
+location ^~ /api/twicas/auth/callback {
+    # 💡 【修正】末尾のパスを削除し、/api が Express にそのまま渡るようにする
+    proxy_pass http://127.0.0.1:3002;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_redirect off;
+}
+
+# /upload → /upload/ に寄せる
+location = /upload {
+    return 301 /upload/;
+}
+
+# アップロードUI（LAN + tailnet 限定）→ express:3100
+location ^~ /upload/ {
+    allow 127.0.0.1;
+    allow ::1;
+    allow 192.168.0.0/16;
+    allow 100.64.0.0/10;
+    deny  all;
+
+    proxy_pass http://127.0.0.1:3100/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    client_max_body_size 50g;
+    proxy_request_buffering off;
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
+    add_header X-Content-Type-Options nosniff always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+
+
+	# Node.js (Express) の /data API と static へのリバースプロキシ
+location /data {
+    proxy_pass http://localhost:3000/data;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+    location /plik/ {
+            proxy_pass http://127.0.0.1:12345;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_request_buffering off;
+    proxy_buffering off;
+    }
+
+    # Plik 管理画面
+    location /plikadmin/ {
+        root /var/www;
+        index upload_list.php;
+        try_files $uri $uri/ /plikadmin/upload_list.php;
+    }
+
+    # 個別ファイル直リンク → ページへ
+#location ~ ^/plik/file/(?<uploadId>[^/]+)/[^/]+/.+$ {
+#    return 302 /plik/#/?id=$uploadId;
+#}
+
+# アーカイブ直リンク → ページへ
+#location ~ ^/plik/archive/(?<uploadId>[^/]+)/archive\.zip$ {
+#    return 302 /plik/#/?id=$uploadId;
+#}
+    
+location /control.html {
+    proxy_pass http://localhost:3000/control.html;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+}
+
+location /display.html {
+    proxy_pass http://localhost:3000/display.html;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+}
+
+
+        # /server でアクセスする場合、index.html を表示
+        location = /server {
+            root /var/www/html;
+            index index.html;
+            auth_basic "Restricted Area";
+            auth_basic_user_file /etc/nginx/.htpasswd;
+	    try_files /index.html = 404;  # /server/index.html を表示
+        }
+
+	location = /恋乃夜まい {
+            root /var/www/html;
+            index 恋乃夜まい;
+            auth_basic "Restricted Area";
+            auth_basic_user_file /etc/nginx/.htpasswd;
+	    try_files /恋乃夜まい.html = 404;  
+	}
+
+        # 恋乃夜まい.htmlとindex.html、status.phpに認証を追加
+        location = /恋乃夜まい.html {
+            return 404;
+        }
+
+	location = /恋乃夜まい_icon.jpg{
+	    root /var/www/html;
+            index 恋乃夜まい.jpg;
+            auth_basic "Restricted Area";
+            auth_basic_user_file /etc/nginx/.htpasswd;
+	    try_files /恋乃夜まい_icon.jpg = 404;
+	}
+
+        # PHP実行ガード (2026-10-21, php-exec-guard):
+        #   guard: 完全一致 location（= /status.php）も 404 化する。
+        #   auth_basic 付きで現状は塞がっているが、open_basedir を緩めた瞬間に
+        #   旧 status.php（shell_exec を 4 回呼ぶ）の RCE 経路が開くため。
+        location = /status.php {
+            return 404;
+        }
+        # PHP実行ガード (2026-10-21, php-exec-guard):
+        #   exec() と move_uploaded_file() を含む旧処理。allow all で無認証のため無効化。
+        location = /henkan/henkan.php {
+            return 404;
+        }
+
+        location = /index.html {
+            return 404;
+        }
+
+	#location = /portfolio.html {
+	 #   return 404;
+	#}
+
+	location = /temp {
+	    root /var/www/html;
+	    index temp.html;
+	    try_files /temp.html = 404;
+	}
+
+	location = /temp.html {
+	    return 404;
+	}
+
+        location = /ghkserver {
+            root /var/www/html;
+            index ghkserver.html;
+        }
+
+        location /monitor {
+            root /var/www/html;
+            index monitor.html;
+	    try_files /monitor.html = 404;
+        }
+
+        location = /4.2tst1.jpg {
+            root /var/www/html;
+        }
+
+        # メディアファイルのエイリアス
+        location /movie {
+            alias /var/www/html/movie;
+        }
+
+        location /images {
+            alias /var/www/html/images;
+        }
+
+        location = /【ごごまい】お昼雑談ーーーーー！！！！！【恋乃夜まい⧸VTuber】.webp {
+            root /usr/share/nginx/html;
+        }
+
+	location /ai/ {
+    proxy_pass http://192.168.1.230:3000/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "Upgrade";
+}
+
+#location /media/ {
+#    if ($http_referer ~* "x.com|twitter.com") {
+#        return 403;
+#    }
+#}
+
+
+
+
+
+        # PHPファイルの設定
+        # PHP実行ガード (2026-10-21, php-exec-guard):
+        #   この vhost の root は /var/www/html。旧 PHP（exec / move_uploaded_file を含む
+        #   henkan/con.php、index.php など）が残っており、open_basedir が緩んだ瞬間に
+        #   無認証の公開 RCE になる。よってこの vhost では PHP を実行しない（404）。
+        location ~ \.php$ {
+            return 404;
+        }
+
+        error_page 500 502 503 504 /50x.html;
+        error_page 404 /404.html;
+
+        location = /50x.html {
+            root /usr/share/nginx/html;
+        }
+
+        location = /404.html {
+            root /usr/share/nginx/html;
+        }
+	
+	location /.well-known/acme-challenge/ {
+	    root /var/www/html;
+	}
+        # プロキシ設定
+        location /proxy/ {
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            proxy_hide_header X-Frame-Options;
+            proxy_hide_header Content-Security-Policy;
+            add_header Cache-Control no-cache;
+
+            if ($arg_url ~* "^https?://www.msn.com/ja-jp/weather") {
+                proxy_pass $arg_url;
+            }
+            rewrite ^/proxy/(.*) /$1 break;
+        }
+
+    
+    listen 80; # managed by Certbot
+    ssl_certificate /etc/letsencrypt/live/${TAILNET_HOSTNAME}/fullchain.pem; # managed by Certbot
+    ssl_certificate_key /etc/letsencrypt/live/${TAILNET_HOSTNAME}/privkey.pem; # managed by Certbot
+    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+
+}
+
+# ?v= 付き(URLバージョニング済み)は1年immutable、無印は1時間
+map $arg_v $mai_versioned_cc {
+    ""      "public, max-age=3600";
+    default "public, max-age=31536000, immutable";
+}
+
+server {
+    listen 1700;
+    server_name mai.honna-yuzuki.com;
+
+    # 完全移行 (2026-10-19): 旧ドメインは全パス301で koinoyamai.love へ（例外なし）。
+    # 旧 /api・/auth・/dl・/pushweb・/admin の例外は撤廃。旧アプリは非対応。
+    return 301 https://koinoyamai.love$request_uri;
+
+    client_max_body_size 4G;
+    
+    root /var/www/html/koinoyamai.love/webui;
+    index index.php index.html;
+    
+        # -------------------
+    # Security Headers (Global)
+    # -------------------
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' https: data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';" always;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+
+    add_header X-Content-Type-Options "nosniff" always;
+
+    add_header X-Frame-Options "DENY" always;
+
+    add_header Referrer-Policy "no-referrer" always;
+
+    add_header Permissions-Policy "geolocation=(), camera=(), microphone=()" always;
+    
+    # ---- Security hardening extras ----
+server_tokens off;
+
+proxy_hide_header X-Powered-By;
+proxy_hide_header Server;
+
+add_header X-XSS-Protection "0" always;
+
+    # -------------------
+    # Gzip & Brotli 圧縮
+    # -------------------
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 256;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css application/javascript application/json text/xml application/xml application/xml+rss image/svg+xml application/manifest+json;
+    
+    # -------------------
+    # php
+    # -------------------
+    
+    # PHP-FPMへの転送設定
+	location ~ \.php$ {
+	    root /var/www/html/koinoyamai.love/webui;
+	    try_files $uri =404;
+	    fastcgi_pass unix:/run/php/php8.3-fpm.sock; # Ubuntu/Debian系の場合
+	    # fastcgi_pass 127.0.0.1:9000; # CentOSや個別設定の場合
+	    fastcgi_index index.php;
+	    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+	    include fastcgi_params;
+	    add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+    	    add_header Pragma "no-cache" always;
+    	    add_header Expires "0" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+	}
+
+    # -------------------
+    # WebUI 配信
+    # -------------------
+
+    # HTML は短期キャッシュ（更新を即反映）
+    location ~* \.(html)$ {
+        root /var/www/html/koinoyamai.love/webui;
+        try_files $uri =404;
+        add_header Cache-Control "no-cache, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    # JS/CSS は長期キャッシュ（更新時は URL バージョニング）
+    location ^~ /js/ {
+        root /var/www/html/koinoyamai.love/webui;
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    location ~* \.css$ {
+        root /var/www/html/koinoyamai.love/webui;
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    # 画像・WebP も長期キャッシュ
+    location ~* \.(jpg|jpeg|png|gif|ico|webp)$ {
+        root /var/www/html/koinoyamai.love/webui;
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    # esbuild 出力 (dist/) : ?v= 付きのみ長期キャッシュ
+    location ^~ /dist/ {
+        root /var/www/html/koinoyamai.love/webui;
+        try_files $uri =404;
+        add_header Cache-Control $mai_versioned_cc always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    # Webフォント（Font Awesome はバージョン付きディレクトリ）
+    location ~* \.(woff2?|ttf|otf)$ {
+        root /var/www/html/koinoyamai.love/webui;
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    location = /main.js {
+        return 302 /js/main.js;
+    }
+
+    # -------------------
+    # API (Express) リバースプロキシ
+    # -------------------
+    location /api/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_connect_timeout 30s;
+        proxy_read_timeout 180s;
+        proxy_send_timeout 180s;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $http_host;
+        add_header Cache-Control "no-store" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+        proxy_no_cache 1;
+        proxy_cache_bypass 1;
+    }
+    
+    location /auth/ {
+	    proxy_pass http://127.0.0.1:8080;
+	    proxy_http_version 1.1;
+	    proxy_set_header Host $host;
+	    proxy_set_header X-Real-IP $remote_addr;
+	    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+	    proxy_set_header X-Forwarded-Proto $scheme;
+	    add_header Cache-Control "no-store" always;
+	    proxy_no_cache 1;
+	    proxy_cache_bypass 1;
+	}
+
+    # -------------------
+    # 固定ページ
+    # -------------------
+    location = /info { return 301 /info/; }
+    location /info/ {
+	index info.php;
+        try_files $uri $uri/ /info.php;
+    }
+
+    location = /test { return 301 /test/; }
+    location /test/ {
+	index test.php;
+        try_files $uri $uri/ /test.php;
+    }
+
+    location = /logs { return 301 /logs/; }
+    location /logs/ {
+	index logs.php;
+        try_files $uri $uri/ /logs.php;
+    }
+    
+    location = /download { return 301 /download/; }
+    location /download/ {
+	index download.php;
+        try_files $uri $uri/ /download.php;
+    }
+    
+    location = /status { return 301 /status/; }
+    location /status/ {
+	index status.php;
+        try_files $uri $uri/ /status.php;
+    }
+    
+    location = /future { return 301 /future/; }
+    location /future/ {
+	index future.php;
+        try_files $uri $uri/ /future.php;
+    }
+    
+    location = /twitter-media { return 301 /twitter-media/; }
+    location /twitter-media/ {
+	index twitter-media.php;
+        try_files $uri $uri/ /twitter-media.php;
+    }
+    
+    location = /archive { return 301 /archive/; }
+    location /archive/ {
+        index archive.php;
+        try_files $uri $uri/ /archive.php;
+    }
+
+    location = /guide { return 301 /guide/; }
+    location /guide/ {
+        index guide.php;
+        try_files $uri $uri/ /guide.php;
+    }
+
+    # -------------------
+    # 管理画面
+    # -------------------
+    location = /admin/login { return 301 /admin/login/; }
+    location ^~ /admin/login/ {
+        allow 192.168.0.0/16;
+        allow 100.64.0.0/10;
+        deny all;
+        alias /var/www/html/koinoyamai.love/admin/;
+        index login.html;
+        try_files $uri $uri/ /login.html =404;
+        add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+        error_page 403 = @to_elza_admin_login;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+    location @to_elza_admin_login {
+        return 302 https://${TAILNET_HOSTNAME}/admin/login/;
+    }
+
+    # admin.html は Tailnet/LAN 直撃のみ。公開ドメインからは ts.net へ302、LAN はローカル配信
+    location = /admin {
+        allow 192.168.0.0/16;
+        allow 100.64.0.0/10;
+        deny all;
+        root /var/www/html/koinoyamai.love/webui;
+        try_files /admin.html =404;
+        error_page 403 = @to_elza_admin;
+    }
+    location ^~ /admin.html {
+        allow 192.168.0.0/16;
+        allow 100.64.0.0/10;
+        deny all;
+        error_page 403 = @to_elza_admin;
+    }
+    location @to_elza_admin {
+        return 302 https://${TAILNET_HOSTNAME}/admin.html;
+    }
+
+    # 管理APIは Tailnet/LAN 直撃のみ（公開ドメイン/CFトンネルからは403）
+    location ^~ /api/admin {
+        allow 192.168.0.0/16;
+        allow 100.64.0.0/10;
+        deny all;
+        proxy_pass http://127.0.0.1:8080;
+        proxy_connect_timeout 30s;
+        proxy_read_timeout 180s;
+        proxy_send_timeout 180s;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $http_host;
+        add_header Cache-Control "no-store" always;
+        proxy_no_cache 1;
+        proxy_cache_bypass 1;
+    }
+
+    # -------------------
+    # service-worker.js
+    # -------------------
+location = /service-worker.js {
+    root /var/www/html/koinoyamai.love/webui;
+    try_files /service-worker.js =404;
+
+    default_type application/javascript;
+    add_header Content-Type application/javascript;
+
+    add_header Cache-Control "no-cache, max-age=0, must-revalidate" always;
+    add_header Service-Worker-Allowed "/" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+
+location = /history.json {
+    root /var/www/html/koinoyamai.love/webui;
+    default_type application/json;
+    try_files $uri =404;
+
+    add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+    add_header Pragma "no-cache" always;
+    add_header Expires "0" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+
+    # -------------------
+    # エラーページ
+    # -------------------
+    error_page 500 502 503 504 /50x.html;
+    error_page 404 /404.html;
+
+    location = /50x.html { root /usr/share/nginx/html; }
+    location = /404.html { root /usr/share/nginx/html; }
+
+    # ポート混入防止
+    port_in_redirect off;
+    absolute_redirect off;
+}
+
+server {
+
+    listen 3245;
+    server_name app.honna-yuzuki.com;
+
+    client_max_body_size 4G;
+
+    root /var/www/html/app;
+    index index.php index.html;
+
+    # HTMLキャッシュ完全無効
+    location ~* \.html$ {
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+    
+    location = / {
+	    try_files /index.html =404;
+	}
+	
+	location /img/ {
+	    root /var/www/html/app;
+	    try_files $uri =404;
+	}
+
+    location = /3d-analyzer { return 301 /3d-analyzer/; }
+
+    location /3d-analyzer/ {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location = /squiish {
+        return 301 /squiish/;
+    }
+
+    location /squiish/ {
+
+        rewrite ^/squiish/(.*)$ /$1 break;
+
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    location / {
+
+        proxy_pass http://127.0.0.1:5000;
+
+        add_header Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+}
+
+
+server {
+    
+    listen 1212;
+    
+    # 新しいサブドメインを設定（Hostヘッダーを受け取る）
+    server_name plik.honna-yuzuki.com;
+    
+    client_max_body_size 4G;
+
+location / {
+
+    proxy_pass http://127.0.0.1:12345/plik;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_request_buffering off;
+    proxy_buffering off;
+
+
+    # 💡 1ヶ月間キャッシュさせる設定
+    add_header Cache-Control "public, max-age=2592000, immutable"; # 2592000秒 = 30日
+    expires 30d;
+
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+        error_page 500 502 503 504 /50x.html;
+        error_page 404 /404.html;
+
+        location = /50x.html {
+            root /usr/share/nginx/html;
+        }
+
+        location = /404.html {
+            root /usr/share/nginx/html;
+        }
+	
+
+}
+
+server {
+    
+    listen 1300;
+    
+    # 新しいサブドメインを設定（Hostヘッダーを受け取る）
+    server_name tools.honna-yuzuki.com;
+    
+    client_max_body_size 4G;
+
+    root /var/www/html/tools;
+    index index.html;
+	
+    location = /charcount { return 301 /charcount/; }
+    location /charcount/ {
+	index charcount.html;
+        try_files $uri $uri/ /charcount.html;
+    }
+}
+
+server {
+    listen 1717;
+    server_name koinoyamai.love;
+
+    client_max_body_size 4G;
+    
+    root /var/www/html/koinoyamai.love/webui;
+    index index.php index.html;
+    
+        # -------------------
+    # Security Headers (Global)
+    # -------------------
+    add_header Content-Security-Policy "default-src 'self'; img-src 'self' https: data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';" always;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+
+    add_header X-Content-Type-Options "nosniff" always;
+
+    add_header X-Frame-Options "DENY" always;
+
+    add_header Referrer-Policy "no-referrer" always;
+
+    add_header Permissions-Policy "geolocation=(), camera=(), microphone=()" always;
+    
+    # ---- Security hardening extras ----
+server_tokens off;
+
+proxy_hide_header X-Powered-By;
+proxy_hide_header Server;
+
+add_header X-XSS-Protection "0" always;
+
+    # -------------------
+    # Gzip & Brotli 圧縮
+    # -------------------
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 256;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css application/javascript application/json text/xml application/xml application/xml+rss image/svg+xml application/manifest+json;
+    
+    # -------------------
+    # php
+    # -------------------
+    
+    # PHP-FPMへの転送設定
+        # ---- ハニーポット（honeypot-guard）: 機密ファイル名っぽいパスは
+        #      偽物ディレクトリからのみ配信する（実ファイルは絶対に公開しない）----
+        #  * 取得されたら honey.log に記録され honeypot-watch.js が通知する
+        #  * 中身は偽物。canary URL を含み「使われた」= 窃取確定
+        location ~* ^/(?:[\w.\-]+/)*(\.env(?:[._\-][\w.\-]+)?|\.git/(?:config|HEAD)|\.aws/credentials|\.ssh/id_\w+|id_rsa(?:\.pub)?|backup\.(?:zip|tar|gz|7z)|(?:database|db|app|prod|main|site|dump)\.(?:sqlite3?|sql)|config\.(?:php|json|ya?ml)|wp-config\.php|(?:credentials|secret|secrets|passwords?)\.(?:txt|json|ya?ml|db)|dump\.sql)$ {
+            root /var/lib/mai-push/honeypot;
+            try_files $uri =404;
+            access_log /var/log/nginx/honey.log honeyfmt;
+            # vhost レベルの error_page 404 /404.html だと 404 が内部リダイレクトで
+            # honey.log の外（access.log）へ逃げる → 偵察が見えない。
+            # ここでのみ 404 を named location へ逃がす。
+            error_page 404 = @honey_not_found;
+        }
+
+        # ---- ハニーパスに実ファイルが無い（= 偵察）の記録 ----
+        location @honey_not_found {
+            access_log /var/log/nginx/honey.log honeyfmt;
+            return 404;
+        }
+
+        # ---- 偽物の中身(canary)へのアクセス = 「盗んだ情報を使った」証拠 ----
+        location ^~ /_canary/ {
+            access_log /var/log/nginx/honey.log honeyfmt;
+            return 204;
+        }
+
+        # ---- その他の機密拡張子はDENY（ハニーパターンに該当するものは上で処理）----
+        location ~* \.(?:env|bak|old|orig|save|swp|swo|sql|sqlite3?|db|db3|log|key|pem|p12|pfx|jks|keystore|asc|gpg|pgp|ovpn|tar|tgz|gz|bz2|7z|rar)$ {
+            access_log /var/log/nginx/honey.log honeyfmt;
+            deny all;
+        }
+
+	location ~ \.php$ {
+	    root /var/www/html/koinoyamai.love/webui;
+	    try_files $uri =404;
+	    fastcgi_pass unix:/run/php/php8.3-fpm.sock; # Ubuntu/Debian系の場合
+	    # fastcgi_pass 127.0.0.1:9000; # CentOSや個別設定の場合
+	    fastcgi_index index.php;
+	    fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+	    include fastcgi_params;
+	    add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+    	    add_header Pragma "no-cache" always;
+    	    add_header Expires "0" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+	}
+
+    # -------------------
+    # WebUI 配信
+    # -------------------
+
+    # HTML は短期キャッシュ（更新を即反映）
+    location ~* \.(html)$ {
+        root /var/www/html/koinoyamai.love/webui;
+        try_files $uri =404;
+        add_header Cache-Control "no-cache, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    # JS/CSS は長期キャッシュ（更新時は URL バージョニング）
+    location ^~ /js/ {
+        root /var/www/html/koinoyamai.love/webui;
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    location ~* \.css$ {
+        root /var/www/html/koinoyamai.love/webui;
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    # 画像・WebP も長期キャッシュ
+    location ~* \.(jpg|jpeg|png|gif|ico|webp)$ {
+        root /var/www/html/koinoyamai.love/webui;
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    # esbuild 出力 (dist/) : ?v= 付きのみ長期キャッシュ
+    location ^~ /dist/ {
+        root /var/www/html/koinoyamai.love/webui;
+        try_files $uri =404;
+        add_header Cache-Control $mai_versioned_cc always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    # Webフォント（Font Awesome はバージョン付きディレクトリ）
+    location ~* \.(woff2?|ttf|otf)$ {
+        root /var/www/html/koinoyamai.love/webui;
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    location = /main.js {
+        return 302 /js/main.js;
+    }
+
+    # -------------------
+    # API (Express) リバースプロキシ
+    # -------------------
+    # YouTube PubSubHubbub callback（hub からインターネット経由で届く必要がある）
+    location ^~ /youtube-webhook {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_redirect off;
+        # callback URL にトークンが含まれるため、アクセスログ・詳細エラーログには残さない
+        access_log off;
+        error_log /var/log/nginx/error.log notice;
+    }
+    location /api/ {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_connect_timeout 30s;
+        proxy_read_timeout 180s;
+        proxy_send_timeout 180s;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $http_host;
+        add_header Cache-Control "no-store" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
+        proxy_no_cache 1;
+        proxy_cache_bypass 1;
+    }
+    
+    location /auth/ {
+	    proxy_pass http://127.0.0.1:8080;
+	    proxy_http_version 1.1;
+	    proxy_set_header Host $host;
+	    proxy_set_header X-Real-IP $remote_addr;
+	    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+	    proxy_set_header X-Forwarded-Proto $scheme;
+	    add_header Cache-Control "no-store" always;
+	    proxy_no_cache 1;
+	    proxy_cache_bypass 1;
+	}
+
+    # -------------------
+    # 固定ページ
+    # -------------------
+    location = /info { return 301 /info/; }
+    location /info/ {
+	index info.php;
+        try_files $uri $uri/ /info.php;
+    }
+
+    location = /test { return 301 /test/; }
+    location /test/ {
+	index test.php;
+        try_files $uri $uri/ /test.php;
+    }
+
+    location = /logs { return 301 /logs/; }
+    location /logs/ {
+	index logs.php;
+        try_files $uri $uri/ /logs.php;
+    }
+    
+    location = /download { return 301 /download/; }
+    location /download/ {
+	index download.php;
+        try_files $uri $uri/ /download.php;
+    }
+    
+    location = /status { return 301 /status/; }
+    location /status/ {
+	index status.php;
+        try_files $uri $uri/ /status.php;
+    }
+    
+    location = /future { return 301 /future/; }
+    location /future/ {
+	index future.php;
+        try_files $uri $uri/ /future.php;
+    }
+    
+    location = /twitter-media { return 301 /twitter-media/; }
+    location /twitter-media/ {
+	index twitter-media.php;
+        try_files $uri $uri/ /twitter-media.php;
+    }
+    
+    location = /archive { return 301 /archive/; }
+    location /archive/ {
+        index archive.php;
+        try_files $uri $uri/ /archive.php;
+    }
+
+    location = /guide { return 301 /guide/; }
+    location /guide/ {
+        index guide.php;
+        try_files $uri $uri/ /guide.php;
+    }
+
+    # -------------------
+    # 管理画面
+    # -------------------
+    location = /admin/login { return 301 /admin/login/; }
+    location ^~ /admin/login/ {
+        allow 192.168.0.0/16;
+        allow 100.64.0.0/10;
+        deny all;
+        alias /var/www/html/koinoyamai.love/admin/;
+        index login.html;
+        try_files $uri $uri/ /login.html =404;
+        add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+        error_page 403 = @to_elza_admin_login;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+    location @to_elza_admin_login {
+        return 302 https://${TAILNET_HOSTNAME}/admin/login/;
+    }
+
+    # admin.html は Tailnet/LAN 直撃のみ。公開ドメインからは ts.net へ302、LAN はローカル配信
+    location = /admin {
+        allow 192.168.0.0/16;
+        allow 100.64.0.0/10;
+        deny all;
+        root /var/www/html/koinoyamai.love/webui;
+        try_files /admin.html =404;
+        error_page 403 = @to_elza_admin;
+    }
+    location ^~ /admin.html {
+        allow 192.168.0.0/16;
+        allow 100.64.0.0/10;
+        deny all;
+        error_page 403 = @to_elza_admin;
+    }
+    location @to_elza_admin {
+        return 302 https://${TAILNET_HOSTNAME}/admin.html;
+    }
+
+    # 管理APIは Tailnet/LAN 直撃のみ（公開ドメイン/CFトンネルからは403）
+    location ^~ /api/admin {
+        allow 192.168.0.0/16;
+        allow 100.64.0.0/10;
+        deny all;
+        proxy_pass http://127.0.0.1:8080;
+        proxy_connect_timeout 30s;
+        proxy_read_timeout 180s;
+        proxy_send_timeout 180s;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $http_host;
+        add_header Cache-Control "no-store" always;
+        proxy_no_cache 1;
+        proxy_cache_bypass 1;
+    }
+
+    # -------------------
+    # service-worker.js
+    # -------------------
+location = /service-worker.js {
+    root /var/www/html/koinoyamai.love/webui;
+    try_files /service-worker.js =404;
+
+    default_type application/javascript;
+    add_header Content-Type application/javascript;
+
+    add_header Cache-Control "no-cache, max-age=0, must-revalidate" always;
+    add_header Service-Worker-Allowed "/" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+
+location = /history.json {
+    root /var/www/html/koinoyamai.love/webui;
+    default_type application/json;
+    try_files $uri =404;
+
+    add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
+    add_header Pragma "no-cache" always;
+    add_header Expires "0" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+}
+
+    # -------------------
+    # エラーページ
+    # -------------------
+    error_page 500 502 503 504 /50x.html;
+    error_page 404 /404.html;
+
+    location = /50x.html { root /usr/share/nginx/html; }
+    location = /404.html { root /usr/share/nginx/html; }
+
+    # ポート混入防止
+    port_in_redirect off;
+    absolute_redirect off;
+
+    location = /display {
+        return 301 /display/;
+    }
+
+    location ^~ /display/ {
+        alias /var/www/html/smart-display/;
+        index display.html;
+        autoindex off;
+        # キャッシュ無効（add_header ではなく expires を使う）。
+        # add_header を 1 つでも書くと server レベルの CSP 等を継承しなくなるため（AGENTS.md §11）。
+        # HTML は固定名 display.html で、中の JS/CSS は hashed 名。
+        # キャッシュされた HTML が旧 hashed アセットを要求すると真っ白になるため必ず無効化する。
+        expires -1;
+    }
+}
+}
