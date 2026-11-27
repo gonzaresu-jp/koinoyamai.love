@@ -116,11 +116,26 @@ function transformUrl(url, platform) {
 }
 
 // =========================
-// UI生成
+// SNS風タイムライン表示用ヘルパー
 // =========================
-export function createLogItem(log) {
-  const date = new Date((log.timestamp || 0) * 1000);
-  const dateStr = date.toLocaleString('ja-JP', {
+const PLATFORM_META = {
+  'youtube':           { label: 'YouTube',        icon: 'fa-brands fa-youtube',     tone: 'youtube' },
+  'youtube-community': { label: 'YTコミュニティ', icon: 'fa-brands fa-youtube',     tone: 'youtube' },
+  'twitter-main':      { label: 'X',              icon: 'fa-brands fa-x-twitter',   tone: 'twitter' },
+  'twitter-sub':       { label: 'X (サブ)',       icon: 'fa-brands fa-x-twitter',   tone: 'twitter' },
+  'twitch':            { label: 'Twitch',         icon: 'fa-brands fa-twitch',      tone: 'twitch' },
+  'twitcasting':       { label: 'ツイキャス',     icon: 'fa-solid fa-tower-broadcast', tone: 'twitcasting' },
+  'fanbox':            { label: 'FANBOX',         icon: 'fa-solid fa-palette',      tone: 'fanbox' },
+  'bilibili':          { label: 'bilibili',       icon: 'fa-brands fa-bilibili',    tone: 'bilibili' },
+  'schedule':          { label: 'スケジュール',   icon: 'fa-regular fa-calendar',   tone: 'primary' },
+  'milestone':         { label: '記念日',         icon: 'fa-solid fa-heart',        tone: 'primary' },
+  'gipt':              { label: 'Gipt',           icon: 'fa-solid fa-gift',         tone: 'primary' },
+};
+
+function formatTimelineTime(timestampSec) {
+  const tsMs = (timestampSec || 0) * 1000;
+  const date = new Date(tsMs);
+  const full = date.toLocaleString('ja-JP', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -131,22 +146,58 @@ export function createLogItem(log) {
     timeZone: 'Asia/Tokyo'
   });
 
-  const iconHtml = log.icon
-    ? `<img src="${escapeHtml(log.icon)}" alt="icon" class="icon" loading="lazy" />`
-    : '';
+  const diffSec = Math.floor((Date.now() - tsMs) / 1000);
+  if (diffSec >= 0 && diffSec < 60) return { short: 'たった今', full };
+  if (diffSec >= 60 && diffSec < 3600) return { short: `${Math.floor(diffSec / 60)}分前`, full };
+  if (diffSec >= 3600 && diffSec < 86400) return { short: `${Math.floor(diffSec / 3600)}時間前`, full };
+  if (diffSec >= 86400 && diffSec < 86400 * 7) return { short: `${Math.floor(diffSec / 86400)}日前`, full };
+
+  const nowYear = new Date().toLocaleString('ja-JP', { year: 'numeric', timeZone: 'Asia/Tokyo' });
+  const itemYear = date.toLocaleString('ja-JP', { year: 'numeric', timeZone: 'Asia/Tokyo' });
+  const short = date.toLocaleString('ja-JP', {
+    ...(nowYear !== itemYear ? { year: 'numeric' } : {}),
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Asia/Tokyo'
+  });
+  return { short, full };
+}
+
+// =========================
+// UI生成
+// =========================
+export function createLogItem(log) {
+  const { short: timeShort, full: timeFull } = formatTimelineTime(log.timestamp);
 
   const safeTitle = escapeHtml(log.title || '通知');
   const safeBody = escapeHtml(log.body || 'メッセージなし');
-  
+
   // URLのカスタム変換を適用
   const displayUrl = transformUrl(log.url, log.platform);
+  const safeUrl = displayUrl ? escapeHtml(displayUrl) : '';
 
-  const titleHtml = displayUrl
-    ? `<a href="${escapeHtml(displayUrl)}" target="_blank" rel="noopener noreferrer">${safeTitle}</a>`
+  const titleHtml = safeUrl
+    ? `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${safeTitle}</a>`
     : safeTitle;
 
   const statusClass = log.status === 'fail' ? ' status-fail' : '';
   const platformData = normalizePlatformName(log.platform || '不明');
+  const meta = PLATFORM_META[platformData] || {
+    label: log.platform || '通知',
+    icon: 'fa-solid fa-bell',
+    tone: 'default'
+  };
+
+  const avatarSrc = escapeHtml(log.icon || '/icon.webp');
+  const avatarHtml = `
+    <div class="sns-avatar-wrap">
+      <img src="${avatarSrc}" alt="" class="icon sns-avatar" loading="lazy" />
+      <span class="sns-plat-dot tone-${meta.tone}" aria-hidden="true"><i class="${meta.icon}"></i></span>
+    </div>
+  `;
 
   // Generate HTML for log item with optional media thumbnail
   // Twitter 添付は media_url、YouTube/ツイキャスの配信サムネは image を使う
@@ -154,25 +205,30 @@ export function createLogItem(log) {
   const thumbType = thumbUrl ? (log.media_url ? log.media_type : 'image') : null;
   const mediaThumbHtml = (thumbUrl && thumbType) ? `
     <div class="log-media-thumb" data-media-url="${escapeHtml(thumbUrl)}" data-media-type="${escapeHtml(thumbType)}">
-      ${thumbType === 'video' 
-        ? `<div class="media-thumb-content"><video src="${thumbUrl}" preload="metadata" muted></video><div class="video-badge"><i class="fa-solid fa-play"></i> 動画</div></div>` 
+      ${thumbType === 'video'
+        ? `<div class="media-thumb-content"><video src="${thumbUrl}" preload="metadata" muted></video><div class="video-badge"><i class="fa-solid fa-play"></i> 動画</div></div>`
         : `<div class="media-thumb-content"><img src="${thumbUrl}" alt="" loading="lazy"></div>`}
     </div>` : '';
 
+  const footHtml = safeUrl
+    ? `<div class="sns-foot"><a class="sns-open-link" href="${safeUrl}" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i> 開く</a></div>`
+    : '';
+
   return `
-    <div class="card${statusClass}" data-platform="${escapeHtml(platformData)}">
-      ${iconHtml}
-      <div class="card-content">
-        <div class="title">${titleHtml}</div>
-        <p class="body">${safeBody}</p>
-        ${mediaThumbHtml}
-        <div class="meta">
-          <span class="platform">${escapeHtml(log.platform || '不明')}</span>
-          <span class="time">${dateStr}</span>
-          ${log.status === 'fail' ? '<span class="status-badge">送信失敗</span>' : ''}
+    <article class="card sns-post${statusClass}" data-platform="${escapeHtml(platformData)}">
+      ${avatarHtml}
+      <div class="card-content sns-main">
+        <div class="sns-head meta">
+          <div class="title sns-author">${titleHtml}</div>
+          <span class="platform sns-plat-pill tone-${meta.tone}">${escapeHtml(meta.label)}</span>
+          ${log.status === 'fail' ? '<span class="status-badge sns-fail-badge">送信失敗</span>' : ''}
+          <time class="time sns-time" title="${escapeHtml(timeFull)}">${escapeHtml(timeShort)}</time>
         </div>
+        <p class="body sns-body">${safeBody}</p>
+        ${mediaThumbHtml}
+        ${footHtml}
       </div>
-    </div>
+    </article>
   `;
 }
 
