@@ -181,10 +181,8 @@
 
         <nav class="ar-pager" id="ar-pager" aria-label="ページ送り" hidden></nav>
 
-        <a href="/" class="ar-back">
-            <div>
-                <h3 style="margin:0;">通知ダッシュボードに戻る</h3>
-            </div>
+        <a href="/" class="dashboard-back-btn">
+            <i class="fa-solid fa-house" aria-hidden="true"></i> 通知ダッシュボードに戻る
         </a>
     </main>
 

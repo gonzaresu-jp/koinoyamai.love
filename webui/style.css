@@ -1634,3 +1634,40 @@ footer p a {
 body.lightbox-open {
   overflow: hidden !important;
 }
+
+/* =========================
+   共通「通知ダッシュボードに戻る」ボタン
+   ========================= */
+.dashboard-back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 20px auto 0;
+  padding: 13px 22px;
+  border-radius: 999px;
+  font-size: 0.94rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #fff;
+  text-decoration: none;
+  background: linear-gradient(135deg, #c22488 0%, #B11E7C 60%, #981d78 100%);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow:
+    0 8px 20px -6px rgba(177, 30, 124, 0.4),
+    0 2px 8px -2px rgba(138, 79, 255, 0.18),
+    0 1px 0 rgba(255, 255, 255, 0.35) inset;
+  transition: filter 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.dashboard-back-btn:hover {
+  color: #fff;
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+  box-shadow:
+    0 10px 24px -6px rgba(177, 30, 124, 0.5),
+    0 4px 12px -2px rgba(138, 79, 255, 0.24);
+}
+

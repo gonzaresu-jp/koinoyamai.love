@@ -260,7 +260,7 @@
             <li class="nav-section-label"><i class="fa-solid fa-life-ring" aria-hidden="true"></i>サポート</li>
             <li><a href="/status/" rel="noopener noreferrer"><i class="fa-solid fa-heart-pulse" aria-hidden="true"></i>システム稼働状況</a></li>
             <li><a href="https://form.jotform.com/253191048959063" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-bug" aria-hidden="true"></i>不具合報告</a></li>
-            <li><a href="/download/" rel="noopener noreferrer"><i class="fa-solid fa-download" aria-hidden="true"></i>アプリをダウンロード（Android / Windows）</a></li>
+            <li><a href="/download/" rel="noopener noreferrer"><i class="fa-solid fa-download" aria-hidden="true"></i>アプリをダウンロード<br>（Android / Windows）</a></li>
             <li><a href="https://github.com/gonzaresu-jp/Mai-notification" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-github" aria-hidden="true"></i>GitHubページ(使用方法)</a></li>
 
 

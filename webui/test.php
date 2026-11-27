@@ -32,17 +32,8 @@
             </picture>
         </div>
 
-        <a href="/" style="text-decoration:none; color:inherit; display:block;">
-            <div style="
-                background-color:#FFF;
-                margin:40px;
-                min-height:60px;
-                display:flex;
-                align-items:center;
-                justify-content:center;
-                padding:10px 20px;">
-                <h3 style="margin:0;">通知ダッシュボードに戻る</h3>
-            </div>
+        <a href="/" class="dashboard-back-btn">
+            <i class="fa-solid fa-house" aria-hidden="true"></i> 通知ダッシュボードに戻る
         </a>
     </main>
 
