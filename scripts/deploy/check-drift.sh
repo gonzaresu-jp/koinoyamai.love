@@ -170,7 +170,7 @@ done
 
 # --- 5. ドキュメント鮮度チェック ---
 # コード（routes/ services/ src/ lib/）を変更したコミットが
-# AGENTS.md / ARCHITECTURE.md を更新していない場合に警告する。
+# AGENTS.md（docs/agents/ の分割先を含む）/ ARCHITECTURE.md を更新していない場合に警告する。
 # 「コードを変えてドキュメントを更新し忘れる」事故を防ぐ（AGENTS.md §12）。
 say ""
 say "[5] ドキュメント鮮度"
@@ -178,7 +178,7 @@ DOC_DRIFT=0
 # 直近 5 コミットを検査
 for commit in $(git -C "$PROD_DIR" log --format='%H' -5 2>/dev/null); do
   changed_code=$(git -C "$PROD_DIR" diff-tree --no-commit-id --name-only -r "$commit" 2>/dev/null     | grep -E '^(routes/|services/|src/|lib/)' || true)
-  changed_docs=$(git -C "$PROD_DIR" diff-tree --no-commit-id --name-only -r "$commit" 2>/dev/null     | grep -E '^(AGENTS.md|docs/ARCHITECTURE.md)$' || true)
+  changed_docs=$(git -C "$PROD_DIR" diff-tree --no-commit-id --name-only -r "$commit" 2>/dev/null     | grep -E '^(AGENTS.md|docs/ARCHITECTURE.md|docs/agents/.+\.md)$' || true)
   if [ -n "$changed_code" ] && [ -z "$changed_docs" ]; then
     short=$(git -C "$PROD_DIR" log -1 --format='%h %s' "$commit" 2>/dev/null)
     changed_code_short=$(echo "$changed_code" | tr '\n' ' ' | cut -c1-80)
