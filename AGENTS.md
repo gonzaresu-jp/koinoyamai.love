@@ -15,7 +15,7 @@
 
 | § | 内容 | 場所 |
 |---|---|---|
-| §1〜4 | ポート位相・通知API・認証仕様・StartGuard | 本ファイル |
+| §1〜4 | ポート位相・通知API・**操作の 3 段区分（§2.1）**・認証仕様・StartGuard | 本ファイル |
 | §5, 5.1〜5.3 | 依存関係・Node.js・PHP ランタイム・security-watch・ハニーポット | [`docs/agents/05-dependencies.md`](docs/agents/05-dependencies.md) |
 | §6 | 検証の作法 | 本ファイル |
 | §6.5〜6.9 | 反映記録・loopback bind・admin は Tailnet 専用・YouTube Webhook・旅先ディスプレイ | [`docs/agents/06-network-and-routes.md`](docs/agents/06-network-and-routes.md) |
@@ -26,6 +26,7 @@
 | §11 | コーディング/設計規約（**コードを書く前に必読**） | [`docs/agents/11-coding-rules.md`](docs/agents/11-coding-rules.md) |
 | §12〜14 | ドキュメント更新ルール・GitHub 運用・作業ツリー分離 | 本ファイル |
 | — | 本ファイルの変更履歴（旧「最終更新」行） | [`docs/agents/CHANGELOG.md`](docs/agents/CHANGELOG.md) |
+| — | 事故・ヒヤリハットの記録（ルールの「なぜ」の出典）。**事故が起きたらまずここに事実を書き、再発防止を該当 § に追記する** | [`docs/agents/INCIDENTS.md`](docs/agents/INCIDENTS.md) |
 
 ## 1. ポート位相（最重要・間違えやすい）
 - **本番API = PORT 8080**（pm2: `mai-push-api`, `/var/www/html/koinoyamai.love/server.js`）
@@ -36,8 +37,36 @@
 
 ## 2. 通知API（/api/notify）— 本番で実送テスト禁止
 - **本番(8080)への POST /api/notify は実ユーザーにpushが届く**（web push + FCM）。テスト送信による誤爆が実際に発生した。取り消し不能。
-- 通知の動作確認は **必ず staging(8081)** で行うこと。staging `.env` は `DISABLE_NOTIFICATIONS=1` 固定（実送抑止・履歴のみ）。**この設定を1に戻すな**。
+- 通知の動作確認は **必ず staging(8081)** で行うこと。staging `.env` は `DISABLE_NOTIFICATIONS=1` 固定（実送抑止・履歴のみ）。**この設定を 0 にするな（外すな）**。
 - stagingで抑制確認済みのレスポンス: `{"success":true,"suppressed":true,...}` が返れば auth 経路は正常。
+
+### 2.1 操作の 3 段区分（2026-11-27 追加）
+
+各 § に散らばっている「やる・確認する・やらない」を一覧にしたもの。詳細と理由は各 § と
+`docs/agents/INCIDENTS.md` を見る。「やらない」「確認してからやる」の多くは
+`.claude/hooks/guard-rules.txt`（§13）で機械的にも止める／確認に回す。
+
+**常にやる（Always）**
+- 本番を触る前に、ポートの持ち主を確かめる（`bash scripts/deploy/assert-port.sh prod|staging`。§1・§7.2）。
+- 作業は per-session worktree とブランチで行い、PR で入れる（§13・§14）。
+- 変更したら対応するドキュメントと、ユーザーに見える変更なら `webui/updatelogs.php` を同じ PR で更新する（§12）。
+- 推測と実測を分けて報告し、確かめていないことは「未確認」と書く（§6）。
+- ガードに止められたら回避せず、理由を添えてユーザーに判断を仰ぐ（§13）。
+
+**確認してからやる（Ask first）** — 作業者の明示承認が要る
+- 本番 pm2（`mai-push-api` / `mai-push-worker` / `discord-bot`）の再起動・停止（§6）。
+- 本番への反映: `scripts/nginx/deploy.sh --apply`・`npm-deploy.sh --apply`・メンテナンスの ON/OFF（§5・§6.7）。
+- systemd サービスの再起動・停止（llama-embed / pi-vector / nginx など）。
+- 感度の高い変更（DB・認証・依存・通知経路・インフラ）の PR のマージ（§13）。
+- 強制 push、`git reset --hard` / `git clean -f` など未コミットの作業を消す操作。
+
+**絶対にやらない（Never）**
+- 本番（8080）・公開ドメインの `/api/notify` への送信（§2。取り消せない）。
+- 本番 DB・`history.json` を触るテスト（§6）。
+- `main` / `staging` への直接 push、`--no-verify`、`core.hooksPath` の上書き、手作業の `SKIP_PREPUSH=1`（§13）。
+- 秘密値をコミット・ログ・コマンド引数・PR コメントに出す（§3・§13）。
+- staging の `DISABLE_NOTIFICATIONS=1` を外す（§2）。
+- 手動の `python download.py` での起動（§8）、ネットワークドライブからの WinUI アプリの起動（§10）。
 
 ## 3. 認証仕様（2026-09 codex セキュリティ改修＋09-24 HMAC v2後）
 - `/api/notify` ヘッダ: `x-notify-token: $NOTIFY_API_TOKEN` + `x-notify-hmac` + **`x-notify-timestamp`（UNIX秒、必須）**
