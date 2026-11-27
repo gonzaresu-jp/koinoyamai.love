@@ -14,8 +14,11 @@
 | URL | https://koinoyamai.love | https://test.koinoyamai.love（ログインゲート付き） |
 | pm2 | mai-push-api / mai-push-worker / discord-bot | mai-push-api-test（+ mai-push-worker-test は必要時のみ） |
 
-- staging の `node_modules` / `.env` / `vapid.json` 等は本番へのシンボリックリンク（コード差分だけをテストしたいため）
-- どちらも同じ `.env` を参照するので、接続先設定・Webhook 等の「環境差」は増やさない方針
+- staging の `node_modules` と `.env` は**実体**（2026-09-22 に本番への symlink を廃止。AGENTS.md §6.5）。
+  `.env` は本番と別値で、本番の秘密値（`TAILNET_ADMIN_SECRET` 等）は持たない。`vapid.json` は staging に無い。
+- 通知の実送は pm2 の設定（`ecosystem.config.js` の `DISABLE_NOTIFICATIONS: '1'`）でも止めている（dotenv は既存の環境変数を上書きしない）。
+  通知以外の外部への影響（スクレイピング等）を持つ `mai-push-worker-test` は必要時のみ起動する。
+- 本番への反映は `scripts/ops/auto-deploy.sh`（main の新コミット → CI 成功を確認 → staging → smoke → 本番。AGENTS.md §7.3.6）。
 - アーカイブ検索APIは別ホスト `192.168.1.70:8766`（api.py）を経由（どちらの環境からも同一）
 
 ## 基本フロー（trunk-based）

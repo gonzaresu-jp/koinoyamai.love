@@ -65,7 +65,7 @@ function startBilibiliWatcher({ roomId, onLiveStart, onError, onRecovery }) {
 module.exports = { startBilibiliWatcher };
 
 if (require.main === module) {
-  require('dotenv').config();
+  require('dotenv').config({ path: require('path').join(__dirname, '..', '..', '.env') });
 
   const roomId = process.env.BILIBILI_ROOM_ID;
   if (!roomId) {

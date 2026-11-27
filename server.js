@@ -1,4 +1,5 @@
-require("dotenv").config();
+// パス無しの config() は起動時の cwd の .env を読む（staging が本番の .env を読む事故の型。AGENTS.md §11）
+require("dotenv").config({ path: require("path").join(__dirname, ".env") });
 // 日時の getHours/getDay や naive 文字列の new Date() 解釈を JST に固定する
 // （イベントの曜日配置・時刻表示のタイムゾーンずれ防止）
 process.env.TZ = process.env.TZ || "Asia/Tokyo";
