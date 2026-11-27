@@ -191,13 +191,14 @@
             <?php endforeach; ?>
         </ol>
 
-        <?php if (count($updateLogs) > 10): ?>
-            <button id="load-more-btn" class="load-more-btn">もっと見る（古い履歴）</button>
-        <?php endif; ?>
-
-        <a href="../" class="logs-back-link">
-            <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> 通知ダッシュボードに戻る
-        </a>
+        <div class="logs-actions">
+            <a href="../" class="logs-back-link">
+                <i class="fa-solid fa-arrow-left" aria-hidden="true"></i> 通知ダッシュボードに戻る
+            </a>
+            <?php if (count($updateLogs) > 10): ?>
+                <button id="load-more-btn" class="load-more-btn" type="button">もっと見る（古い履歴）</button>
+            <?php endif; ?>
+        </div>
     </main>
 
     <div id="footer-slot">

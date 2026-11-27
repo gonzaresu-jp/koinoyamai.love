@@ -55,17 +55,24 @@
                     }
                 }
             
-// Android アプリ(v1.2〜)のみ: カウント／スケジュールの見出しに「ホーム画面に追加」ボタンを出す
+// Android アプリ(v1.2〜)のみ: カウント／スケジュールの上部に「ホーム画面に追加」ボタンを出す
 (function () {
     function setup() {
         var app = window.MaiApp;
         if (!app || typeof app.requestPinWidget !== 'function') return;
-        [['.count-page h2', 'count', 'カウント'], ['.week-title', 'schedule', 'スケジュール']].forEach(function (d) {
-            var h = document.querySelector(d[0]);
-            if (!h || h.querySelector('.pin-widget-btn')) return;
+        [
+            ['.count-page .stats-grid', 'count', 'カウント'],
+            ['.week-head', 'schedule', 'スケジュール']
+        ].forEach(function (d) {
+            var anchor = document.querySelector(d[0]);
+            if (!anchor || !anchor.parentElement) return;
+            if (anchor.parentElement.querySelector('.pin-widget-btn[data-widget="' + d[1] + '"]')) return;
+            var row = document.createElement('div');
+            row.className = 'pin-widget-row';
             var b = document.createElement('button');
             b.type = 'button';
             b.className = 'pin-widget-btn';
+            b.dataset.widget = d[1];
             b.setAttribute('aria-label', d[2] + 'ウィジェットをホーム画面に追加');
             b.innerHTML = '<i class="fa-solid fa-thumbtack" aria-hidden="true"></i> ホームに追加';
             b.addEventListener('click', function (e) {
@@ -74,7 +81,8 @@
                 try { ok = app.requestPinWidget(d[1]); } catch (err) { ok = false; }
                 if (!ok) alert('お使いのホームアプリはこの方法に対応していません。\nホーム画面を長押し →「ウィジェット」→「まいちゃん通知」から追加できます。');
             });
-            h.appendChild(b);
+            row.appendChild(b);
+            anchor.parentElement.insertBefore(row, anchor);
         });
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setup);
