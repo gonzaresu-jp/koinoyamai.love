@@ -54,7 +54,7 @@
 - ガードに止められたら回避せず、理由を添えてユーザーに判断を仰ぐ（§13）。
 
 **確認してからやる（Ask first）** — 作業者の明示承認が要る
-- 本番 pm2（`mai-push-api` / `mai-push-worker` / `discord-bot`）の再起動・停止（§6）。
+- 本番 pm2（`mai-push-api` / `mai-push-worker` / `discord-bot`）の再起動・停止（§6。自動デプロイによる再起動は例外）。
 - 本番への反映: `scripts/nginx/deploy.sh --apply`・`npm-deploy.sh --apply`・メンテナンスの ON/OFF（§5・§6.7）。
 - systemd サービスの再起動・停止（llama-embed / pi-vector / nginx など）。
 - 感度の高い変更（DB・認証・依存・通知経路・インフラ）の PR のマージ（§13）。
@@ -88,7 +88,8 @@
 
 ## 6. 検証の作法
 - 変更後は `node --check <file>` → pm2 再起動（`--update-env`）→ **正しいポート**で `/api/health`。
-- 本番 pm2 再起動は作業者の明示承認後にのみ実施。
+- 本番 pm2 再起動は作業者の明示承認後にのみ実施。例外: 自動デプロイ（`scripts/ops/auto-deploy.sh`）は
+  main のマージ（＝承認）・CI 成功・staging smoke 通過を条件に、`mai-push-api` と `mai-push-worker` を自動で再起動する（§7.3.6）。
 - DB・history.json を触るテストは本番でやるな。staging でやれ。
 
 ## 12. ドキュメント更新ルール（ARCHITECTURE.md を腐らせない）

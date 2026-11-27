@@ -17,10 +17,9 @@ module.exports = {
     // まま crontab から直接実行され、毎回 "Permission denied" で静かに失敗していた
     // （logs/*.log）。core.fileMode=false の環境では作業ツリーの chmod が index に
     // 反映されないため、**git の index モード**を検査する。
+    // scripts/ops/auto-deploy.sh は PR #106 で 100755 になり cron で動いている。dirty ツリーの拒否・
+    // staging ブランチへの反映・本番の ff-only 等のガードは 2026-11-27 に追加済み（§7.3.6）なので検査対象に含める。
     // 対象外（意図的）:
-    //   - scripts/ops/auto-deploy.sh … 有効化すると PROD_DIR / STG_DIR で
-    //     `git reset --hard origin/main` が走り、未コミットの作業と staging ブランチを
-    //     壊す。dirty ツリー拒否などのガードを入れるまで 100644 のまま据え置く。
     //   - scripts/ops/node-version-check.sh … ディスク上は 755 で動作しているが index は
     //     100644（既存の不整合。別途修正する）。
     console.log("\n[18] cron 実行スクリプトの実行権限");
@@ -31,6 +30,7 @@ module.exports = {
         "scripts/ops/verify-backup.sh",
         "scripts/ops/db-maintenance.sh",
         "scripts/ops/dep-update-pr.sh",
+        "scripts/ops/auto-deploy.sh",
       ];
       for (const rel of execScripts) {
         const r = require("child_process").spawnSync(

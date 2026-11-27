@@ -89,12 +89,22 @@ bash scripts/ops/dep-update-pr.sh     # npm audit fix → npm test → PR 作成
 
 ### 7.3.6 自動デプロイパイプライン（2026-10-25 追加）
 ```bash
-bash scripts/ops/auto-deploy.sh     # main の新コミットを検知 → staging → smoke test → 本番
+bash scripts/ops/auto-deploy.sh     # main の新コミット → CI 確認 → staging → smoke → 本番（API + ワーカー）
 ```
-- 5分ごとの cron で実行。新コミットが無ければ何もしない（exit 0）。
-- staging にデプロイ → smoke test (health/archive/scraper-status/notify) → 本番にデプロイ → 本番 smoke test。
-- smoke test 失敗時はロールバック（前コミットに戻す）+ Discord 通知。
-- 状態ファイル: `/var/lib/mai-push/auto-deploy-state.json`（lastDeployedCommit を追跡）。
+- 5分ごとの cron で実行。`flock` で多重起動しない。新コミットが無ければ何もしない（exit 0）。
+- **CI ゲート（2026-11-27）**: そのコミットの GitHub Actions を `gh` で確認する。実行中なら次の回へ、
+  失敗・取得不能（gh の認証切れ等）なら配置せず通知（fail-closed）。
+- staging: **ローカルの `staging` ブランチ**に `origin/main` を配置（`deploy-staging.sh` と同じ。§14.1）。
+  未コミットの変更があれば止める。→ smoke test (health/archive/scraper-status/notify)。
+- 本番: 未コミットの変更、または origin/main に無いコミット（cron の push 失敗で溜まったデータ等）があれば
+  **止めて通知**（`reset --hard` で消さない）。`git merge --ff-only` で進め、**API とワーカーを再起動**し、
+  本番 smoke test ＋ワーカーの `/api/health/live`（:3002）を確認。
+- 失敗時: 本番はロールバック（前コミットに戻して API とワーカーを再起動）。失敗したコミットは
+  状態ファイルの `failedCommit` に記録し、**新しいコミットが来るまで再試行しない**（5 分ごとの再起動・通知の連発を防ぐ）。
+- 状態ファイル: `/var/lib/mai-push/auto-deploy-state.json`（`lastDeployedCommit` / `failedCommit` / `status`）。
+- 実行中に自分自身（本番ツリーのファイル）が書き換わっても影響しないよう、一時コピーに移ってから実行する。
+- Discord の Bot トークンはコマンド引数に出さない（`curl -K -`）。
+- 判定テスト: `scripts/ci/test-auto-deploy.sh`（使い捨てのリポジトリと pm2 / gh / curl の代役で各場面を再現。CI で実行）。
 - cron: `*/5 * * * *`。
 
 ### 7.3.5 バックアップ復元検証・DB メンテナンス（2026-10-25 追加）
@@ -160,8 +170,7 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
 0 4 * * 0   /var/www/html/koinoyamai.love/scripts/ops/verify-backup.sh >> /var/www/html/koinoyamai.love/logs/verify-backup.log 2>&1
 15 4 * * 0  /var/www/html/koinoyamai.love/scripts/ops/db-maintenance.sh >> /var/www/html/koinoyamai.love/logs/db-maintenance.log 2>&1
 */5 * * * *  mkdir -p /var/www/html/koinoyamai.love/logs && /home/yuzuki/.nvm/versions/node/v24.22.1/bin/node /var/www/html/koinoyamai.love/scripts/security/honeypot-watch.js >> /var/www/html/koinoyamai.love/logs/honeypot-cron.log 2>&1
-# ※ auto-deploy.sh の行は crontab に残っているが、スクリプトが index 100644 のため
-#    実行されない（§7.6 の注意書き参照）。安全ガードを入れるまで有効化しない。
+# ※ auto-deploy.sh は PR #106 で 100755 になり動いている（安全ガードは 2026-11-27 に追加。§7.3.6）
 */5 * * * *  /var/www/html/koinoyamai.love/scripts/ops/auto-deploy.sh >> /var/www/html/koinoyamai.love/logs/auto-deploy.log 2>&1
 ```
 - いずれも `crontab -l`（yuzuki ユーザー）で確認済み。ログは `logs/`（gitignore 対象）。
@@ -180,13 +189,10 @@ bash scripts/deploy/check-drift.sh --quiet    # cron 用（出力最小）
   - このリポジトリは `core.fileMode=false` のため、作業ツリーの `chmod +x` だけでは
     index（clone / CI の実体）に反映されない。**`git update-index --chmod=+x <file>`** を使う。
   - 回帰テスト `[18]` が `backup.sh` / `backup-offsite.sh` / `verify-backup.sh` /
-    `db-maintenance.sh` / `dep-update-pr.sh` の index モードを検査する（5 本）。
-  - ⚠️ **`auto-deploy.sh` は意図的に 100644 のまま据え置く（有効化しない）**。
-    有効化すると `PROD_DIR` / `STG_DIR` で `git reset --hard origin/main` が走るため、
-    本番ツリーの**未コミット作業**（リリース中の WinUI 変更など）と
-    staging ツリーの **`staging` ブランチ**（§14）が壊れる。動かす前に
-    ①dirty な作業ツリーなら中止 ②staging は `staging` ブランチへ反映（`main` へ reset しない）
-    のガードを入れること（別 PR）。
+    `db-maintenance.sh` / `dep-update-pr.sh` / `auto-deploy.sh` の index モードを検査する（6 本）。
+  - `auto-deploy.sh` は当初「①dirty な作業ツリーなら中止 ②staging は `staging` ブランチへ反映 のガードを
+    入れるまで 100644 で据え置く」方針だったが、PR #106 でガードの無いまま 100755 になり動いていた
+    （`docs/agents/INCIDENTS.md` 2026-11-27）。2026-11-27 に ①②と CI ゲート等を追加済み（§7.3.6）。
   - `node-version-check.sh` はディスク上 755 のため動作しているが index は 100644（既存の不整合。
     別途 `git update-index --chmod=+x` で揃える）。
 - リポジトリ外の job（`/home/yuzuki/temp.sh` の温度ログ等）は本表の対象外。

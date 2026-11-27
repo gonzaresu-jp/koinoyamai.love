@@ -2,6 +2,8 @@
 
 > `AGENTS.md` 末尾にあった「最終更新」行を移設したもの（新しい順）。§番号は分割前と共通。
 
+最終更新: 2026-11-27（§7.3.6 自動デプロイに安全ガードを追加: CI ゲート・flock・dirty / 未 push コミットがあれば停止・本番は ff-only・staging はローカル `staging` ブランチへ反映・失敗コミットの再試行抑止・ワーカーも再起動・自己書き換え対策・Bot トークンを引数に出さない。判定テスト `scripts/ci/test-auto-deploy.sh` を CI に追加。§6 に自動デプロイの再起動を例外として明記。§7.6 と回帰テスト [18] の「auto-deploy は 100644 据え置き」の古い記述を更新し [18] の検査対象に追加。`docs/DEVELOPMENT-WORKFLOW.md` の「staging の node_modules / .env は本番への symlink」の古い記述を実態（実体）に修正。dotenv のパス指定を server.js / lib/admin.js / bilibili-live.js で統一（§11）。INCIDENTS に記録）
+
 最終更新: 2026-11-27（§14.2 pre-push の保護ブランチ判定を「今いるブランチ名」から「実際の push 先の ref（標準入力）」に変更。`agent/x:main` や別ブランチからの main への push を止める。秘密値の検査範囲も push する ref ごとに算出。判定テスト `scripts/ci/test-pre-push.sh` を CI に追加。新規ブランチの秘密値検査を `secret-scan.sh --new`（リモートに無いコミットすべて）に。§7.3 の記述を更新。§14.1 にスカッシュマージ後のブランチ削除（`-D`）の注意を追記）
 
 最終更新: 2026-11-27（`docs/agents/INCIDENTS.md` を新設し、各章に散らばっていた事故 12 件を集約（§0 の索引に追加）。§2.1「操作の 3 段区分（常にやる / 確認してからやる / 絶対にやらない）」を新設。§2 の「DISABLE_NOTIFICATIONS=1 固定。この設定を1に戻すな」の矛盾した表記を「0 にするな（外すな）」に修正）
