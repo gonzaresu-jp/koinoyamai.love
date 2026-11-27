@@ -10,6 +10,8 @@ server {
 
     root /home/yuzuki/koinoyamai.love-test/webui;
     index index.php index.html;
+    port_in_redirect off;
+    absolute_redirect off;
 
     # Basic認証の代わりに、管理者セッション(adminToken cookie)でゲートをかける
     auth_request /_gate;
@@ -66,6 +68,61 @@ server {
         include fastcgi_params;
         add_header Cache-Control "no-store, no-cache, must-revalidate, max-age=0" always;
     include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    # 固定ページ（本番 nginx.conf.tmpl と同一の .php 抜き URL ルーティング）
+    location = /info { return 301 /info/; }
+    location /info/ {
+        index info.php;
+        try_files $uri $uri/ /info.php?$query_string;
+    }
+
+    location = /test { return 301 /test/; }
+    location /test/ {
+        index test.php;
+        try_files $uri $uri/ /test.php?$query_string;
+    }
+
+    location = /logs { return 301 /logs/; }
+    location /logs/ {
+        index logs.php;
+        try_files $uri $uri/ /logs.php?$query_string;
+    }
+
+    location = /download { return 301 /download/; }
+    location /download/ {
+        index download.php;
+        try_files $uri $uri/ /download.php?$query_string;
+    }
+
+    location = /status { return 301 /status/; }
+    location /status/ {
+        index status.php;
+        try_files $uri $uri/ /status.php?$query_string;
+    }
+
+    location = /future { return 301 /future/; }
+    location /future/ {
+        index future.php;
+        try_files $uri $uri/ /future.php?$query_string;
+    }
+
+    location = /twitter-media { return 301 /twitter-media/; }
+    location /twitter-media/ {
+        index twitter-media.php;
+        try_files $uri $uri/ /twitter-media.php?$query_string;
+    }
+
+    location = /archive { return 301 /archive/; }
+    location /archive/ {
+        index archive.php;
+        try_files $uri $uri/ /archive.php?$query_string;
+    }
+
+    location = /guide { return 301 /guide/; }
+    location /guide/ {
+        index guide.php;
+        try_files $uri $uri/ /guide.php?$query_string;
     }
 
     location / {

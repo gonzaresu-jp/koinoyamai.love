@@ -28,6 +28,7 @@
             $latestLines = number_format((int) preg_replace('/[^0-9]/', '', (string) $latest["lines"]));
         }
         ?>
+        <div class="logs-shell">
         <div class="logs-head">
             <h1 class="logs-title"><i class="fa-solid fa-clock-rotate-left" aria-hidden="true"></i> アップデート履歴</h1>
             <p class="logs-sub">
@@ -199,6 +200,7 @@
                 <button id="load-more-btn" class="load-more-btn" type="button">もっと見る（古い履歴）</button>
             <?php endif; ?>
         </div>
+        </div><!-- /.logs-shell -->
     </main>
 
     <div id="footer-slot">

@@ -200,9 +200,9 @@ function initHamburgerMenu() {
 
   function applyHamburgerSequentialFadeIn() {
     const items = menuItems();
-    const delayIncrement = 100;
+    const delayIncrement = 32;
     items.forEach((item, index) => {
-      const delay = index * delayIncrement;
+      const delay = Math.min(index * delayIncrement, 320);
       setTimeout(() => item.classList.add("is-faded-in"), delay);
     });
   }
@@ -215,7 +215,7 @@ function initHamburgerMenu() {
       body.classList.add("menu-open");
       toggle.setAttribute("aria-expanded", "true");
       overlay.style.display = "block";
-      setTimeout(() => applyHamburgerSequentialFadeIn(), 300);
+      setTimeout(() => applyHamburgerSequentialFadeIn(), 120);
     } else {
       body.classList.remove("menu-open");
       toggle.setAttribute("aria-expanded", "false");

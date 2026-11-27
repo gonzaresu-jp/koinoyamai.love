@@ -1,58 +1,101 @@
 /* ============================================================
    アップデート履歴（/logs/）
-   - 2カラム（左:日付 / 右:内容）のタイムライン
-   - カード内の内部スクロール（.card の max-height:500px）を解除して全文を見せる
-   - グラフは見出し・Y軸ラベルが重ならないよう独立カードにする
+   - ホームの通知履歴パネル（.log-section）と同一の1枚フロストガラス構成
+   - ヘッダー帯 → コード成長グラフ帯 → 1px罫線区切りのタイムライン → 下部アクション帯
    ============================================================ */
 
 .logs-page {
-    max-width: 960px;
+    max-width: 1200px;
     margin: 0 auto;
-    padding: 1.5rem 1rem 32px;   /* ヘッダー直下・フッター直上に適切な余白を確保 */
+    padding: 1.5rem 1rem 32px;
 }
 
-/* ---------- ページヘッダ ---------- */
+/* ---------- 統一フロストガラスパネル ---------- */
+.logs-shell {
+    background: rgba(255, 255, 255, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.94);
+    border-radius: 18px;
+    box-shadow:
+        0 14px 38px -10px rgba(177, 30, 124, 0.17),
+        0 4px 16px -4px rgba(138, 79, 255, 0.10),
+        0 1px 0 rgba(255, 255, 255, 0.96) inset;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    overflow: hidden;
+    animation: fadeInScale var(--dur-slow, 0.62s) var(--ease-mai, cubic-bezier(0.22, 1, 0.36, 1)) both;
+}
+
+/* ---------- ページヘッダ帯 ---------- */
 .logs-head {
-    display: block;                 /* グローバルな header スタイルを避ける */
-    margin: 0 0 18px;
-    padding: 14px 18px;
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.85);
-    border-left: 5px solid var(--color-primary);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    margin: 0;
+    padding: 16px 22px;
+    border-radius: 0;
+    background: rgba(255, 255, 255, 0.52);
+    border: none;
+    border-bottom: 1px solid rgba(177, 30, 124, 0.12);
+    box-shadow: none;
 }
 
 .logs-title {
     margin: 0;
-    font-size: 1.35rem;
-    font-weight: 700;
+    font-size: 1.2rem;
+    font-weight: 800;
     color: var(--color-text);
-    display: flex;
+    display: inline-flex;
     align-items: center;
-    gap: 10px;
+    gap: 9px;
+    letter-spacing: 0.02em;
+}
+
+.logs-title::before {
+    content: "";
+    display: inline-block;
+    width: 4px;
+    height: 1.1em;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #d63398, var(--color-primary));
+    box-shadow: 0 0 8px rgba(177, 30, 124, 0.35);
 }
 
 .logs-title i {
     color: var(--color-primary);
-    font-size: 1.1rem;
+    font-size: 1rem;
 }
 
 .logs-sub {
-    margin: 6px 0 0;
-    font-size: 0.85rem;
-    color: #6b6b80;
+    margin: 0;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #7c7288;
 }
 
-/* ---------- グラフカード ---------- */
+/* ---------- グラフ帯 ---------- */
 .logs-chart-card {
-    display: block;                 /* .card の flex を解除（横並びにならないように） */
-    background-color: rgba(255, 255, 255, 0.95);
-    max-height: none;               /* 内部スクロールを解除 */
+    display: block;
+    background: transparent;
+    border: none;
+    border-left: none;
+    border-bottom: 1px solid rgba(177, 30, 124, 0.12);
+    border-radius: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    max-height: none;
     overflow: visible;
-    padding: 16px 18px 12px;
-    margin-bottom: 20px;
+    padding: 18px 22px 14px;
+    margin: 0;
+    animation: none;
+}
+
+.logs-chart-card:hover {
+    transform: none !important;
+    box-shadow: none;
+    background: transparent;
 }
 
 .logs-card-head {
@@ -61,22 +104,22 @@
     justify-content: space-between;
     flex-wrap: wrap;
     gap: 8px;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
 }
 
 .logs-card-title {
     margin: 0;
-    font-size: 1.05rem;
-    font-weight: 700;
+    font-size: 0.96rem;
+    font-weight: 800;
     color: var(--color-text);
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 8px;
 }
 
 .logs-card-title i {
     color: var(--color-primary);
-    font-size: 0.95rem;
+    font-size: 0.9rem;
 }
 
 .logs-card-meta {
@@ -90,12 +133,12 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 0.78rem;
+    font-size: 0.76rem;
     font-weight: 700;
     color: #14663c;           /* 白背景比 6.1:1（AA を満たす） */
     background: #dcf5e8;
     border: 1px solid #b7e8cd;
-    border-radius: 20px;
+    border-radius: 999px;
     padding: 3px 10px;
     white-space: nowrap;
 }
@@ -121,54 +164,75 @@
     overflow: visible;
 }
 
-/* ---------- タイムライン ---------- */
+/* ---------- タイムライン（SNSリスト風・1px罫線区切り） ---------- */
 .logs-timeline {
     list-style: none;
     margin: 0;
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 0;
 }
 
-.log-card {
+.logs-timeline .log-card {
     display: grid;
-    grid-template-columns: 128px minmax(0, 1fr);
+    grid-template-columns: 140px minmax(0, 1fr);
     align-items: start;
-    gap: 16px;
-    max-height: none;               /* 内部スクロールを解除（全文を読めるように） */
+    gap: 18px;
+    max-height: none;
     overflow: visible;
-    padding: 14px 18px;
-    margin-bottom: 0;
-    background-color: rgba(255, 255, 255, 0.94);
+    padding: 18px 22px;
+    margin: 0;
+    background: transparent;
+    border: none;
+    border-left: none;
+    border-bottom: 1px solid rgba(177, 30, 124, 0.10);
+    border-radius: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    animation: none;
+    transition: background-color 0.18s ease;
+}
+
+.logs-timeline .log-card:last-child {
+    border-bottom: none;
+}
+
+.logs-timeline .log-card:hover {
+    transform: none !important;
+    box-shadow: none;
+    background-color: rgba(177, 30, 124, 0.04);
+}
+
+.logs-timeline .log-card.hidden-log {
+    display: none !important;
 }
 
 .log-date {
-    margin: 0;                 /* 見出しにしたので既定マージンを消す */
-    padding-bottom: 0;         /* sp.css の旧規則（padding-bottom: 5px）を打ち消す */
+    margin: 0;
+    padding: 2px 0 0 14px;
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
-    font-size: 0.95rem;
-    font-weight: 700;
+    font-size: 0.94rem;
+    font-weight: 800;
     color: var(--color-text);
     line-height: 1.3;
-    /* 日付の左にタイムラインのドットを置く */
     position: relative;
-    padding-left: 12px;
 }
 
 .log-date::before {
     content: "";
     position: absolute;
     left: 0;
-    top: 6px;
+    top: 7px;
     width: 8px;
     height: 8px;
     border-radius: 50%;
     background: var(--color-primary);
-    box-shadow: 0 0 0 3px rgba(177, 30, 124, 0.14);
+    box-shadow: 0 0 0 3px rgba(177, 30, 124, 0.16);
 }
 
 .log-date-text {
@@ -180,10 +244,11 @@
     font-size: 0.68rem;
     font-weight: 700;
     color: #fff;
-    background: var(--color-primary);
-    border-radius: 20px;
+    background: linear-gradient(135deg, #c22488, var(--color-primary));
+    border-radius: 999px;
     padding: 2px 9px;
     letter-spacing: 0.02em;
+    box-shadow: 0 3px 10px -2px rgba(177, 30, 124, 0.4);
 }
 
 .log-body {
@@ -191,7 +256,7 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 14px;
+    gap: 12px;
 }
 
 /* ---------- バッジ ---------- */
@@ -199,21 +264,20 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background-color: #f4f4f7;
-    color: #55556b;
-    padding: 4px 10px;
-    border-radius: 20px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    border: 1px solid #e4e4ec;
+    background-color: rgba(177, 30, 124, 0.06);
+    color: #5b5268;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.76rem;
+    font-weight: 700;
+    border: 1px solid rgba(177, 30, 124, 0.14);
     align-self: flex-start;
-    white-space: nowrap;             /* 「42,834 lines」の折返し防止 */
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    white-space: nowrap;
 }
 
 .log-lines-badge i {
     color: var(--color-primary);
-    font-size: 0.72rem;
+    font-size: 0.7rem;
 }
 
 /* ---------- 分類（修正 / 追加 / 変更） ---------- */
@@ -226,16 +290,16 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 0.76rem;
+    font-size: 0.74rem;
     font-weight: 700;
-    padding: 3px 11px;
-    border-radius: 20px;
-    margin: 0 0 8px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    margin: 0 0 7px;
     line-height: 1.5;
 }
 
 .log-cat-badge i {
-    font-size: 0.68rem;
+    font-size: 0.66rem;
 }
 
 .log-cat-badge.fix {
@@ -259,19 +323,19 @@
 .log-category ul,
 .log-plain-list {
     margin: 0;
-    padding-left: 18px;
+    padding-left: 4px;
     list-style: none;
-    line-height: 1.85;
-    color: var(--color-text);
-    font-size: 0.95rem;
+    line-height: 1.75;
+    color: #343144;
+    font-size: 0.92rem;
 }
 
 .log-category li,
 .log-plain-list li {
-    margin-bottom: 8px;
-    padding-left: 18px;
+    margin-bottom: 7px;
+    padding-left: 16px;
     position: relative;
-    overflow-wrap: anywhere;   /* 長い URL などがカードからはみ出さない */
+    overflow-wrap: anywhere;
 }
 
 /* サイト配色に合わせたマーカー */
@@ -280,9 +344,9 @@
     content: "";
     position: absolute;
     left: 2px;
-    top: 0.72em;
-    width: 6px;
-    height: 6px;
+    top: 0.68em;
+    width: 5px;
+    height: 5px;
     border-radius: 50%;
     background: var(--color-primary);
     opacity: 0.55;
@@ -299,19 +363,23 @@
 
 /* ---------- 画像 ---------- */
 .log-image {
-    max-width: min(420px, 100%);
-    border-radius: 10px;
+    max-width: min(440px, 100%);
+    border-radius: 12px;
+    border: 1px solid rgba(177, 30, 124, 0.14);
     margin-top: 4px;
     display: block;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+    box-shadow: 0 4px 14px -6px rgba(44, 24, 52, 0.2);
 }
 
-/* ---------- もっと見る / 戻る ---------- */
+/* ---------- 下部アクション帯（もっと見る / 戻る） ---------- */
 .logs-actions {
     display: flex;
     align-items: stretch;
     gap: 12px;
-    margin-top: 20px;
+    margin: 0;
+    padding: 16px 22px;
+    background: rgba(255, 255, 255, 0.45);
+    border-top: 1px solid rgba(177, 30, 124, 0.12);
 }
 
 .logs-actions > .load-more-btn,
@@ -321,80 +389,91 @@
     margin: 0;
 }
 
-.load-more-btn {
+.logs-actions .load-more-btn {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
     width: 100%;
-    margin: 0;
-    padding: 13px 16px;
-    font-size: 0.95rem;
+    padding: 12px 18px;
+    font-size: 0.92rem;
     font-weight: 700;
     font-family: inherit;
-    color: var(--color-primary);
-    background: rgba(255, 255, 255, 0.92);
-    border: 1px solid rgba(177, 30, 124, 0.35);
-    border-radius: 12px;
+    color: #fff;
+    background: linear-gradient(135deg, #c22488 0%, #B11E7C 60%, #981d78 100%);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 999px;
     cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    transition: background-color 0.2s ease, transform 0.2s ease;
+    box-shadow:
+        0 8px 20px -6px rgba(177, 30, 124, 0.4),
+        0 2px 8px -2px rgba(138, 79, 255, 0.18),
+        0 1px 0 rgba(255, 255, 255, 0.35) inset;
+    transition: filter 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.load-more-btn:hover {
-    background: #fff;
+.logs-actions .load-more-btn:hover {
+    filter: brightness(1.06);
     transform: translateY(-1px);
+    box-shadow:
+        0 10px 24px -6px rgba(177, 30, 124, 0.5),
+        0 4px 12px -2px rgba(138, 79, 255, 0.24);
 }
 
-.logs-back-link {
+.logs-actions .logs-back-link {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
-    margin: 0;
-    padding: 13px 16px;
-    font-size: 0.95rem;
-    border-radius: 12px;
+    padding: 12px 18px;
+    font-size: 0.92rem;
+    border-radius: 999px;
     background: rgba(255, 255, 255, 0.92);
     color: var(--color-text);
     text-decoration: none;
     font-weight: 700;
-    border: 1px solid rgba(177, 30, 124, 0.16);
-    border-left: 5px solid var(--color-primary);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
-    transition: background-color 0.2s ease, transform 0.2s ease;
+    border: 1px solid rgba(177, 30, 124, 0.2);
+    box-shadow:
+        0 4px 14px -4px rgba(177, 30, 124, 0.14),
+        0 1px 0 rgba(255, 255, 255, 0.95) inset;
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
 }
 
-.logs-back-link:hover {
+.logs-actions .logs-back-link:hover {
     background: #fff;
+    border-color: rgba(177, 30, 124, 0.42);
+    color: var(--color-primary);
     transform: translateY(-1px);
 }
 
-.logs-back-link i {
+.logs-actions .logs-back-link i {
     color: var(--color-primary);
 }
 
 /* ---------- レスポンシブ ---------- */
 @media (max-width: 720px) {
     .logs-page {
-        padding: 1rem 1rem 24px;
+        padding: 1rem 0.75rem 24px;
     }
 
-    .log-card {
+    .logs-head {
+        padding: 14px 16px;
+    }
+
+    .logs-chart-card {
+        padding: 14px 16px 12px;
+    }
+
+    .logs-timeline .log-card {
         grid-template-columns: 1fr;
         gap: 8px;
-        padding: 13px 14px;
+        padding: 14px 16px;
     }
 
     .log-date {
         flex-direction: row;
         align-items: center;
         gap: 8px;
-        padding-left: 0;
+        padding: 0;
         font-size: 0.9rem;
     }
 
@@ -403,11 +482,11 @@
     }
 
     .logs-title {
-        font-size: 1.15rem;
+        font-size: 1.08rem;
     }
 
-    .logs-chart-card {
-        padding: 14px 12px 10px;
+    .logs-actions {
+        padding: 14px 16px;
     }
 
     /* 狭い画面では軸ラベルが潰れて読めないので隠す（グリッド線は残す） */
