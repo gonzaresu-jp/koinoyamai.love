@@ -49,6 +49,9 @@
 - `ADMIN_NOTIFY_TOKEN` は通知/内部APIでは**もう使われない**（管理者専用）。
 - OAuth: `state` はランダム単発5分失効（`/auth/token-exchange` で60秒単発code→JWT交換）。**stateやJWTがURLに平文で残らない**。
 - HMAC比較は `crypto.timingSafeEqual` 使用。自前で `===` 比較に戻すな。
+- トークン・鍵らしき文字列は `scripts/ci/secret-scan.sh` が検出する（CI と pre-push。pre-push は送信する
+  **コミットごと**に見るので、途中で入れて後で消したものも止まる）。ダミー値の行には `secret-scan: allow`、
+  公開前提の値（Firebase の Web 用 API キー等）のファイルは `.secret-scan-ignore` に理由つきで書く。
 
 ## 4. ワーカー二重起動防止（StartGuard）
 - `main.js` は `[StartGuard]` プロセスロック（`/tmp` 等、`NODE_ENV` で test/prod 分離）を持つ。
@@ -75,6 +78,7 @@
 | デプロイ/検証の作法 | `AGENTS.md §7` / `docs/DEVELOPMENT-WORKFLOW.md` |
 | webui 構成/CSP/静的配信 | `docs/ARCHITECTURE.md §4.5` / `AGENTS.md §6.6` |
 | 作業ツリー分離（worktree） | `AGENTS.md §14` / `scripts/ops/ensure-staging-tree.sh` / `scripts/ops/new-worktree.sh` / `scripts/hooks/pre-push` |
+| エージェント用ガード（禁止・要確認コマンド） | `.claude/hooks/guard-rules.txt` / `scripts/ci/test-guard.sh`（例を足す）/ `AGENTS.md §13` |
 | nginx への新ルート追加（例: `/display/`） | `AGENTS.md §6.7`（elza vhost）/ `§6.9` / `docs/ARCHITECTURE.md §4.5b` / `docs/SECURITY.md` |
 | 外部入力の検証 / SSRF / 型の部分導入（`@ts-check`） | `AGENTS.md §11` / `docs/ARCHITECTURE.md §4.4` |
 | アーカイブ API | `docs/ARCHIVE-ADMIN-SPEC.md` |
@@ -144,6 +148,14 @@
 - **main ブランチ保護（設定済み, 2026-10-19）**: PR 必須（承認数0）・**force push 禁止**・削除禁止。`enforce_admins=false`（日次 data 自動 push を許すため）。
   - ⚠️ `enforce_admins=false` のため admin（=作業アカウント）は技術上は直接 push も可能。**GitHub では強制されないので、規約として PR 運用を守る**。
   - 例外: 日次自動コミット（`scripts/ops/update-subscribers-and-commit.sh`）は `webui/data` のみ main へ直接 push。
+- **ルールを仕組みで守る 3 層（2026-11-27 追加）**:
+  1. エージェントのコマンド: `.claude/hooks/guard-bash.sh`（Claude Code の PreToolUse）が `.claude/hooks/guard-rules.txt`
+     に従い止める（deny）/ ユーザーに確認する（ask）。本番 `/api/notify`（§2）・本番 pm2 の再起動（§6）・
+     nginx / 依存の `--apply`・`--no-verify`・手作業の `SKIP_PREPUSH=1`・main / staging への push など。
+     判定できないときは止める。**Claude Code 以外の AI ツール（OpenCode 等）には効かない**。
+  2. git: `scripts/hooks/pre-push` が保護ブランチへの push と、送信するコミット中の秘密値を止める（どのツールにも効く）。
+  3. CI: 秘密値の検出とガードの判定テストを PR ごとに実行する。
+  ガードに止められたら回避せず、理由を添えてユーザーに判断を仰ぐ。ルールを変えたら `scripts/ci/test-guard.sh` に例を足す。
 
 ## 14. 作業ツリー分離（2026-10-25 追加）
 

@@ -2,6 +2,8 @@
 
 > `AGENTS.md` 末尾にあった「最終更新」行を移設したもの（新しい順）。§番号は分割前と共通。
 
+最終更新: 2026-11-27（ルールを仕組みで守る 3 層を追加（§13）: Claude Code の PreToolUse ガード `.claude/hooks/guard-bash.sh` ＋ `guard-rules.txt`（本番 `/api/notify` の送信を拒否、本番 pm2・nginx / 依存の `--apply`・systemctl は確認、`--no-verify`・手作業の `SKIP_PREPUSH=1`・main / staging への push を拒否）と判定テスト `scripts/ci/test-guard.sh`。秘密値の検出 `scripts/ci/secret-scan.sh` を CI と pre-push（コミットごと）に追加（§3）。§12 に更新先を追加）
+
 最終更新: 2026-11-27（nginx 設定をテンプレート生成方式へ移行（フェーズ2）:§6.7 の admin/Tailnet 反映手順を `scripts/nginx/templates/` + `deploy.sh` に更新し、旧 `apply-*` パッチ群を `scripts/archive/nginx-apply/` へ退避。§5.1 / §11 / `docs/ARCHITECTURE.md` / `docs/SECURITY.md` / `docs/DEVELOPMENT-WORKFLOW.md` の nginx 手順も新手順へ追随。メンテナンス ON/OFF（`apply-maintenance.sh`）は状態切替のため現役のまま）
 
 最終更新: 2026-11-27（AGENTS.md を必読ルール＋索引（§0）と `docs/agents/` に分割（#107）/ 回帰テストを `scripts/ops/regression/NN-*.js` に分割し `--only` を追加（#109）/ §13 の「小さな修正は main へ直接 push 可」を §14.1 に合わせて「すべて PR 経由・独立レビューは感度の高い変更のみ」に統一。`SKIP_PREPUSH=1` は日次 cron 専用と明記）

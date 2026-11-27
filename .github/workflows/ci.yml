@@ -54,6 +54,12 @@ jobs:
           find webui -name '*.php' -print0 | xargs -0 -n1 -P4 php -l > /dev/null
           echo "構文チェック OK"
 
+      - name: 秘密値（トークン・鍵）の検出（AGENTS.md §3）
+        run: bash scripts/ci/secret-scan.sh
+
+      - name: エージェント用ガード（.claude/hooks）の判定テスト
+        run: bash scripts/ci/test-guard.sh
+
       - name: VAPID 鍵を生成（テスト用のローカルファイル・gitignore 済み）
         # services/notification.js が読むのは { vapidPublicKey, vapidPrivateKey }
         # （web-push の generateVAPIDKeys() は { publicKey, privateKey } を返すので変換する）

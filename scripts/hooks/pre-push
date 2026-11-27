@@ -125,6 +125,17 @@ else
   echo "${YLW}[pre-push] SKIP_PREPUSH_VERSION=1 によりバージョン整合をスキップ${RST}"
 fi
 
+# --- 3b. 秘密値（トークン・鍵）の検出（AGENTS.md §3） ---
+#   送信するコミットごとの追加行を見る（途中で入れて後で消したものも履歴に残るため止める）。
+#   SKIP_PREPUSH_REGRESSION より前に置き、回帰テストを飛ばしても必ず実行する。
+echo "[pre-push] 秘密値の検出（$RANGE）"
+if bash scripts/ci/secret-scan.sh --range "$RANGE"; then
+  echo "${GRN}[pre-push] ✓ 秘密値なし${RST}"
+else
+  echo "${RED}[pre-push] ✗ 送信するコミットに秘密値らしき文字列があります${RST}"
+  exit 1
+fi
+
 # --- 4. 回帰テスト ---
 if [ "${SKIP_PREPUSH_REGRESSION:-0}" = "1" ]; then
   echo "${YLW}[pre-push] SKIP_PREPUSH_REGRESSION=1 により回帰テストをスキップ${RST}"

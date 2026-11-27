@@ -42,6 +42,8 @@ bash scripts/deploy/assert-port.sh staging     # 8081 が staging ツリーか
 - ステージ・コミット対象の `.js` に対し `node --check`
 - `.php` に対し `php -l`
 - アプリバージョンの3箇所整合（`scripts/ops/check-app-version.sh`・`SKIP_PREPUSH_VERSION=1` でスキップ可）
+- 送信するコミットごとの追加行から秘密値を検出（`scripts/ci/secret-scan.sh --range`・2026-11-27 追加。
+  `SKIP_PREPUSH_REGRESSION=1` でも飛ばない）
 - 回帰テスト `npm test`（281項目・2026-11-09 時点、約6秒）
 - 構文エラーがあれば push を拒否。回避は `git push --no-verify` または `SKIP_PREPUSH_REGRESSION=1`。
 
