@@ -67,6 +67,13 @@ sudo bash scripts/nginx/deploy.sh --apply  # 配置（本番ツリーで実行�
   配置は `apply-maintenance.sh --on` の役割）。
 - メンテナンス ON の間は配置できない: 生成結果は OFF 状態なので、ON のまま配置すると
   メンテナンスが無言で解除されてしまう。先に `apply-maintenance.sh --off` で解除する。
+- 権限: 秘密値（`TAILNET_ADMIN_SECRET`）を含む `nginx.conf` は **0600（root のみ）**、
+  他の4ファイルは 0644 で配置する。`*.bak-template-*` も 0600 で作り、自動復旧時は
+  配置前の権限に戻す。このため一般ユーザーでの dry-run では `nginx.conf` の比較が
+  「比較不可」と表示される（`sudo bash scripts/nginx/deploy.sh` で比較できる）。
+- 本修正より前の `deploy.sh --apply` が作った `nginx.conf.bak-template-*` は 0644 のまま
+  秘密値を含む。ほかの `nginx.conf.bak-*` も、tailnet 自動認証の導入（2026-10-10）以降に
+  取られたものは同様に含み得る。`sudo chmod 600 /etc/nginx/nginx.conf.bak-*` で絞る。
 
 ## 現役で残る旧来スクリプト（例外）
 

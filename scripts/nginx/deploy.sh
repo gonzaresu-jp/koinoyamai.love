@@ -75,7 +75,10 @@ fi
 echo "--- 本番との diff ---"
 DIFF_FOUND=0
 for f in "${TARGETS[@]}"; do
-  if [ -f "$NGINX_DIR/$f" ] && diff -q "$RENDERED/$f" "$NGINX_DIR/$f" >/dev/null 2>&1; then
+  if [ -f "$NGINX_DIR/$f" ] && [ ! -r "$NGINX_DIR/$f" ]; then
+    # nginx.conf は秘密値を含むため 0600（root のみ）で配置している
+    echo "  比較不可（読み取り権限なし。sudo で実行すると比較できます）: $f"
+  elif [ -f "$NGINX_DIR/$f" ] && diff -q "$RENDERED/$f" "$NGINX_DIR/$f" >/dev/null 2>&1; then
     echo "  一致: $f"
   else
     echo "  差分あり: $f"
@@ -144,10 +147,15 @@ fi
 # 4. バックアップ
 BAK_TS="$(date +%Y%m%d-%H%M%S-%N)"
 MISSING_LIST="$WORK/missing-targets"
+MODE_LIST="$WORK/original-modes"
 : > "$MISSING_LIST"
+: > "$MODE_LIST"
 for f in "${TARGETS[@]}"; do
   if [ -f "$NGINX_DIR/$f" ]; then
     cp -a "$NGINX_DIR/$f" "$NGINX_DIR/$f.bak-template-$BAK_TS"
+    # バックアップも秘密値を含み得るので root のみにする。復旧時に戻せるよう元の権限を記録する
+    printf '%s %s\n' "$(stat -c %a "$NGINX_DIR/$f")" "$f" >> "$MODE_LIST"
+    chmod 600 "$NGINX_DIR/$f.bak-template-$BAK_TS"
   else
     # 配置前に存在しなかったファイルは、復旧時に削除できるよう記録する
     echo "$f" >> "$MISSING_LIST"
@@ -162,6 +170,8 @@ restore_from_backup() {
       rm -f "$NGINX_DIR/$f"
     elif [ -f "$NGINX_DIR/$f.bak-template-$BAK_TS" ]; then
       cp -a "$NGINX_DIR/$f.bak-template-$BAK_TS" "$NGINX_DIR/$f"
+      orig_mode="$(awk -v f="$f" '$2 == f { print $1 }' "$MODE_LIST")"
+      [ -n "$orig_mode" ] && chmod "$orig_mode" "$NGINX_DIR/$f"
     fi
   done
   if nginx -t; then
@@ -173,7 +183,10 @@ restore_from_backup() {
 
 # 5. 配置 → nginx -t → reload
 for f in "${TARGETS[@]}"; do
-  install -m 0644 -o root -g root "$RENDERED/$f" "$NGINX_DIR/$f"
+  # 秘密値（TAILNET_ADMIN_SECRET）を含むのは nginx.conf のみ。読むのは root の master だけなので 0600 で足りる
+  mode=0644
+  [ "$f" = "nginx.conf" ] && mode=0600
+  install -m "$mode" -o root -g root "$RENDERED/$f" "$NGINX_DIR/$f"
 done
 echo "[OK] 配置完了"
 

@@ -32,8 +32,10 @@ fi
 # 判定は mkdir より前に、シンボリックリンクを解決した実パスで行う
 # （論理パス判定だと /etc/nginx へのリンク経由で回避できてしまうため）。
 OUT_DIR_ABS="$(realpath -m "$OUT_DIR")"
+# /etc/nginx 自体がシンボリックリンクの環境でも拒否できるよう、比較先も実パスで持つ
+NGINX_REAL="$(realpath -m /etc/nginx)"
 case "$OUT_DIR_ABS" in
-  /etc/nginx|/etc/nginx/*)
+  /etc/nginx|/etc/nginx/*|"$NGINX_REAL"|"$NGINX_REAL"/*)
     echo "[render] ERROR: 出力先に /etc/nginx は指定できません（フェーズ1は生成のみ）" >&2
     exit 1
     ;;
@@ -94,8 +96,9 @@ if grep -rq '${TAILNET_' "$OUT_DIR"; then
   exit 1
 fi
 
-# 秘密値が生成された nginx.conf に実際に差し込まれていることだけを確認する（値は表示しない）
-if ! grep -Fq "$TAILNET_ADMIN_SECRET" "$OUT_DIR/nginx.conf"; then
+# 秘密値が生成された nginx.conf に実際に差し込まれていることだけを確認する（値は表示しない）。
+# grep の引数に渡すと ps で他ユーザーから見えるため、組み込みの printf からパターンとして渡す。
+if ! grep -Fqf <(printf '%s\n' "$TAILNET_ADMIN_SECRET") "$OUT_DIR/nginx.conf"; then
   echo "[render] ERROR: 生成した nginx.conf に TAILNET_ADMIN_SECRET が差し込まれていません" >&2
   exit 1
 fi
