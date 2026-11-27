@@ -8,13 +8,13 @@
 .logs-page {
     max-width: 960px;
     margin: 0 auto;
-    padding: 0 1rem 24px;   /* main の左右余白は維持する */
+    padding: 1.5rem 1rem 32px;   /* ヘッダー直下・フッター直上に適切な余白を確保 */
 }
 
 /* ---------- ページヘッダ ---------- */
 .logs-head {
     display: block;                 /* グローバルな header スタイルを避ける */
-    margin: 0 0 14px;
+    margin: 0 0 18px;
     padding: 14px 18px;
     border-radius: 12px;
     background: rgba(255, 255, 255, 0.85);
@@ -52,7 +52,7 @@
     max-height: none;               /* 内部スクロールを解除 */
     overflow: visible;
     padding: 16px 18px 12px;
-    margin-bottom: 18px;
+    margin-bottom: 20px;
 }
 
 .logs-card-head {
@@ -128,7 +128,7 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 14px;
 }
 
 .log-card {
@@ -145,6 +145,7 @@
 
 .log-date {
     margin: 0;                 /* 見出しにしたので既定マージンを消す */
+    padding-bottom: 0;         /* sp.css の旧規則（padding-bottom: 5px）を打ち消す */
     display: flex;
     flex-direction: column;
     align-items: flex-start;
@@ -190,7 +191,7 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 8px;
+    gap: 14px;
 }
 
 /* ---------- バッジ ---------- */
@@ -229,7 +230,7 @@
     font-weight: 700;
     padding: 3px 11px;
     border-radius: 20px;
-    margin: 0 0 6px;
+    margin: 0 0 8px;
     line-height: 1.5;
 }
 
@@ -306,20 +307,39 @@
 }
 
 /* ---------- もっと見る / 戻る ---------- */
+.logs-actions {
+    display: flex;
+    align-items: stretch;
+    gap: 12px;
+    margin-top: 20px;
+}
+
+.logs-actions > .load-more-btn,
+.logs-actions > .logs-back-link {
+    flex: 1 1 0;
+    min-width: 0;
+    margin: 0;
+}
+
 .load-more-btn {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     width: 100%;
-    margin: 14px 0 6px;
-    padding: 12px 16px;
+    margin: 0;
+    padding: 13px 16px;
     font-size: 0.95rem;
     font-weight: 700;
     font-family: inherit;
     color: var(--color-primary);
-    background: rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.92);
     border: 1px solid rgba(177, 30, 124, 0.35);
     border-radius: 12px;
     cursor: pointer;
-    box-shadow: none;          /* グローバルな影を消してフラットに */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     transition: background-color 0.2s ease, transform 0.2s ease;
 }
 
@@ -333,21 +353,25 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    margin-top: 10px;
-    padding: 14px 16px;
+    margin: 0;
+    padding: 13px 16px;
+    font-size: 0.95rem;
     border-radius: 12px;
-    background: rgba(255, 255, 255, 0.85);
+    background: rgba(255, 255, 255, 0.92);
     color: var(--color-text);
     text-decoration: none;
     font-weight: 700;
+    border: 1px solid rgba(177, 30, 124, 0.16);
     border-left: 5px solid var(--color-primary);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
     backdrop-filter: blur(4px);
     -webkit-backdrop-filter: blur(4px);
+    transition: background-color 0.2s ease, transform 0.2s ease;
 }
 
 .logs-back-link:hover {
     background: #fff;
+    transform: translateY(-1px);
 }
 
 .logs-back-link i {
@@ -357,7 +381,7 @@
 /* ---------- レスポンシブ ---------- */
 @media (max-width: 720px) {
     .logs-page {
-        padding-bottom: 12px;
+        padding: 1rem 1rem 24px;
     }
 
     .log-card {
@@ -389,5 +413,11 @@
     /* 狭い画面では軸ラベルが潰れて読めないので隠す（グリッド線は残す） */
     .logs-chart .axis-label {
         display: none;
+    }
+}
+
+@media (max-width: 560px) {
+    .logs-actions {
+        flex-direction: column-reverse;
     }
 }

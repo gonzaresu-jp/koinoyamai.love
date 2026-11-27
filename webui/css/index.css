@@ -57,12 +57,17 @@
 }
 
 /* Android アプリ用「ホームに追加」ボタン（index-dashboard.js が追加） */
+.pin-widget-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+  position: relative;
+  z-index: 2;
+}
 .pin-widget-btn {
-  order: 1;
-  margin-left: 8px;
   flex: 0 0 auto;
   border: 1px solid rgba(177, 30, 124, .35);
-  background: #fff;
+  background: rgba(255, 255, 255, .92);
   color: #B11E7C;
   font-size: .72rem;
   font-weight: 700;

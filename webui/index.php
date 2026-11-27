@@ -279,8 +279,6 @@
                             <!-- ✅ role="tabpanel" + aria-label でスクリーンリーダー対応 -->
                             <div class="stats-page count-page" role="tabpanel" aria-label="カウント"
                                 aria-roledescription="スライド">
-                                <h2 class="marker">カウント</h2>
-
                                 <div class="stats-grid">
                                     <div class="stat-item stat-wide">
                                         <button type="button" class="stat-copy-btn" data-copy-target="days-since-debut"
@@ -335,7 +333,6 @@
 
                             <!-- ===== ページ2：週間予定表 ===== -->
                             <div class="stats-page" role="tabpanel" aria-label="スケジュール" aria-roledescription="スライド">
-                                <h2 class="week-title marker">スケジュール</h2>
                                 <div class="week-head">
                                     <!-- ✅ aria-label を追加（アイコンのみのボタン対応） -->
                                     <button onclick="navigateSchedule(-1)" class="week-arrow" type="button"
@@ -373,12 +370,9 @@
                             <div class="stats-page sub-page" role="tabpanel" aria-label="登録者推移"
                                 aria-roledescription="スライド">
 
-                                <div class="sub-header">
-                                    <h2 class="sub-title marker">登録者推移</h2>
-                                    <!-- ✅ role="status" で読み込み状態をスクリーンリーダーに伝える -->
-                                    <span class="sub-loading-badge" id="sub-loading-badge" role="status"
-                                        aria-live="polite">読込中…</span>
-                                </div>
+                                <!-- ✅ role="status" で読み込み状態をスクリーンリーダーに伝える -->
+                                <span class="sub-loading-badge" id="sub-loading-badge" role="status"
+                                    aria-live="polite">読込中…</span>
 
                                 <!-- ✅ プラットフォームタブに role="tablist" -->
                                 <div class="sub-platform-tabs" id="sub-platform-tabs" role="tablist"
