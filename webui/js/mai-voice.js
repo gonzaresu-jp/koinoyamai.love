@@ -1,4 +1,4 @@
-// mai-voice.js - まいちゃん画像クリック時のぷにっ演出・ハートバースト・吹き出し・音声再生・パララックス＆マウス微追従
+// mai-voice.js - まいちゃん画像クリック時の吹き出し・音声再生・パララックス＆マウス微追従
 
 (() => {
   const targets = document.querySelectorAll('.count-bg-mai');
@@ -12,7 +12,6 @@
   const enableMouseFollow = !reduceMotion && finePointer;
 
   let hideTimer = 0;
-  let speakFallbackTimer = 0;
   let currentAudio = null;
 
   // ===== 音声・文言・リンクの設定 =====
@@ -34,38 +33,6 @@
   function pickRandomItem() {
     if (!voiceItems.length) return null;
     return voiceItems[Math.floor(Math.random() * voiceItems.length)];
-  }
-
-  function setSpeakingState(active) {
-    targets.forEach(img => img.classList.toggle('is-speaking', active));
-  }
-
-  function triggerSquish(img) {
-    if (reduceMotion || !img) return;
-    img.classList.remove('is-squish');
-    void img.offsetWidth;
-    img.classList.add('is-squish');
-    clearTimeout(img._squishTimer);
-    img._squishTimer = setTimeout(() => {
-      img.classList.remove('is-squish');
-    }, 600);
-  }
-
-  function burstHearts(e, img) {
-    if (reduceMotion) return;
-    const rect = img.getBoundingClientRect();
-    const x = (typeof e.clientX === 'number' && e.clientX > 0) ? e.clientX : rect.left + rect.width * 0.5;
-    const y = (typeof e.clientY === 'number' && e.clientY > 0) ? e.clientY : rect.top + rect.height * 0.35;
-
-    if (typeof window.spawnMaiParticles === 'function') {
-      window.spawnMaiParticles(x, y, {
-        count: 9,
-        spreadX: 82,
-        spreadY: 74,
-        sizeMin: 13,
-        sizeMax: 21,
-      });
-    }
   }
 
   function showPopup(item, triggerEl) {
@@ -108,29 +75,15 @@
 
   async function playVoice(item) {
     if (!item?.audio) return;
-    clearTimeout(speakFallbackTimer);
     try {
       if (currentAudio) {
         currentAudio.pause();
         currentAudio.currentTime = 0;
       }
-      const audio = new Audio(item.audio);
-      currentAudio = audio;
-      setSpeakingState(true);
-
-      const stopAura = () => {
-        if (currentAudio === audio) setSpeakingState(false);
-      };
-      audio.addEventListener('ended', stopAura, { once: true });
-      audio.addEventListener('pause', stopAura, { once: true });
-      audio.addEventListener('error', stopAura, { once: true });
-
-      await audio.play();
-      // 念のため最大10秒でオーラを解除
-      speakFallbackTimer = setTimeout(stopAura, 10000);
+      currentAudio = new Audio(item.audio);
+      await currentAudio.play();
     } catch {
-      // 再生失敗時は短い間だけオーラを見せて解除
-      speakFallbackTimer = setTimeout(() => setSpeakingState(false), 1800);
+      // 再生失敗時は無音で続行
     }
   }
 
@@ -209,8 +162,6 @@
     img.addEventListener('click', async e => {
       e.preventDefault();
       e.stopPropagation();
-      triggerSquish(img);
-      burstHearts(e, img);
       const item = pickRandomItem();
       if (!item) return;
       showPopup(item, e.currentTarget);

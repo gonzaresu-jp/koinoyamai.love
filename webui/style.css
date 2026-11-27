@@ -331,37 +331,6 @@ header h1 {
   box-shadow: 0 2px 8px -2px rgba(177, 30, 124, 0.24);
   object-fit: cover;
   flex-shrink: 0;
-  cursor: pointer;
-  transition: transform 0.32s var(--ease-spring), box-shadow 0.28s ease, border-color 0.24s ease;
-}
-
-.header-left img:hover {
-  transform: rotate(-10deg) scale(1.1);
-  border-color: rgba(177, 30, 124, 0.6);
-  box-shadow:
-    0 0 0 4px rgba(177, 30, 124, 0.16),
-    0 6px 16px -4px rgba(177, 30, 124, 0.36);
-}
-
-.header-left img:active {
-  transform: rotate(4deg) scale(0.94);
-}
-
-.header-left img.is-live-glow {
-  animation: maiHeaderAura 3.4s ease-in-out infinite;
-}
-
-@keyframes maiHeaderAura {
-  0%, 100% {
-    box-shadow:
-      0 2px 8px -2px rgba(177, 30, 124, 0.24),
-      0 0 0 0 rgba(177, 30, 124, 0.24);
-  }
-  50% {
-    box-shadow:
-      0 2px 12px -2px rgba(177, 30, 124, 0.38),
-      0 0 0 5px rgba(177, 30, 124, 0);
-  }
 }
 
 .header-logo {
@@ -605,7 +574,7 @@ body.menu-transitions-disabled #nav-menu .nav-list li {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  transition: opacity 0.32s var(--ease-mai), transform 0.36s var(--ease-spring), filter 0.32s var(--ease-mai);
+  transition: opacity 0.32s var(--ease-mai), transform 0.32s var(--ease-mai), filter 0.32s var(--ease-mai);
 }
 
 .toggle-image.off {
@@ -617,60 +586,19 @@ body.menu-transitions-disabled #nav-menu .nav-list li {
 .toggle-image.on {
   opacity: 0;
   filter: blur(5px);
-  transform: scale(0.82) translateY(6px);
+  transform: scale(0.86);
 }
 
 body.notifications-enabled .toggle-image.off {
   opacity: 0;
   filter: blur(5px);
-  transform: scale(0.82) translateY(4px);
+  transform: scale(0.86);
 }
 
 body.notifications-enabled .toggle-image.on {
   opacity: 1;
   filter: none;
-  transform: scale(1) translateY(0);
-}
-
-.toggle-image-container.is-joy .toggle-image.on {
-  animation: maiToggleHop 0.62s var(--ease-spring) both;
-}
-
-.toggle-image-container.is-shy .toggle-image.off {
-  animation: maiToggleSettle 0.45s var(--ease-mai) both;
-}
-
-@keyframes maiToggleHop {
-  0% {
-    transform: scale(0.82) translateY(8px);
-    filter: blur(4px);
-  }
-  38% {
-    transform: scale(1.12, 0.92) translateY(-10px) rotate(-4deg);
-    filter: none;
-  }
-  68% {
-    transform: scale(0.96, 1.05) translateY(2px) rotate(3deg);
-  }
-  100% {
-    transform: scale(1) translateY(0) rotate(0deg);
-    filter: none;
-  }
-}
-
-@keyframes maiToggleSettle {
-  0% {
-    transform: scale(0.88) rotate(-4deg);
-    filter: blur(4px);
-  }
-  60% {
-    transform: scale(1.03) rotate(2deg);
-    filter: none;
-  }
-  100% {
-    transform: scale(1) rotate(0deg);
-    filter: none;
-  }
+  transform: scale(1);
 }
 
 .toggle-controls-wrapper {
@@ -1580,56 +1508,25 @@ footer p a {
   transform: none;
 }
 
-/* まいちゃん演出パーティクル（ハート・きらめき） */
-.mai-particle {
-  position: fixed;
-  left: 0;
-  top: 0;
-  pointer-events: none;
-  user-select: none;
-  z-index: 2200;
-  font-size: var(--p-size, 15px);
-  line-height: 1;
-  color: var(--p-color, #d63398);
-  text-shadow: 0 2px 8px rgba(177, 30, 124, 0.35);
-  will-change: transform, opacity, filter;
-  animation: maiParticleFly var(--p-dur, 0.9s) var(--ease-mai) forwards;
-}
-
-@keyframes maiParticleFly {
-  0% {
-    opacity: 0;
-    filter: blur(2px);
-    transform: translate(-50%, -50%) scale(0.45) rotate(0deg);
-  }
-  18% {
-    opacity: 1;
-    filter: none;
-  }
-  100% {
-    opacity: 0;
-    filter: blur(2px);
-    transform: translate(calc(-50% + var(--dx, 0px)), calc(-50% + var(--dy, -46px))) scale(1.15) rotate(var(--rot, 18deg));
-  }
-}
-
-/* ひょっこりまいちゃん「ページ上部へ戻る」ボタン */
+/* ページ上部へ戻るボタン（今後専用素材へ差し替え予定・現在はFont Awesome矢印） */
 .mai-scroll-top {
   position: fixed;
   right: 20px;
   bottom: calc(22px + env(safe-area-inset-bottom, 0px));
   z-index: 900;
-  width: 54px;
-  height: 54px;
+  width: 48px;
+  height: 48px;
   padding: 0;
   border-radius: 50%;
-  border: 1.5px solid rgba(177, 30, 124, 0.28);
-  background: rgba(255, 255, 255, 0.92);
+  border: 1.5px solid rgba(177, 30, 124, 0.24);
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--color-primary, #B11E7C);
+  font-size: 1.05rem;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   box-shadow:
-    0 10px 26px -6px rgba(177, 30, 124, 0.34),
-    0 4px 12px -3px rgba(138, 79, 255, 0.16),
+    0 10px 26px -6px rgba(177, 30, 124, 0.28),
+    0 4px 12px -3px rgba(138, 79, 255, 0.14),
     0 1px 0 rgba(255, 255, 255, 0.96) inset;
   cursor: pointer;
   display: inline-flex;
@@ -1637,13 +1534,15 @@ footer p a {
   justify-content: center;
   opacity: 0;
   filter: blur(8px);
-  transform: translateY(18px) scale(0.86);
+  transform: translateY(16px) scale(0.88);
   pointer-events: none;
   transition:
     opacity 0.34s var(--ease-mai),
     filter 0.34s var(--ease-mai),
-    transform 0.38s var(--ease-spring),
+    transform 0.34s var(--ease-mai),
+    background-color 0.2s ease,
     border-color 0.2s ease,
+    color 0.2s ease,
     box-shadow 0.25s ease;
 }
 
@@ -1655,63 +1554,25 @@ footer p a {
 }
 
 .mai-scroll-top:hover {
-  border-color: rgba(177, 30, 124, 0.55);
-  transform: translateY(-4px) scale(1.06);
+  background: #fff;
+  border-color: rgba(177, 30, 124, 0.5);
+  transform: translateY(-3px) scale(1.05);
   box-shadow:
-    0 14px 30px -6px rgba(177, 30, 124, 0.44),
-    0 4px 14px -3px rgba(138, 79, 255, 0.22);
+    0 14px 30px -6px rgba(177, 30, 124, 0.38),
+    0 4px 14px -3px rgba(138, 79, 255, 0.2);
 }
 
 .mai-scroll-top:active {
-  transform: translateY(-1px) scale(0.95);
-}
-
-.mai-scroll-top-img {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  object-fit: cover;
-  display: block;
-  transition: transform 0.32s var(--ease-spring);
-}
-
-.mai-scroll-top:hover .mai-scroll-top-img {
-  transform: rotate(-8deg) scale(1.04);
-}
-
-.mai-scroll-top-badge {
-  position: absolute;
-  top: -5px;
-  right: -3px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #c22488, var(--color-primary));
-  color: #fff;
-  font-size: 0.66rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid #fff;
-  box-shadow: 0 3px 8px -1px rgba(177, 30, 124, 0.45);
-  transition: transform 0.28s var(--ease-spring);
-}
-
-.mai-scroll-top:hover .mai-scroll-top-badge {
-  transform: translateY(-3px);
+  transform: translateY(0) scale(0.95);
 }
 
 @media (max-width: 600px) {
   .mai-scroll-top {
     right: 14px;
     bottom: calc(16px + env(safe-area-inset-bottom, 0px));
-    width: 48px;
-    height: 48px;
-  }
-
-  .mai-scroll-top-img {
-    width: 38px;
-    height: 38px;
+    width: 44px;
+    height: 44px;
+    font-size: 0.98rem;
   }
 }
 
@@ -1726,10 +1587,6 @@ footer p a {
     opacity: 1 !important;
     filter: none !important;
     transform: none !important;
-  }
-
-  .mai-particle {
-    display: none !important;
   }
 }
 
