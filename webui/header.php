@@ -253,7 +253,7 @@
             <li><a href="/twitter-media/" rel="noopener noreferrer"><i class="fa-solid fa-images" aria-hidden="true"></i>メディアアーカイブ</a></li>
 
             <li class="nav-section-label"><i class="fa-solid fa-circle-info" aria-hidden="true"></i>情報</li>
-            <li><a href="/guide.php" rel="noopener noreferrer"><i class="fa-solid fa-book-open" aria-hidden="true"></i>使い方・対応一覧</a></li>
+            <li><a href="/guide/" rel="noopener noreferrer"><i class="fa-solid fa-book-open" aria-hidden="true"></i>使い方・対応一覧</a></li>
             <li><a href="/logs/" rel="noopener noreferrer"><i class="fa-solid fa-clipboard-list" aria-hidden="true"></i>Update logs</a></li>
             <li><a href="/future/" rel="noopener noreferrer"><i class="fa-solid fa-rocket" aria-hidden="true"></i>今後の開発予定</a></li>
 

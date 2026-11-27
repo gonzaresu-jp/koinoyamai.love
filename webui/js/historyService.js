@@ -185,7 +185,7 @@ export function createLogItem(log) {
 
   const statusClass = log.status === 'fail' ? ' status-fail' : '';
   const platformData = normalizePlatformName(log.platform || '不明');
-  const meta = PLATFORM_META[platformData] || {
+  const meta = Object.hasOwn(PLATFORM_META, platformData) ? PLATFORM_META[platformData] : {
     label: log.platform || '通知',
     icon: 'fa-solid fa-bell',
     tone: 'default'
@@ -202,12 +202,13 @@ export function createLogItem(log) {
   // Generate HTML for log item with optional media thumbnail
   // Twitter 添付は media_url、YouTube/ツイキャスの配信サムネは image を使う
   const thumbUrl = toHttpsThumb(log.media_url || log.image);
+  const safeThumbUrl = thumbUrl ? escapeHtml(thumbUrl) : '';
   const thumbType = thumbUrl ? (log.media_url ? log.media_type : 'image') : null;
-  const mediaThumbHtml = (thumbUrl && thumbType) ? `
-    <div class="log-media-thumb" data-media-url="${escapeHtml(thumbUrl)}" data-media-type="${escapeHtml(thumbType)}">
+  const mediaThumbHtml = (safeThumbUrl && thumbType) ? `
+    <div class="log-media-thumb" data-media-url="${safeThumbUrl}" data-media-type="${escapeHtml(thumbType)}">
       ${thumbType === 'video'
-        ? `<div class="media-thumb-content"><video src="${thumbUrl}" preload="metadata" muted></video><div class="video-badge"><i class="fa-solid fa-play"></i> 動画</div></div>`
-        : `<div class="media-thumb-content"><img src="${thumbUrl}" alt="" loading="lazy"></div>`}
+        ? `<div class="media-thumb-content"><video src="${safeThumbUrl}" preload="metadata" muted></video><div class="video-badge"><i class="fa-solid fa-play"></i> 動画</div></div>`
+        : `<div class="media-thumb-content"><img src="${safeThumbUrl}" alt="" loading="lazy"></div>`}
     </div>` : '';
 
   const footHtml = safeUrl

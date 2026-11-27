@@ -264,16 +264,19 @@ header::before {
   content: "";
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: -1;
   background: rgba(255, 255, 255, 0.84);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   pointer-events: none;
 }
 
+body.menu-open header {
+  z-index: 1000;
+}
+
 .header-inner {
   position: relative;
-  z-index: 2;
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
@@ -1551,6 +1554,11 @@ footer p a {
   filter: none;
   transform: translateY(0) scale(1);
   pointer-events: auto;
+}
+
+body.menu-open .mai-scroll-top {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .mai-scroll-top:hover {
