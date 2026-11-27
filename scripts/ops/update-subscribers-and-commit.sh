@@ -71,7 +71,8 @@ log "commit しました: $(git rev-parse --short HEAD) $(git log -1 --format=%s
 #   データ変更があった日（= commit した場合）のみ push するため、
 #   何もない日に余計な push を行わない。
 #   push に失敗しても commit は既に済んでいるため、次回実行時に再送される。
-if ! git push origin main 2>&1; then
+#   pre-push フックは main への直接 push を拒否するため、cron 用の例外フラグを付ける。
+if ! SKIP_PREPUSH=1 git push origin main 2>&1; then
   log "ERROR: git push に失敗しました。origin/main が進んでいる場合は手動で rebase してください"
   exit 1
 fi
