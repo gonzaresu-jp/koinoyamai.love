@@ -455,7 +455,7 @@ node scripts/security/security-watch.js --json                     # 判定結�
 
 - 状態ファイル: `data/security-watch-state.json`（`/data` は gitignore 済み）
 - 実行: `bash scripts/ops/security-watch-cron.sh`（cron は `30 4 * * *`）
-- 解析ロジックのユニットテスト: `scripts/ops/regression-test.js` の `[9]`
+- 解析ロジックのユニットテスト: `scripts/ops/regression/09-security-watch.js`（回帰テスト `[9]`）
 
 ### 検知と通知のみ（適用はしない）
 

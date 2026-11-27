@@ -378,7 +378,7 @@
   - 解決できない場合は fail-closed（既定の 8080 に倒さない）。
   - staging ツリーから実行したときに**本番 API（8080）に報告してはいけない**（`§1` のポート位相）。
 - 状態ファイル: `data/security-watch-state.json`（`/data` は gitignore 済み）。
-  解析ロジックのユニットテストは `scripts/ops/regression-test.js` の `[9]`。
+  解析ロジックのユニットテストは `scripts/ops/regression/09-security-watch.js`（回帰テスト `[9]`）。
 - **新しい Node.js LTS が出たら `scripts/security/checks.js` の `NODE_EOL` 表に追記すること**
   （表に無いメジャーは EOL 判定をしない）。
 
