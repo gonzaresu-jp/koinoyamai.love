@@ -15,59 +15,22 @@ module.exports = {
     // --- 13. Discord 専用メディア（/dmedia/）の tunnel 限定（2026-10-22 追加） ---
     // 「UA 判定だけで守っている」状態へ戻らないことを固定する。
     //  - nginx 側は cloudflared（127.0.0.1）経由のみ許可する
-    //  - 2 回適用しても差分ゼロ（冪等）
-    //  - アンカーが 0 件/複数件なら fail-closed（出力ファイルを作らない）
+    //  - 旧 apply-dmedia-tunnel-only.js は scripts/archive/nginx-apply/ へ退避済み。
+    //    パッチの冪等性・fail-closed の代わりに、適用結果がテンプレートに
+    //    固定されていることと、生成系（render.sh）の fail-closed を固定する
     //  - upload サービスは /dmedia の Host を照合する（LAN vhost のパス置換による迂回防止）
     console.log("[13] Discord 専用メディアの tunnel 限定");
-    const dmediaJs = path.join(projectDir, "scripts", "nginx", "apply-dmedia-tunnel-only.js");
-    const dmediaSh = path.join(projectDir, "scripts", "nginx", "apply-dmedia-tunnel-only.sh");
-    const dmFixture = [
-      "server {",
-      "    listen 80;",
-      "    server_name discord.honna-yuzuki.com;",
-      "",
-      "    location ^~ /dmedia/ {",
-      "        if ($http_user_agent !~* \"Discordbot\") { return 403; }",
-      "        proxy_pass http://127.0.0.1:3100/dmedia/;",
-      "    }",
-      "",
-      "    location / { return 404; }",
-      "}",
-      "",
-    ].join("\n");
-    const dmTmp = fs.mkdtempSync(path.join(os.tmpdir(), "dmedia-idem-"));
-    const dmIn = path.join(dmTmp, "discord.conf");
-    const dmA = path.join(dmTmp, "a.conf");
-    const dmB = path.join(dmTmp, "b.conf");
-    fs.writeFileSync(dmIn, dmFixture);
-    const dmNode = process.execPath;
-    const dmRun1 = require("child_process").spawnSync(dmNode, [dmediaJs, dmIn, dmA], { encoding: "utf8" });
-    const dmRun2 = require("child_process").spawnSync(dmNode, [dmediaJs, dmA, dmB], { encoding: "utf8" });
-    let dmIdem = false;
-    let dmAllow = false;
-    try {
-      dmIdem = dmRun1.status === 0 && dmRun2.status === 0 &&
-        fs.readFileSync(dmA, "utf8") === fs.readFileSync(dmB, "utf8");
-      const dmText = fs.readFileSync(dmA, "utf8");
-      dmAllow = /allow 127\.0\.0\.1;/.test(dmText) && /allow ::1;/.test(dmText) && /deny\s+all;/.test(dmText);
-    } catch (e) { dmIdem = false; }
-    ok("apply-dmedia-tunnel-only.js: allow 127.0.0.1 / allow ::1 / deny all を挿入する", dmAllow);
-    ok("apply-dmedia-tunnel-only.js: 2 回適用しても差分ゼロ（冪等）", dmIdem,
-      `run1=${dmRun1.status} run2=${dmRun2.status} ${(dmRun1.stderr || "").slice(0, 120)}`);
-    // fail-closed: アンカーが 0 件 / 複数件なら exit 1 かつ出力ファイルを作らない
-    let dmFailClosed = true;
-    for (const [tag, body] of [
-      ["0件", "server {\n    listen 80;\n}\n"],
-      ["複数件", dmFixture + "\n" + dmFixture],
-    ]) {
-      const inF = path.join(dmTmp, `f-${tag}.conf`);
-      const outF = path.join(dmTmp, `f-${tag}.out`);
-      fs.writeFileSync(inF, body);
-      const r = require("child_process").spawnSync(dmNode, [dmediaJs, inF, outF], { encoding: "utf8" });
-      if (r.status === 0 || fs.existsSync(outF)) dmFailClosed = false;
-    }
-    ok("apply-dmedia-tunnel-only.js: アンカーが 0 件/複数件なら fail-closed（出力を作らない）", dmFailClosed);
-    try { fs.rmSync(dmTmp, { recursive: true, force: true }); } catch (e) { /* best-effort */ }
+    const discordTmpl = fs.readFileSync(path.join(projectDir, "scripts", "nginx", "templates", "discord.conf.tmpl"), "utf8");
+    const dmediaBlock = discordTmpl.slice(
+      discordTmpl.indexOf("location ^~ /dmedia/"), discordTmpl.indexOf("location ^~ /watch/"));
+    ok("nginx テンプレート（discord）: /dmedia/ は allow 127.0.0.1 / allow ::1 / deny all で tunnel 限定",
+      /allow 127\.0\.0\.1;/.test(dmediaBlock) && /allow ::1;/.test(dmediaBlock) && /deny\s+all;/.test(dmediaBlock));
+    ok("nginx テンプレート（discord）: /dmedia/ の Discordbot UA 判定も残っている",
+      /if \(\$http_user_agent !~\* "Discordbot"\) \{ return 403; \}/.test(dmediaBlock));
+    const renderSh = fs.readFileSync(path.join(projectDir, "scripts", "nginx", "render.sh"), "utf8");
+    ok("render.sh: 秘密値が未設定なら fail-closed で、/etc/nginx への出力も拒否する",
+      /TAILNET_ADMIN_SECRET/.test(renderSh) && /exit 1/.test(renderSh) &&
+      /\/etc\/nginx/.test(renderSh));
     // upload サービス側: /dmedia の Host 照合（LAN vhost のパス置換による迂回防止）
     // ※ upload サービスは **リポジトリ外**（/var/www/html/upload）のため
     //   GitHub Actions ランナーには存在しない。存在しない環境ではスキップする

@@ -340,6 +340,7 @@ echo "  URL: $CANARY_URL"
 echo "  ※ この URL にアクセスされたら「窃取後の使用」として通知されます"
 echo
 echo "=== 完了 ==="
-echo "次: sudo bash scripts/nginx/apply-honeypot.sh --apply   # nginx にハニー location を入れる（初回のみ）"
+echo "次: ハニー location は nginx テンプレートに取り込み済み（scripts/nginx/templates/nginx.conf.tmpl）。"
+echo "    未反映なら sudo bash scripts/nginx/deploy.sh --apply で配置する"
 echo "     bash scripts/security/honeypot-watch.js             # 監視を手動実行（通知テスト）"
 echo "     ※ 変種の追加は nginx の再適用は不要（配信元ディレクトリの中身が変わるだけ）"

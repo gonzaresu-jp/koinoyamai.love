@@ -106,13 +106,13 @@
   - 公開 vhost は Cache-Control / Pragma / Expires を Location ごとに書いていたため、
     server レベルに置いていた **CSP / X-Frame-Options などが PHP 配信ページ（サイトの本体）
     から全く出ていなかった**（クリックジャッキング無防備・CSP による XSS 緩和なし）。
-  - 対処: 共通スニペット `scripts/nginx/mai-security-headers.conf` を
-    `/etc/nginx/snippets/` に置き、**自前の add_header を持つ Location から include する**。
-    適用は `~/apply-nginx-security-headers.sh`（dry-run → `--apply`）。
-    パッチは `scripts/nginx/apply-security-headers.py`（冪等・除外理由を報告）。
+  - 対処: 共通スニペット `scripts/nginx/templates/snippets/mai-security-headers.conf.tmpl` を
+    `/etc/nginx/snippets/mai-security-headers.conf` に置き、**自前の add_header を持つ
+    Location から include する**。include 済みの状態は各 vhost のテンプレートに
+    取り込み済みで、変更はテンプレート編集 → `scripts/nginx/deploy.sh` で反映する
+    （旧 `apply-security-headers.py` は退避済み）。
   - ⚠️ **スニペットを配置せずに設定を差替えると `nginx -t` が失敗してサイト全体が止まる**。
-    差替は「スニペット配置 → 設定差替 → `nginx -t` → reload」の順で行う
-    （`scripts/nginx/setup-staging-nginx.sh` がこの順で実装済み）。
+    `deploy.sh` は生成一式（スニペット含む）を検証してから配置するので順序は保たれる。
   - **CSP は現時点で `script-src 'unsafe-inline'` を含める**（2026-10-21 headless Chrome で
     11 ページ実測）:
     - webui にはインライン `<script>`（`index.php` の Google Fonts 読み込みなど）と
@@ -123,7 +123,7 @@
       （test.php の lottie-player）を使うため許可している。
     - **future work**: インライン script / ハンドラを `webui/js/*.js` へ外部化し、
       `script-src 'unsafe-inline'` を外す。`§11` の「webui は CSP `script-src 'self'`」の
-      最終形。対象一覧は `scripts/nginx/mai-security-headers.conf` のコメントを参照。
+      最終形。対象一覧は `scripts/nginx/templates/snippets/mai-security-headers.conf.tmpl` のコメントを参照。
     - CSP を変更するときは **headless Chrome で 11 ページの実測**を必ず行う
       （`grep -c "<script>" webui/*.php` だけでは判定できない）。
   - **Node API へ proxy する Location は include しない**（API 側は helmet が同等のヘッダを返す。
@@ -167,8 +167,9 @@
      → 路由を変更したいときは **API（`~/.cloudflared/cert.pem` のトークン）でリモート設定を編集**する。
   2. **nginx 側でも tunnel のみに限定**（`/etc/nginx/discord.conf` の `location ^~ /dmedia/`）:
      `allow 127.0.0.1; allow ::1; deny all;` を入れる。cloudflared は 127.0.0.1 から接続するため
-     経路は確保される。適用は `sudo bash scripts/nginx/apply-dmedia-tunnel-only.sh --apply`
-     （dry-run → --apply。冪等・fail-closed・バックアップ付き）。
+     経路は確保される。allow/deny は `scripts/nginx/templates/discord.conf.tmpl` に
+     取り込み済みで、変更はテンプレート編集 → `scripts/nginx/deploy.sh` で反映する
+     （旧 `apply-dmedia-tunnel-only.sh` は退避済み）。
      **2026-10-22 適用済み**（PR #70 / 反映確認: 公開URL+Discordbot=200 / 通常UA=403 /
      localhost=200 / LAN IP=403 / LAN `/upload/dmedia`=403）。
      バックアップは `/etc/nginx/discord.conf.bak-dmedia-tunnel-only-*`。

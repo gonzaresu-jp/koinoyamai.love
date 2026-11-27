@@ -170,7 +170,7 @@
   （`php-cgi` バイナリ無し。apache2 はパッケージ未導入＝dpkg `un`・unit なし・非稼働。
   `/usr/sbin/apache2` に残骸バイナリは残るが web サーバーとしては動いていない）。
   nginx は `/run/php/php8.3-fpm.sock` を向く
-  （`scripts/nginx/mai-test.conf` / 本番 `/etc/nginx/nginx.conf`）。
+  （`scripts/nginx/templates/mai-test.conf.tmpl` / 本番 `/etc/nginx/nginx.conf`）。
 - **PHP コアの緊急 RCE 期間の対応（2026-10-21 追加）**:
   - CVE-2026-109618 / CVE-2026-109619（CVSS v4.0 9.2・**詳細未公開**）は回避策が不明なため、
     CERT-EU の推奨（「パッチが間に合わない場合は公開アプリを隔離する」）に従い、
@@ -182,7 +182,7 @@
   - ⚠️ **`location = /status.php` のような完全一致 location は regex より優先される**。
     該当 vhost（1717 / staging）には無いが、追加する場合は確認すること。
     elza vhost（:80）の旧 PHP（`location = /henkan/henkan.php` 等）は完全一致のため本スニペットでは
-    止まらない。**別 PR #50 の `scripts/nginx/apply-php-exec-guard.sh`** で 404 化する
+    止まらない。**PR #50 の PHP 実行ガード（現在は `scripts/nginx/templates/nginx.conf.tmpl` に取り込み済み）** で 404 化する
     （elza vhost は Cloudflare トンネル対象外・tailnet 限定のため攻撃面は限定的）。
   - **upstream 版（sury）で運用している間の監視**:
     `scripts/php/check-ubuntu-backport.js`（cron 35 4 * * *）が
@@ -284,8 +284,9 @@
   - `elza` vhost（root `/var/www/html`）には `exec()` + `move_uploaded_file()` を含む
     旧 `henkan/henkan.php` 等が残っている。`open_basedir` で今は実行できないが、
     basedir が緩んだ瞬間に無認証の公開 RCE になる。
-  - → `sudo bash scripts/nginx/apply-php-exec-guard.sh --apply`
-    （elza vhost の PHP 実行を 404 にする。**本番 :1717 と staging :80 は対象外**）。
+  - → ガードは `scripts/nginx/templates/nginx.conf.tmpl` に取り込み済み
+    （elza vhost の PHP 実行を 404 にする。**本番 :1717 と staging :80 は対象外**。
+    変更はテンプレート編集 → `scripts/nginx/deploy.sh` で反映。旧 `apply-php-exec-guard.sh` は退避済み）。
 - **OS の security pocket 更新は `~/apply-os-security-updates.sh` で適用する**（全体 upgrade はしない）。
 - **Ubuntu は upstream の security パッチをバックポートする運用**なので、patch を当てても
   `php -v` のバージョン文字列は `8.3.6` のまま（`-0ubuntu0.24.04.NN` のリビジョンだけ上がる）。
@@ -405,7 +406,7 @@
 - **canary（追跡 URL）**: `https://koinoyamai.love/_canary/<token>`。
   偽物の中に埋め込まれている。**この URL にアクセスされたら
   「盗った情報（中身を実際に使った）」= 窃取確定**として通知される。
-- **配信（要 sudo）**: `sudo bash scripts/nginx/apply-honeypot.sh --apply`
+- **配信**: ハニー location は `scripts/nginx/templates/nginx.conf.tmpl` に取り込み済み（変更はテンプレート編集 → `sudo bash scripts/nginx/deploy.sh --apply` で反映。要 sudo）
   - `listen 1717` の vhost に、**機密ファイル名っぽいパスだけ**を偽物ディレクトリから返す
     `location` を追加（**他の場所の実ファイルは絶対に公開しない**。先にマッチするため）
   - 併せて**機密拡張子の deny ルール**も入れる（`.env` `.sql` `.pem` `.log` 等。

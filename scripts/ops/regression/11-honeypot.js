@@ -17,7 +17,9 @@ module.exports = {
     console.log("[11] ハニーポットの不変条件");
     const hpSetup = fs.readFileSync(path.join(projectDir, "scripts", "security", "honeypot-setup.sh"), "utf8");
     const hpWatch = fs.readFileSync(path.join(projectDir, "scripts", "security", "honeypot-watch.js"), "utf8");
-    const hpPatch = fs.readFileSync(path.join(projectDir, "scripts", "nginx", "apply-honeypot.js"), "utf8");
+    // 旧 apply-honeypot.js は scripts/archive/nginx-apply/ へ退避済み。
+    // パッチャの代わりに、適用結果である nginx テンプレートを検査する。
+    const hpTemplate = fs.readFileSync(path.join(projectDir, "scripts", "nginx", "templates", "nginx.conf.tmpl"), "utf8");
 
     // 11-1. 偽物は Web 公開ツリーの外（/var/www/html 配下には置かない）
     ok("honeypot: 置き場が Web 公開ツリーの外",
@@ -35,15 +37,22 @@ module.exports = {
     ok("honeypot-watch: 取得（stolen）と偵察（probe）を区別している",
       /kind:\s*"stolen"/.test(hpWatch) && /kind:\s*"probe"/.test(hpWatch));
 
-    // 11-4. nginx パッチは 1717 の vhost だけを対象にする
-    ok("apply-honeypot.js: 1717 + koinoyamai.love の vhost のみ対象",
-      /listen\\s\+1717/.test(hpPatch) && /koinoyamai/.test(hpPatch));
-    // 11-5. 正規表現 location は出現順で評価される → PHP location より前に挿入しないと機能しない
-    ok("apply-honeypot.js: 最初の location の直前に挿入する",
-      /最初の location の直前/.test(hpPatch) && /const locRe/.test(hpPatch));
+    // 11-4. ハニー location は 1717 の vhost だけに入っている
+    const hpHoneyIdx = hpTemplate.indexOf("location ~* ^/(?:");
+    const hpVhostIdx = hpTemplate.indexOf("listen 1717;");
+    ok("nginx テンプレート: ハニーポットは 1717 + koinoyamai.love の vhost のみ対象",
+      hpVhostIdx >= 0 && hpHoneyIdx > hpVhostIdx &&
+      hpTemplate.slice(hpVhostIdx, hpHoneyIdx).includes("server_name koinoyamai.love;") &&
+      (hpTemplate.match(/location ~\* \^\/\(\?:/g) || []).length === 1);
+    // 11-5. 正規表現 location は出現順で評価される → PHP location より前にないと機能しない
+    ok("nginx テンプレート: ハニー location は PHP location より前にある",
+      hpHoneyIdx >= 0 && hpTemplate.indexOf("location ~ \\.php$", hpVhostIdx) > hpHoneyIdx);
     // 11-6. 機密拡張子の deny ルールがある（.zip はアプリの配布物なので除外されている）
-    ok("apply-honeypot.js: 機密拡張子を deny する（.zip は対象外）",
-      /deny all/.test(hpPatch) && !/\|zip\|/.test(hpPatch.replace(/backup\\\.\(\?:zip[^)]*\)/g, "")));
+    const hpDenyIdx = hpTemplate.indexOf("location ~* ", hpHoneyIdx + 10);
+    const hpDenyLine = hpDenyIdx >= 0 ? hpTemplate.slice(hpDenyIdx, hpTemplate.indexOf("\n", hpDenyIdx)) : "";
+    ok("nginx テンプレート: 機密拡張子を deny する（.zip は対象外）",
+      hpDenyLine.includes("(?:env|") && !/zip/.test(hpDenyLine) &&
+      hpTemplate.slice(hpDenyIdx, hpDenyIdx + 400).includes("deny all;"));
     // 11-7. 状態ファイルが setup と watcher で分離されている（同じだと offset 消滅→全件再通知）
     const hpSetupState = /honeypot-canary\.json/.test(hpSetup) ? "honeypot-canary.json" : "";
     const hpWatchState = /honeypot-watch-state\.json/.test(hpWatch) ? "honeypot-watch-state.json" : "";
@@ -58,13 +67,13 @@ module.exports = {
     const hpPatternFile = path.join(projectDir, "scripts", "nginx", "honey-path-pattern.txt");
     const hpPattern = fs.existsSync(hpPatternFile) ? fs.readFileSync(hpPatternFile, "utf8").trim() : "";
     ok("ハニーパターンは共有ファイル 1 つに集約されている", hpPattern.length > 0);
-    ok("apply-honeypot.js: 共有パターンファイルを読む",
-      hpPatch.includes("honey-path-pattern.txt"));
+    ok("nginx テンプレート: ハニー location に共有パターンがそのまま入っている",
+      hpPattern.length > 0 && hpTemplate.includes(hpPattern));
     ok("honeypot-watch: 共有パターンファイルを読む",
       hpWatch.includes("honey-path-pattern.txt"));
-    ok("apply-honeypot.sh: 共有パターンファイルを読む（ガードも同期）",
-      fs.readFileSync(path.join(projectDir, "scripts", "nginx", "apply-honeypot.sh"), "utf8")
-        .includes("honey-path-pattern.txt"));
+    ok("nginx テンプレート: ハニー location は honeypot 専用ディレクトリから配信する",
+      /root \/var\/lib\/mai-push\/honeypot;/.test(hpTemplate) &&
+      /access_log \/var\/log\/nginx\/honey\.log honeyfmt;/.test(hpTemplate));
     // 共有パターンで実際の判定が正しいこと（挙動テスト）
     if (hpPattern) {
       const hpRe = new RegExp("/(?:[\\w.\\-]+/)*(?:" + hpPattern + ")(?![.\\w\\-])", "i");
@@ -134,38 +143,35 @@ module.exports = {
     ok("honeypot-watch: 自機リクエストを判定して通知対象から外す",
       /isLocalSelfTest/.test(hpWatch) && /include-local/.test(hpWatch));
     // 11-9. 404（偵察）も honey.log に残る仕組みが入っていること
-    ok("apply-honeypot.js: 404 を named location へ逃がす（error_page）",
-      /error_page 404 = @honey_not_found/.test(hpPatch) && /location @honey_not_found/.test(hpPatch));
-    // 11-10. 冪等性（同じ入力に 2 回適用して差分ゼロ）
-    const hpFixture = [
-      "events { worker_connections 16; }",
-      "http {",
-      "    log_format withff '$remote_addr \"$request\" $status';",
-      "    server {",
-      "        listen 1717;",
-      "        server_name koinoyamai.love;",
-      "        root /var/www/html/koinoyamai.love/webui;",
-      "        location ~ \\.php$ { fastcgi_pass unix:/run/php/php8.3-fpm.sock; }",
-      "    }",
-      "}",
-    ].join("\n");
-    const hpTmp = fs.mkdtempSync(path.join(os.tmpdir(), "honeypot-idem-"));
-    const hpIn = path.join(hpTmp, "nginx.conf");
-    const hpA = path.join(hpTmp, "a.conf");
-    const hpB = path.join(hpTmp, "b.conf");
-    fs.writeFileSync(hpIn, hpFixture);
-    const hpNode = process.execPath;
-    const hpPatchJs = path.join(projectDir, "scripts", "nginx", "apply-honeypot.js");
-    const run1 = require("child_process").spawnSync(hpNode, [hpPatchJs, hpIn, hpA], { encoding: "utf8" });
-    const run2 = require("child_process").spawnSync(hpNode, [hpPatchJs, hpA, hpB], { encoding: "utf8" });
-    let idem = false;
-    try {
-      idem = run1.status === 0 && run2.status === 0 &&
-        fs.readFileSync(hpA, "utf8") === fs.readFileSync(hpB, "utf8");
-    } catch (e) { idem = false; }
-    ok("apply-honeypot.js: 2 回適用しても差分ゼロ（冪等）", idem,
-      `run1=${run1.status} run2=${run2.status} ${(run1.stderr || "").slice(0, 120)}`);
-    try { fs.rmSync(hpTmp, { recursive: true, force: true }); } catch (e) { /* best-effort */ }
+    ok("nginx テンプレート: 404 を named location へ逃がす（error_page）",
+      /error_page 404 = @honey_not_found/.test(hpTemplate) && /location @honey_not_found/.test(hpTemplate));
+    // 11-10. 生成の冪等性（render を 2 回実行して差分ゼロ）
+    //   宣言的生成では「同じテンプレート + 同じ .env → 同じ出力」が冪等性の本体。
+    //   envsubst が無い環境（CI 等）では従来の upload テストと同様にスキップ扱いにする。
+    {
+      const hpTmp = fs.mkdtempSync(path.join(os.tmpdir(), "honeypot-render-"));
+      const dummyEnv = path.join(hpTmp, "dummy.env");
+      fs.writeFileSync(dummyEnv, "TAILNET_ADMIN_SECRET=dummy-secret-for-render-test\n");
+      const renderSh = path.join(projectDir, "scripts", "nginx", "render.sh");
+      const outA = path.join(hpTmp, "a");
+      const outB = path.join(hpTmp, "b");
+      const runR = (out) => require("child_process").spawnSync(
+        "bash", [renderSh, out], { encoding: "utf8", env: { ...process.env, ENV_FILE: dummyEnv } });
+      const rA = runR(outA);
+      const rB = runR(outB);
+      const renderSkipped = rA.status !== 0 && /envsubst/.test(`${rA.stderr || ""}${rA.stdout || ""}`);
+      let renderIdem = false;
+      try {
+        if (rA.status === 0 && rB.status === 0) {
+          const listA = require("child_process").spawnSync("diff", ["-r", outA, outB], { encoding: "utf8" });
+          renderIdem = listA.status === 0;
+        }
+      } catch (e) { renderIdem = false; }
+      ok("render.sh: 2 回生成しても差分ゼロ（冪等）※envsubst 不在の環境ではスキップ",
+        renderSkipped || renderIdem,
+        renderSkipped ? "envsubst not available" : `runA=${rA.status} runB=${rB.status}`);
+      try { fs.rmSync(hpTmp, { recursive: true, force: true }); } catch (e) { /* best-effort */ }
+    }
     // 11-11. 挙動テスト（状態管理の不変条件。文字列検査では検出できない）
     const hpSelftest = require("child_process").spawnSync(
       process.execPath,

@@ -399,7 +399,7 @@ async function main() {
   const r = readNewLines(state);
   if (r.missing) {
     log(`警告: ${HONEY_LOG} がまだありません`);
-    log("  → nginx にハニー location を入れる: sudo bash scripts/nginx/apply-honeypot.sh --apply");
+    log("  → ハニー location は nginx テンプレート（scripts/nginx/templates/nginx.conf.tmpl）に取り込み済み。未反映なら sudo bash scripts/nginx/deploy.sh --apply");
     log("  → 監視が動いていないので状態を degraded で報告します");
     await reportStatus("degraded", `honey.log が存在しません（nginx 未適用 or まだアクセスなし）`);
     return 2;
