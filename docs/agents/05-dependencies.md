@@ -146,7 +146,7 @@
     （= PATH 解決で `/usr/bin/node` v18.19.1）、`mai-push-api` → v22.12.0 のままだった。
   - `pm2 jlist`（実行中プロセス）だけを見て「OK」と判断していたが、**dump とは別物**。
   - `scripts/deploy/restart.sh` は `pm2 save` と `/proc/<pid>/exe` 検証を内包している
-    （`npm run restart:all` / `promote.sh` も同じ経路）。手動で pm2 を触ったときは**必ず `pm2 save`**。
+    （`npm run restart:all` も同じ経路）。手動で pm2 を触ったときは**必ず `pm2 save`**。
 - **`pm2 start ecosystem.config.js`（--only なし）は全アプリを起動する**:
   `mai-push-worker-test` は常時停止運用（x.com 等への負荷）なので、対象を `--only` で明示する
   （`scripts/deploy/restart.sh` の `all` は本番3プロセスだけを対象にしている）。

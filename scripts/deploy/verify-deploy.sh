@@ -51,7 +51,7 @@ LOCAL_SIZE=$(wc -c < "$LOCAL" | tr -d ' ')
 echo "[verify-deploy] ローカル: $LOCAL (${LOCAL_SIZE} bytes)"
 
 # --- パーミッション検査（2026-10-20 の実事故）---
-# umask 077 のシェルで git pull / promote.sh すると、書き換わる webui/*.php が
+# umask 077 のシェルで git pull / git checkout すると、書き換わる webui/*.php が
 # mode 600 で作られ、php-fpm (www-data) から読めず 500 を返す（本番 /logs/ で実発生）。
 # バイト数比較では捕まらない（そもそも配信されない）ので、ここで機械的に弾く。
 PERM=$(stat -c '%a' "$LOCAL" 2>/dev/null || echo "-")
