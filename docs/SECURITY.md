@@ -672,7 +672,7 @@ UA 判定は「公式のクローラしか来ない」程度の補助にすぎ�
     幅 1280px。初回アクセスで自動生成し `discord-media/thumbs/<id>.jpg` にキャッシュ）
   - `pub()` に `watchUrl`（discord scope のときのみ）を追加。**Discord へ渡すべき URL
     は `watchUrl`（`/watch/<id>`）**。`.mp4` 直リンクはブラウザから開くと 403 になる
-- nginx（`/etc/nginx/discord.conf`。適用は `bash /tmp/opencode/apply-dmedia-watch.sh`）:
+- nginx（`/etc/nginx/discord.conf`。正本は `scripts/nginx/templates/discord.conf.tmpl`）:
   - `/dmedia/` に Discordbot UA 制限を復活、`location ^~ /watch/`・`/thumb/` を
     127.0.0.1:3100 へ proxy（tunnel のみ許可・UA 制限なし）
 - なお Discord は unfurl のたびに **79MB のファイルを丸ごと再取得**する

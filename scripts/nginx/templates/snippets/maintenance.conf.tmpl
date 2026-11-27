@@ -24,7 +24,7 @@
 #   - `location = /status.php` のような**完全一致**の location は regex より優先される。
 #     該当 vhost（1717 / staging）には存在しないが，新增する際は確認すること。
 #   - elza vhost（:80）にある旧 PHP（`henkan/henkan.php` 等）は完全一致 location のため
-#     このスニペットでは止まらない。`scripts/nginx/apply-php-exec-guard.sh` を使う。
+#     このスニペットでは止まらない。nginx テンプレート（`scripts/nginx/templates/nginx.conf.tmpl`）の PHP 実行ガードで 404 化する。
 #
 # 形式: 先頭のコメント行は除いて取り込まれ、インデントは適用スクリプトが付与する。
 

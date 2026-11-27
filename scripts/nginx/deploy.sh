@@ -142,10 +142,15 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # 4. バックアップ
-BAK_TS="$(date +%Y%m%d-%H%M%S)"
+BAK_TS="$(date +%Y%m%d-%H%M%S-%N)"
+MISSING_LIST="$WORK/missing-targets"
+: > "$MISSING_LIST"
 for f in "${TARGETS[@]}"; do
   if [ -f "$NGINX_DIR/$f" ]; then
     cp -a "$NGINX_DIR/$f" "$NGINX_DIR/$f.bak-template-$BAK_TS"
+  else
+    # 配置前に存在しなかったファイルは、復旧時に削除できるよう記録する
+    echo "$f" >> "$MISSING_LIST"
   fi
 done
 echo "[OK] バックアップ: *.bak-template-$BAK_TS"
@@ -153,7 +158,9 @@ echo "[OK] バックアップ: *.bak-template-$BAK_TS"
 restore_from_backup() {
   echo "[WARN] バックアップへ戻します: *.bak-template-$BAK_TS" >&2
   for f in "${TARGETS[@]}"; do
-    if [ -f "$NGINX_DIR/$f.bak-template-$BAK_TS" ]; then
+    if grep -qx "$f" "$MISSING_LIST"; then
+      rm -f "$NGINX_DIR/$f"
+    elif [ -f "$NGINX_DIR/$f.bak-template-$BAK_TS" ]; then
       cp -a "$NGINX_DIR/$f.bak-template-$BAK_TS" "$NGINX_DIR/$f"
     fi
   done

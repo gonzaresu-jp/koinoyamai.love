@@ -13,7 +13,7 @@
 #   - /etc/nginx/snippets/ にこのファイルを配置する
 #   - add_header を自前で持つ Location ブロックから include する
 #     （Node API へ proxy する Location は除く。API 側は helmet が同じヘッダを返すため）
-#   - 適用は ~/apply-nginx-security-headers.sh（dry-run → --apply）
+#   - 適用はテンプレート管理（scripts/nginx/templates/ が正本。配置は scripts/nginx/deploy.sh）
 #     ※ **スニペットの配置ogglingたら設定を差替えないこと**（nginx -t が失敗して
 #       サイト全体が止まる。適用スクリプトが配置を先に行う）。
 #
