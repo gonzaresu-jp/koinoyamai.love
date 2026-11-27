@@ -107,7 +107,8 @@ Antigravity CLI は decision に ask と force_ask の両方を持つ。素の a
 下層の砦（ツール不問で効く）：
 
 - 層 2：`scripts/hooks/pre-push` — 保護ブランチへの push と、送信コミット中の秘密値を止める。
-- 層 3：`scripts/ci/check.sh`（CI）— フックを入れ忘れたクローンでも最後に止まる。
-  ガードの判定テスト（`scripts/ci/test-guard.sh`）もここで実行する。
+- 層 3：CI（`.github/workflows/ci.yml`）— フックを入れ忘れたクローンでも最後に止まる。
+  秘密値の検出（`scripts/ci/secret-scan.sh`）とガードの判定テスト（`scripts/ci/test-guard.sh`）を
+  それぞれ独立したステップで実行する。
 - GitHub のブランチ保護 / ruleset — PR 必須・force push 禁止をサーバー側で強制する
   （`docs/DEVELOPMENT-WORKFLOW.md` 参照）。
