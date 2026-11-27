@@ -74,10 +74,12 @@ fi
 # 本番との diff（dry-run の主出力。apply 時も事前確認として出す）
 echo "--- 本番との diff ---"
 DIFF_FOUND=0
+UNCOMPARED=()
 for f in "${TARGETS[@]}"; do
   if [ -f "$NGINX_DIR/$f" ] && [ ! -r "$NGINX_DIR/$f" ]; then
     # nginx.conf は秘密値を含むため 0600（root のみ）で配置している
     echo "  比較不可（読み取り権限なし。sudo で実行すると比較できます）: $f"
+    UNCOMPARED+=("$f")
   elif [ -f "$NGINX_DIR/$f" ] && diff -q "$RENDERED/$f" "$NGINX_DIR/$f" >/dev/null 2>&1; then
     echo "  一致: $f"
   else
@@ -85,8 +87,10 @@ for f in "${TARGETS[@]}"; do
     DIFF_FOUND=1
   fi
 done
-if [ "$DIFF_FOUND" -eq 0 ]; then
+if [ "$DIFF_FOUND" -eq 0 ] && [ "${#UNCOMPARED[@]}" -eq 0 ]; then
   echo "  （全ファイル一致。本番はテンプレートと同内容です）"
+elif [ "$DIFF_FOUND" -eq 0 ]; then
+  echo "  （比較できたファイルは一致。未比較: ${UNCOMPARED[*]}。全件の確認は sudo で実行してください）"
 fi
 
 # 3. サンドボックス nginx -t（生成結果そのものは書き換えず、コピー側だけパス等を付け替える）
