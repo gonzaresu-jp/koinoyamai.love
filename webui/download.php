@@ -50,7 +50,7 @@
     <main class="download-page">
         <div class="dl-shell">
             <!-- ヘッダー帯 -->
-            <header class="dl-hero">
+            <section class="dl-hero">
                 <div class="dl-hero-main">
                     <img src="/icon.webp" alt="まいちゃん通知 ロゴ" class="dl-hero-logo" width="64" height="64" fetchpriority="high" />
                     <div class="dl-hero-text">
@@ -72,7 +72,7 @@
                         <span>推奨要件を見る</span>
                     </a>
                 </div>
-            </header>
+            </section>
 
             <!-- アプリダウンロード 2カラム -->
             <section class="dl-band dl-cards-band" aria-label="アプリ一覧">
