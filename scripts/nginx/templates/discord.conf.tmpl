@@ -1,0 +1,81 @@
+log_format dmediafmt '$time_iso8601 ip=$remote_addr cf="$http_cf_connecting_ip" st=$status bytes=$body_bytes_sent req="$request" ua="$http_user_agent"';
+
+# Discord 専用メディア配信（og:video 経由。/dmedia/ は Discordbot UA のみ許可）
+server {
+    listen 80;
+    server_name discord.honna-yuzuki.com;
+    client_max_body_size 50g;
+
+    location ^~ /dmedia/ {
+
+        # ★ dmedia-tunnel-only（2026-10-22）: tunnel 経由のみで許可する。
+        #   cloudflared は 127.0.0.1（/::1）から接続するので、この許可リストで
+        #   「origin へ直接叩かれた場合」を全て 403 にできる。
+        # ★ og:video 復旧（2026-11-07）: Discordbot UA 以外は 403 に戻す。
+        #   Discord は og:video をプロキシ再生するため origin から来るのは
+        #   Discordbot UA だけ。ブラウザ直リンク（Firefox 風 UA 等）は 403 で弾く。
+        #   ※ UA 偽装（curl -A）では迂回できる。実保護は 128bit URL（下記）。
+        allow 127.0.0.1;
+        allow ::1;
+        deny  all;
+        if ($http_user_agent !~* "Discordbot") { return 403; }
+
+        proxy_pass http://127.0.0.1:3100/dmedia/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_request_buffering off;
+        access_log /var/log/nginx/dmedia.log dmediafmt;
+
+        # Cloudflare のエッジキャッシュに載せない（UA判定のすり抜け防止）
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "private, no-store, max-age=0" always;
+        add_header X-Content-Type-Options nosniff always;
+    }
+
+    location ^~ /watch/ {
+
+        # og:video ページ（HTML）。Discordbot が unfurl し、ブラウザも閲覧可。
+        # 保護は 128bit の watch ID（/watch/<id>）＋ tunnel のみ。
+        allow 127.0.0.1;
+        allow ::1;
+        deny  all;
+
+        proxy_pass http://127.0.0.1:3100/watch/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        access_log /var/log/nginx/dmedia.log dmediafmt;
+
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "private, no-store, max-age=0" always;
+        add_header X-Content-Type-Options nosniff always;
+    }
+
+    location ^~ /thumb/ {
+
+        # og:image 用サムネイル（JPEG）。Discordbot / ブラウザとも許可。
+        allow 127.0.0.1;
+        allow ::1;
+        deny  all;
+
+        proxy_pass http://127.0.0.1:3100/thumb/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        access_log /var/log/nginx/dmedia.log dmediafmt;
+
+        proxy_hide_header Cache-Control;
+        add_header Cache-Control "private, no-store, max-age=0" always;
+        add_header X-Content-Type-Options nosniff always;
+    }
+
+    location / { return 404; }
+
+}

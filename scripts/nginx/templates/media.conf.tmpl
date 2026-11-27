@@ -1,0 +1,53 @@
+# media.honna-yuzuki.com : 公開ファイル閲覧（/media/ のみ・他は403）
+server {
+    listen 80;
+    listen [::]:80;
+    server_name media.honna-yuzuki.com;
+
+    location ^~ /media/ {
+        proxy_pass http://127.0.0.1:3100;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        add_header X-Content-Type-Options nosniff always;
+        add_header Accept-Ranges bytes always;
+        add_header Cache-Control "public, max-age=3600" always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    location / { return 403; }
+}
+
+# LAN IP 直アクセス: アップロードUIのみ許可（他は新ドメインへ）
+server {
+    listen 80;
+    listen [::]:80;
+    server_name 192.168.1.72;
+
+    location = /upload { return 301 /upload/; }
+
+    location ^~ /upload/ {
+        allow 127.0.0.1;
+        allow ::1;
+        allow 192.168.0.0/16;
+        allow 100.64.0.0/10;
+        deny  all;
+
+        proxy_pass http://127.0.0.1:3100/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 50g;
+        proxy_request_buffering off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+        add_header X-Content-Type-Options nosniff always;
+    include /etc/nginx/snippets/mai-security-headers.conf;
+    }
+
+    location / { return 302 https://koinoyamai.love$request_uri; }
+}
