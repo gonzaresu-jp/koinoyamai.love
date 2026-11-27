@@ -72,29 +72,23 @@ bash scripts/deploy/promote.sh <branch> [--sync-staging] [--no-restart] [--dry-r
 3. **テスト通知（実機への push）は禁止**。staging は DISABLE_NOTIFICATIONS=1 だが、DB に直接書いたテスト行は本番に同期しないこと
 4. 環境差を `.env` に増やさない（`NODE_ENV` とプロセス引数で吸収）
 5. sudo が必要な作業（nginx / cloudflared の設定反映）はエージェント不可 → 手動で行う
-   - nginx（staging vhost）: `sudo bash /home/yuzuki/koinoyamai.love-test/scripts/nginx/setup-staging-nginx.sh`
-     - ⚠️ **先に `/etc/nginx/snippets/mai-security-headers.conf` を配置すること**。
-       `mai-test.conf` は `include /etc/nginx/snippets/mai-security-headers.conf;` を含むため、
-       スニペットが無い状態で差替えると `nginx -t` が失敗して**サイト全体が止まる**。
-       setup-staging-nginx.sh は配置 → 差替 → `nginx -t` → reload の順で行う。
-     - 手動で差替える場合:
-       ```bash
-       sudo mkdir -p /etc/nginx/snippets
-       sudo install -m 644 scripts/nginx/mai-security-headers.conf /etc/nginx/snippets/
-       sudo cp scripts/nginx/mai-test.conf /etc/nginx/mai-test.conf && sudo nginx -t && sudo systemctl reload nginx
-       ```
-   - nginx（本番の公開ページにもセキュリティヘッダを付ける）:
-     `bash ~/apply-nginx-security-headers.sh`（dry-run）→ `sudo bash ~/apply-nginx-security-headers.sh --apply`
-     - パッチは `scripts/nginx/apply-security-headers.py`（冪等・除外理由を報告）
+   - nginx（全 vhost・テンプレート管理）: 設定の正本は `scripts/nginx/templates/`。
+     変更はテンプレートを編集し、本番ツリーで
+     `bash scripts/nginx/deploy.sh`（dry-run: 生成・本番との diff・`nginx -t` 検証のみ）→
+     `sudo bash scripts/nginx/deploy.sh --apply`（バックアップ → 配置 → `nginx -t` → reload。失敗時は自動復旧）
+     - ⚠️ スニペット（`/etc/nginx/snippets/mai-security-headers.conf`）も生成一式に含まれるため、
+       「スニペット無しで差替え → `nginx -t` 失敗」の順序事故は起きない
      - `nginx` の `add_header` は **Location 内に 1 つでもあれば server レベルを継承しない**ため、
-       include を各 Location から入れる必要がある（`AGENTS.md §11`）
+       セキュリティヘッダの include は各 Location に入った状態がテンプレートに取り込み済み（`AGENTS.md §11`）
+     - 旧 `setup-staging-nginx.sh` / `apply-security-headers.py` 等のパッチ群は
+       `scripts/archive/nginx-apply/` へ退避済み
    - cloudflared: config.yml はリモート管理のためダッシュボードの Public Hostname で変更
 6. **PHP コア RCE 期間の隔離・復旧も sudo 必須 → 手動で行う**（`AGENTS.md §5.1`）
    - 隔離: `sudo bash scripts/nginx/apply-maintenance.sh --on`（公開 PHP ページを 503 化。解除は `--off`）
    - 復旧: `sudo bash scripts/php/patch-and-resume.sh`（パッチ適用 → 検証 → 解除 → pm2 再開 → 最終確認）
 7. **nginx への新ルート追加も sudo 必須 → 手動で行う**（`AGENTS.md §6.9`）
-   - 旅先ディスプレイ: `sudo bash scripts/nginx/apply-display-location.sh --apply`
-     （冪等・fail-closed・`nginx -t` 失敗時は自動復元。資産の配置は
+   - 旅先ディスプレイ: location は nginx テンプレートに取り込み済み
+     （変更はテンプレート編集 → `scripts/nginx/deploy.sh`。資産の配置は
      smart-display リポジトリの `scripts/deploy-display.sh --apply` で行う）
 8. **PHP ランタイムの更新も sudo 必須 → 手動で行う**（`AGENTS.md §5.1`）
    - `bash scripts/php/apply-php-security-patch.sh`（dry-run）→ `sudo bash ... --apply` → `bash scripts/php/verify-php-security-patch.sh`
@@ -108,11 +102,11 @@ bash scripts/deploy/promote.sh <branch> [--sync-staging] [--no-restart] [--dry-r
      **`enable_post_data_reading=Off`（multipart パーサ無効）** / `post_max_size` 縮小
    - 前提: `webui/*.php` は POST を読まない・`mb_*` を使わない（**回帰テスト [10] が固定**）
 9. **旧 PHP の nginx 実行ガードも sudo 必須 → 手動で行う**（`AGENTS.md §5.1`・2026-10-21 追加）
-   - `sudo bash scripts/nginx/apply-php-exec-guard.sh --apply`
+   - ガードは nginx テンプレート（`scripts/nginx/templates/nginx.conf.tmpl`）に取り込み済み
      （elza vhost の PHP 実行を 404 にする。**本番 :1717 / staging :80 は対象外**）
 10. **Discord 専用メディアの tunnel 限定も sudo 必須 → 手動で行う**（2026-10-22 追加）
-    - `bash scripts/nginx/apply-dmedia-tunnel-only.sh`（dry-run・差分を表示）→
-      `sudo bash scripts/nginx/apply-dmedia-tunnel-only.sh --apply`
+    - allow/deny は nginx テンプレート（`scripts/nginx/templates/discord.conf.tmpl`）に取り込み済み。
+      変更はテンプレート編集 → `bash scripts/nginx/deploy.sh`（dry-run）→ `sudo bash scripts/nginx/deploy.sh --apply`
     - `discord.honna-yuzuki.com/dmedia/` に `allow 127.0.0.1; allow ::1; deny all;` を追加し、
       **cloudflared 経由（127.0.0.1）のみ**許可する（UA 判定は UA を偽装できるため防御にならない）
     - 反映確認が期待値と違えば非 0 終了する（自動ロールバック手順を案内）

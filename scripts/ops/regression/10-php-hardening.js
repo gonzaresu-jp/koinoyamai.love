@@ -75,11 +75,19 @@ module.exports = {
     ok("apply-php-hardening.sh: disable_functions / open_basedir を設定する",
       /set_ini\s+"disable_functions"/.test(hardenSh) && /set_ini\s+"open_basedir"/.test(hardenSh));
 
-    // 10-8. nginx の PHP 実行ガードが elza vhost を対象にしている
-    const guardJs = fs.readFileSync(path.join(projectDir, "scripts", "nginx", "apply-php-exec-guard.js"), "utf8");
-    const guardJsCode = guardJs.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/^\s*\/\/.*$/gm, " ");
-    ok("apply-php-exec-guard.js: elza vhost のみを対象にする",
-      /elza/.test(guardJsCode) && !/1717/.test(guardJsCode) && !/koinoyamai\.love/.test(guardJsCode));
-    ok("apply-php-exec-guard.js: PHP を 404 にする（return 404）", guardJs.includes("return 404;"));
+    // 10-8. nginx の PHP 実行ガードが elza vhost に取り込まれている（テンプレート管理）
+    //   旧 apply-php-exec-guard.js は scripts/archive/nginx-apply/ へ退避済み。
+    //   ガードの結果（elza vhost 内の旧 PHP の 404 化）がテンプレートに残ることを固定する。
+    const nginxTmpl = fs.readFileSync(path.join(projectDir, "scripts", "nginx", "templates", "nginx.conf.tmpl"), "utf8");
+    const elzaStart = nginxTmpl.indexOf("server_name ${TAILNET_HOSTNAME};");
+    const mainVhostStart = nginxTmpl.indexOf("listen 1717;");
+    const henkanIdx = nginxTmpl.indexOf("location = /henkan/henkan.php");
+    const statusIdx = nginxTmpl.indexOf("location = /status.php");
+    ok("nginx テンプレート: PHP 実行ガードは elza vhost 内にある（1717 本番 vhost には入れない）",
+      elzaStart >= 0 && henkanIdx > elzaStart && statusIdx > elzaStart &&
+      (mainVhostStart === -1 || (henkanIdx < mainVhostStart && statusIdx < mainVhostStart)));
+    ok("nginx テンプレート: 旧 PHP（henkan / status.php）を 404 にする（return 404）",
+      /location = \/henkan\/henkan\.php \{\s*return 404;/.test(nginxTmpl) &&
+      /location = \/status\.php \{\s*return 404;/.test(nginxTmpl));
   },
 };

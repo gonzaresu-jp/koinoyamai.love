@@ -44,19 +44,26 @@
 - **tailscale funnel は OFF（再有効化しない）**。`funnel off` は serve config ごと消えるため、
   消えた場合は `sudo tailscale serve --bg --yes --https=443 http://127.0.0.1:80` で tailnet only に立て直す。
 - **tailnet 経由は自動認証（2026-10-10 追加）**: tailscale serve 経由（nginx の remote_addr=127.0.0.1）の
-  ときだけ nginx が `X-Tailnet-Admin` に秘密値（`.env` の `TAILNET_ADMIN_SECRET` ＝ nginx map
-  `$tailnet_admin` と同一値）を付与し、`lib/admin.js` の `isTailnetAdmin()` が一致時に
+  ときだけ nginx が `X-Tailnet-Admin` に秘密値（`.env` の `TAILNET_ADMIN_SECRET` ＝ nginx の `geo
+  $tailnet_admin` と同一値）を付与し、`lib/admin.js` の `isTailnetAdmin()` が一致時に
   パスワード/パスキーを省略する（`requireAuth` / `isAdminRequest`）。**ts.net ではログイン不要**
   （login.html は `/api/admin/verify` ok で自動リダイレクト）。他経路は空/不一致のため偽装不可。
 - パスキー: 自動認証により **ts.net では不要**（任意フォールバックとして残存。RP は `.env` の
   `WEBAUTHN_RP_ID_EXTRA` / `WEBAUTHN_ORIGIN_EXTRA`。他ドメインとは RP が別）。
-- nginx へは `~/apply-admin-tailnet.sh` と `~/apply-admin-autoauth.sh`
-  （アンカー文字列カウント検証付きパッチ）で反映。
-  復旧用バックアップ: `/etc/nginx/nginx.conf.bak-admin-*` / `.bak-autoauth-*`。funnel/serve は tailscale CLI（要 sudo）。
+- nginx の設定はテンプレート管理（`scripts/nginx/templates/nginx.conf.tmpl` の
+  `geo $tailnet_admin` が正本。秘密値は `.env` の `TAILNET_ADMIN_SECRET` を
+  `render.sh` が生成時に差し込む）。変更はテンプレートを編集し、
+  `bash scripts/nginx/deploy.sh`（dry-run）→ `sudo bash scripts/nginx/deploy.sh --apply`
+  で反映する（配置時に `*.bak-template-*` へ自動バックアップ・失敗時は自動復旧）。
+  旧来の `~/apply-admin-tailnet.sh` / `~/apply-admin-autoauth.sh`（ホームのパッチ）と
+  repo の `apply-*` は `scripts/archive/nginx-apply/` へ退避済み。
+  funnel/serve は tailscale CLI（要 sudo）。
 - **まいAI チャット（`/chat.html`・`/chat.js`・`/icon.webp`・`/icon-192.webp`）も elza vhost では tailnet/LAN 限定（2026-11-06 追加）**:
   `location = /admin.html` と同じ allowlist（`127.0.0.1` / `::1` / `192.168.0.0/16` / `100.64.0.0/10`）で
   webui を root にする `location` を追加する。
-  適用は `sudo bash scripts/nginx/apply-mai-chat-elza.sh --apply`（dry-run なら引数なし・冪等）。
+  chat 系 location は nginx テンプレート（`scripts/nginx/templates/nginx.conf.tmpl`）に
+  取り込み済み。変更はテンプレート編集 → `scripts/nginx/deploy.sh` で反映する
+  （旧 `apply-mai-chat-elza.sh` は退避済み）。
   これが無いと elza vhost の root（`/var/www/html`）に chat 系ファイルが無く
   **admin.html の「まいAI チャットを開く」が 404** になっていた（2026-11-06 実測）。
   `/css/chat.css`・fontawesome・`/api/admin/chat/*` は既存の location（`/css/`・fontawesome・`/api/admin`）で配信される。
@@ -143,8 +150,9 @@ pm2 logs mai-push-worker --lines 50 | grep '購読リクエスト成功\|成功 
 - **実体とビルド元は別リポジトリ**（private `gonzaresu-jp/smart-display`）。
   成果物は `/var/www/html/smart-display/` に置き、nginx の
   `location ^~ /display/ { alias /var/www/html/smart-display/; index display.html; }` で配信する。
-  - nginx の location 追加: `sudo bash scripts/nginx/apply-display-location.sh --apply`
-    （`display-location.conf` が実体。冪等・fail-closed・`nginx -t` 失敗時は自動復元）
+  - nginx の location はテンプレート（`scripts/nginx/templates/nginx.conf.tmpl`）に
+    取り込み済み。変更はテンプレート編集 → `scripts/nginx/deploy.sh` で反映する
+    （旧 `apply-display-location.sh` は退避済み）
   - 資産のビルド・配置: smart-display リポジトリの `bash scripts/deploy-display.sh --apply`
     （`npm run build:display` → rsync → 644/755）
 - **同一オリジンで配信するのが要点**:

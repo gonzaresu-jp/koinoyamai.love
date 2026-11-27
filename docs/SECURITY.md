@@ -204,7 +204,7 @@ node scripts/ops/regression-test.js --port 18099
 | hardening（2026-10-21 適用済み） | `disable_functions`（exec 系 8 個）/ `open_basedir`（docroot 2 つ + /tmp ほか）/ `ffi.enable=preload`（**実行時 `FFI::cdef()` は拒否**＝disable_functions の迂回不可）/ `enable_post_data_reading=Off` | **コマンド実行・任意ファイル読み書きは塞がれている**。RCE 成立時も webui 配下への webshell 設置・同一オリジンフィッシング程度が想定範囲 |
 | 旧版 PHP | `php8.1-*` は**導入されていたが削除済み**（dpkg `rc`・設定だけ残存）。`masked` かつ inactive（upstream 8.1 は 2025-12-31 EOL → 修正は来ない） | 起動しなければ問題なし。追加の --------
 削除は任意 |
-| 旧 PHP（`/var/www/html` 直下） | `henkan/henkan.php`・`henkan/con.php` は `move_uploaded_file()` + `exec()` を含む。`open_basedir` で実行不可（実測: "No input file specified."）だが**ファイルは残っている** | nginx 側を塞ぐ（`scripts/nginx/apply-php-exec-guard.sh`） |
+| 旧 PHP（`/var/www/html` 直下） | `henkan/henkan.php`・`henkan/con.php` は `move_uploaded_file()` + `exec()` を含む。`open_basedir` で実行不可（実測: "No input file specified."）だが**ファイルは残っている** | nginx 側を塞ぐ（テンプレート `scripts/nginx/templates/nginx.conf.tmpl` の PHP 実行ガード） |
 | 自動更新 | `unattended-upgrades` enabled、`noble-security` 許可 | Canonical の USN 公開後に自動で入る（ただし数日かかる） |
 
 #### 「データ送受信」との関係（2026-10-21 実測・结论）
@@ -292,7 +292,8 @@ bash scripts/php/verify-php-security-patch.sh
      叩いていた（すべて 404）。偽物を返すと **「探している」ではなく「取得した」** として
      証拠が残る。`.env_xxx` をパターン一致させるには honey location の正規表現に `[._-]` が必要。
   2. 偽物には**追跡 URL（canary）** `https://koinoyamai.love/_canary/<token>` を埋め込む。
-  3. `sudo bash scripts/nginx/apply-honeypot.sh --apply` で、
+  3. ハニー `location`（`scripts/nginx/templates/nginx.conf.tmpl` に取り込み済み。
+     変更時はテンプレート編集 → `sudo bash scripts/nginx/deploy.sh --apply`）で、
      `listen 1717` の vhost に「機密ファイル名っぽいパスは**偽物ディレクトリからだけ**返す」
      `location` を入れる（他所の実ファイルは公開されない）。同時に機密拡張子の deny ルールも追加。
   4. `scripts/security/honeypot-watch.js`（5 分ごとの cron）が `honey.log` を見て通知する。
@@ -529,8 +530,8 @@ bash scripts/php/verify-php-hardening.sh            # 実測検証（root 不要
   - `webui/*.php` はファイルに書き込まない（`file_put_contents` 等 0 件）
   - `webui/*.php` は POST を読まない（0 件）＝ `enable_post_data_reading=Off` で挙動が変わらない
 - **旧 PHP（`/var/www/html` 直下）の nginx 側ガード**:
-  `sudo bash scripts/nginx/apply-php-exec-guard.sh --apply`
-  （elza vhost の PHP 実行を 404 にする。**本番 :1717 / staging :80 は対象外**）
+  `scripts/nginx/templates/nginx.conf.tmpl` の PHP 実行ガード
+  （elza vhost の PHP 実行を 404 にする。**本番 :1717 / staging :80 は対象外**。旧 apply スクリプトは退避済み）
 
 ### ⚠️ nginx のレート制限は適用しない
 
@@ -570,7 +571,7 @@ bash scripts/php/verify-php-hardening.sh            # 実測検証（root 不要
     `/api/events/weekly`）のみで、書き込み系 API には触れない。
   - 配置先は `/var/www/html/smart-display/`（git 管理ツリー外・644/755）。
     git 管理ツリーに入れると `check-drift.sh` の「未コミット変更」で引っかかる。
-- 適用: `sudo bash scripts/nginx/apply-display-location.sh --apply`（冪等・fail-closed）
+- 適用: location は `scripts/nginx/templates/nginx.conf.tmpl` に取り込み済み（変更はテンプレート編集 → `scripts/nginx/deploy.sh`）
 
 ### 公開 PHP ページの隔離（メンテナンスモード）
 
@@ -585,7 +586,7 @@ bash scripts/php/verify-php-hardening.sh            # 実測検証（root 不要
 - **注意**:
   - `location = /status.php` のような**完全一致** location は regex より優先される。
     対象 vhost（1717 / staging）には無いが、増加する場合は確認すること。
-    elza vhost（:80）の旧 PHP は別 PR #50 の `scripts/nginx/apply-php-exec-guard.sh` で 404 化する。
+    elza vhost（:80）の旧 PHP は PR #50 のガード（現在は nginx テンプレートに取り込み済み）で 404 化する。
   - メンテナンスページは **サイト既存の `/error/`**（`webui/error/index.html`・静的 HTML）。
     別途ファイルを配置しないため権限の問題は発生しない（PHP も実行しない）。
 - **復旧**: `sudo bash scripts/php/patch-and-resume.sh`（パッチ適用 → パッチ状態のみ検証 →
@@ -631,8 +632,8 @@ UA 判定は「公式のクローラしか来ない」程度の補助にすぎ�
    （cloudflared は 127.0.0.1 から接続するため経路は確保される。
    `allow/deny` は access フェーズ、UA 判定の `if` は rewrite フェーズなので
    UA 判定が先に 403 を返す）。
-   適用: `sudo bash scripts/nginx/apply-dmedia-tunnel-only.sh --apply`
-   （dry-run → --apply。冪等・fail-closed・バックアップ・`nginx -t` 検証つき）
+   適用済みの状態は `scripts/nginx/templates/discord.conf.tmpl` が正本
+   （変更はテンプレート編集 → `sudo bash scripts/nginx/deploy.sh --apply`。バックアップ・`nginx -t` 検証・自動復旧つき）
 3. **URL 自体を推測不能にする（capability URL）** — アップロードサービスの
    `?scope=discord` だけ ID を 128bit（`crypto.randomBytes(16)`）にする。
    通常の `media` scope は 32bit のまま（公開メディアなので無意味）。
@@ -671,7 +672,7 @@ UA 判定は「公式のクローラしか来ない」程度の補助にすぎ�
     幅 1280px。初回アクセスで自動生成し `discord-media/thumbs/<id>.jpg` にキャッシュ）
   - `pub()` に `watchUrl`（discord scope のときのみ）を追加。**Discord へ渡すべき URL
     は `watchUrl`（`/watch/<id>`）**。`.mp4` 直リンクはブラウザから開くと 403 になる
-- nginx（`/etc/nginx/discord.conf`。適用は `bash /tmp/opencode/apply-dmedia-watch.sh`）:
+- nginx（`/etc/nginx/discord.conf`。正本は `scripts/nginx/templates/discord.conf.tmpl`）:
   - `/dmedia/` に Discordbot UA 制限を復活、`location ^~ /watch/`・`/thumb/` を
     127.0.0.1:3100 へ proxy（tunnel のみ許可・UA 制限なし）
 - なお Discord は unfurl のたびに **79MB のファイルを丸ごと再取得**する
