@@ -71,6 +71,12 @@ app.use(express.json({
 }));
 app.use(cookieParser());
 app.use(express.urlencoded({ extended: true }));
+// API レスポンスは robots.txt でブロックせず（Googlebot のページ描画を妨げないため）、
+// X-Robots-Tag で検索結果へのインデックス登録のみを除外する
+app.use("/api", (req, res, next) => {
+  res.set("X-Robots-Tag", "noindex, nofollow");
+  next();
+});
 // 同一オリジンの Web UI / デスクトップアプリ / ローカル開発のみ許可する、オリジン制限付き CORS。
 // ブラウザは credentials 付きリクエストに `*` を許さないため、実際の送信元を echo する形にし、
 // 許可外のオリジンにはヘッダーを付与しない（= ブラウザがブロックする）。

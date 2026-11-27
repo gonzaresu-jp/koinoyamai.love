@@ -3,8 +3,8 @@
 
 <head>
     <?php
-    $pageTitle = "アプリをダウンロード";
-    $pageDesc = "まいちゃん通知のAndroid版・Windows版アプリのダウンロードページです。各アプリの主な機能、動作環境・推奨要件、インストール手順をご案内します。";
+    $pageTitle = "アプリをダウンロード（Android・Windows）";
+    $pageDesc = "恋乃夜まい通知アプリ（Android版・Windows版）のダウンロードページ。FCMプッシュ通知・配信アラーム・デスクトップ常駐機能、動作環境・推奨要件、インストール手順をまとめています。";
     $extraHead = '<link rel="stylesheet" href="/css/download.css?v=' . @filemtime(__DIR__ . '/css/download.css') . '" />';
     include __DIR__ . '/head.php';
 
@@ -39,7 +39,42 @@
             $winHref = '/dl/' . rawurlencode($winFile) . '?v=' . @filemtime(__DIR__ . '/dl/' . $winFile);
         }
     }
+
+    $dlAppsJsonLd = json_encode([
+        '@context' => 'https://schema.org',
+        '@graph' => [
+            [
+                '@type' => 'SoftwareApplication',
+                'name' => 'まいちゃん通知 Androidアプリ',
+                'operatingSystem' => 'Android 8.0 以上',
+                'applicationCategory' => 'UtilitiesApplication',
+                'softwareVersion' => $apkVersion !== '' ? $apkVersion : 'latest',
+                'url' => $domain . '/download/',
+                'offers' => [
+                    '@type' => 'Offer',
+                    'price' => '0',
+                    'priceCurrency' => 'JPY',
+                ],
+            ],
+            [
+                '@type' => 'SoftwareApplication',
+                'name' => 'まいちゃん通知 Windowsアプリ',
+                'operatingSystem' => 'Windows 10 / Windows 11 (64bit)',
+                'applicationCategory' => 'UtilitiesApplication',
+                'softwareVersion' => $winVersion !== '' ? $winVersion : 'latest',
+                'url' => $domain . '/download/',
+                'offers' => [
+                    '@type' => 'Offer',
+                    'price' => '0',
+                    'priceCurrency' => 'JPY',
+                ],
+            ],
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG);
     ?>
+    <?php if ($dlAppsJsonLd): ?>
+    <script type="application/ld+json"><?= $dlAppsJsonLd ?></script>
+    <?php endif; ?>
 </head>
 
 <body id="app-body">

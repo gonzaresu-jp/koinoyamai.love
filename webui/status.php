@@ -1,9 +1,15 @@
-<?php
-// status.php
-$extraHead = '<link rel="stylesheet" href="/css/status.css?v=' . @filemtime(__DIR__ . '/css/status.css') . '" />';
-include __DIR__ . '/head.php';
-?>
-<title>システム稼働状況 - まいちゃん通知</title>
+<!doctype html>
+<html lang="ja">
+
+<head>
+    <?php
+    // status.php
+    $pageTitle = "システム稼働状況";
+    $pageDesc = "まいちゃん通知（恋乃夜まい非公式通知サービス）のバックグラウンド監視プロセス・AI使用量・サーバーリソースのリアルタイム稼働状況を確認できます。";
+    $extraHead = '<link rel="stylesheet" href="/css/status.css?v=' . @filemtime(__DIR__ . '/css/status.css') . '" />';
+    include __DIR__ . '/head.php';
+    ?>
+</head>
 
 
 <body id="app-body">

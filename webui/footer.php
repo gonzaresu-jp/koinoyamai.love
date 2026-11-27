@@ -112,5 +112,33 @@ foreach ($updateLogs as $log) {
     </a>
 
   </div>
-  <p><a href="/logs">Last updated <?= htmlspecialchars($lastUpdatedDate) ?></a></p>
+  <nav class="footer-site-nav" aria-label="サイト内リンク">
+    <div class="footer-nav-group">
+      <p class="footer-nav-heading"><i class="fa-solid fa-play" aria-hidden="true"></i>コンテンツ</p>
+      <ul class="footer-nav-list">
+        <li><a href="/"><i class="fa-solid fa-house" aria-hidden="true"></i>ホーム</a></li>
+        <li><a href="/archive/"><i class="fa-solid fa-film" aria-hidden="true"></i>配信アーカイブ検索</a></li>
+        <li><a href="/twitter-media/"><i class="fa-solid fa-images" aria-hidden="true"></i>メディアアーカイブ</a></li>
+      </ul>
+    </div>
+    <div class="footer-nav-group">
+      <p class="footer-nav-heading"><i class="fa-solid fa-circle-info" aria-hidden="true"></i>情報</p>
+      <ul class="footer-nav-list">
+        <li><a href="/guide/"><i class="fa-solid fa-book-open" aria-hidden="true"></i>使い方・対応一覧</a></li>
+        <li><a href="/logs/"><i class="fa-solid fa-clipboard-list" aria-hidden="true"></i>アップデート履歴</a></li>
+        <li><a href="/future/"><i class="fa-solid fa-rocket" aria-hidden="true"></i>今後の開発予定</a></li>
+        <li><a href="/info/"><i class="fa-solid fa-circle-question" aria-hidden="true"></i>このサービスについて</a></li>
+      </ul>
+    </div>
+    <div class="footer-nav-group">
+      <p class="footer-nav-heading"><i class="fa-solid fa-life-ring" aria-hidden="true"></i>サポート</p>
+      <ul class="footer-nav-list">
+        <li><a href="/status/"><i class="fa-solid fa-heart-pulse" aria-hidden="true"></i>システム稼働状況</a></li>
+        <li><a href="/download/"><i class="fa-solid fa-download" aria-hidden="true"></i>アプリをダウンロード</a></li>
+        <li><a href="https://form.jotform.com/253191048959063" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-bug" aria-hidden="true"></i>不具合報告</a></li>
+        <li><a href="https://github.com/gonzaresu-jp/Mai-notification" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-github" aria-hidden="true"></i>GitHubページ</a></li>
+      </ul>
+    </div>
+  </nav>
+  <p><a href="/logs/">Last updated <?= htmlspecialchars($lastUpdatedDate) ?></a></p>
 </footer>

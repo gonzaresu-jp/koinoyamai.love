@@ -1,6 +1,10 @@
+<!doctype html>
+<html lang="ja">
+
+<head>
 <?php
-$pageTitle = "メディアアーカイブ";
-$pageDesc = "保存されたTwitterメディア（画像・動画）のアーカイブ";
+$pageTitle = "恋乃夜まい メディアアーカイブ";
+$pageDesc = "恋乃夜まい（まいちゃん）のX（Twitter）投稿に添付された画像・動画メディアを一覧で振り返れるメディアアーカイブページです。";
 $extraHead = '<link rel="stylesheet" href="/css/twitter-media.css?v=' . @filemtime(__DIR__ . '/css/twitter-media.css') . '" />';
 include __DIR__ . '/head.php';
 ?>

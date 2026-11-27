@@ -2,11 +2,9 @@
 <html lang="ja">
 
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>テスト完了！</title>
-    <link rel="icon" href="/icon.webp">
     <?php
+    $pageTitle = "通知テスト";
+    $robotsNoindex = true;
     include __DIR__ . '/head.php';
     ?>
 

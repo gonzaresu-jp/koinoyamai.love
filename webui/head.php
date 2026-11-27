@@ -2,41 +2,104 @@
 $siteName = "まいちゃん通知 | 恋乃夜まい 配信・活動通知サービス";
 $defaultDesc = "Koinoya Mai（恋乃夜まい）の配信・活動をリアルタイムで通知する非公式ファンサービス。YouTube・TwitCasting・Twitch・Twitter・Pixiv Fanboxなど複数プラットフォームに対応。配信アーカイブの全文検索・まいAIチャット・非公式wikiなど、推し活を深める機能も揃えています。";
 require_once __DIR__ . '/_domain.php'; // ドメイン単一ソース（リクエスト導出）
-$currentUrl = $domain . $_SERVER['REQUEST_URI'];
+
+// 正規パス（canonical）の算出:
+// - クエリ文字列（?q=..., UTM 等）を除去
+// - .php 付き・末尾スラッシュ無しを正規 URL（/slug/）へ集約して重複インデックスを防止
+if (!isset($canonicalPath)) {
+    $rawPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
+    if (!is_string($rawPath) || $rawPath === '') {
+        $rawPath = '/';
+    }
+    $canonicalMap = [
+        '/index.php'         => '/',
+        '/archive'           => '/archive/',
+        '/archive.php'       => '/archive/',
+        '/guide'             => '/guide/',
+        '/guide.php'         => '/guide/',
+        '/logs'              => '/logs/',
+        '/logs.php'          => '/logs/',
+        '/download'          => '/download/',
+        '/download.php'      => '/download/',
+        '/status'            => '/status/',
+        '/status.php'        => '/status/',
+        '/future'            => '/future/',
+        '/future.php'        => '/future/',
+        '/info'              => '/info/',
+        '/info.php'          => '/info/',
+        '/twitter-media'     => '/twitter-media/',
+        '/twitter-media.php' => '/twitter-media/',
+    ];
+    $canonicalPath = $canonicalMap[$rawPath] ?? $rawPath;
+}
+$currentUrl = $domain . $canonicalPath;
 
 $title = isset($pageTitle) ? $pageTitle . " | まいちゃん通知" : $siteName;
 $description = isset($pageDesc) ? $pageDesc : $defaultDesc;
 $image = isset($pageImage) ? $pageImage : $defaultImage;
+
+$websiteJsonLd = json_encode([
+    '@context' => 'https://schema.org',
+    '@type' => 'WebSite',
+    'name' => 'まいちゃん通知',
+    'alternateName' => ['Koinoya Mai Notification', '恋乃夜まい通知', '恋乃夜まい 通知ダッシュボード'],
+    'url' => $domain . '/',
+    'inLanguage' => 'ja',
+    'description' => $defaultDesc,
+    'publisher' => [
+        '@type' => 'Organization',
+        'name' => 'まいちゃん通知 開発チーム',
+    ],
+    'potentialAction' => [
+        '@type' => 'SearchAction',
+        'target' => $domain . '/archive/?q={search_term_string}',
+        'query-input' => 'required name=search_term_string',
+    ],
+    'mainEntity' => [
+        '@type' => 'Person',
+        'name' => '恋乃夜まい',
+        'alternateName' => 'Koinoya Mai',
+        'sameAs' => [
+            'https://www.youtube.com/@koinoyamaich',
+            'https://x.com/koinoya_mai',
+            'https://twitcasting.tv/c:koinoya_mai',
+            'https://www.twitch.tv/koinoya_mai',
+        ],
+    ],
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG);
+
+$breadcrumbJsonLd = '';
+if ($canonicalPath !== '/' && isset($pageTitle) && empty($robotsNoindex)) {
+    $breadcrumbJsonLd = json_encode([
+        '@context' => 'https://schema.org',
+        '@type' => 'BreadcrumbList',
+        'itemListElement' => [
+            [
+                '@type' => 'ListItem',
+                'position' => 1,
+                'name' => 'まいちゃん通知',
+                'item' => $domain . '/',
+            ],
+            [
+                '@type' => 'ListItem',
+                'position' => 2,
+                'name' => $pageTitle,
+                'item' => $currentUrl,
+            ],
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG);
+}
 ?>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 
 <!-- JSON-LD: 構造化データ（SEO強化） -->
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "WebSite",
-  "name": "まいちゃん通知",
-  "alternateName": ["Koinoya Mai Notification", "恋乃夜まい通知"],
-  "url": "<?= htmlspecialchars($domain) ?>/",
-  "description": "<?= htmlspecialchars($defaultDesc) ?>",
-  "publisher": {
-    "@type": "Organization",
-    "name": "まいちゃん通知 開発チーム"
-  },
-  "mainEntity": {
-    "@type": "Person",
-    "name": "恋乃夜まい",
-    "alternateName": "Koinoya Mai",
-    "sameAs": [
-      "https://www.youtube.com/@koinoyamaich",
-      "https://twitter.com/koinoya_mai",
-      "https://twitcasting.tv/c:koinoya_mai",
-      "https://www.twitch.tv/koinoya_mai"
-    ]
-  }
-}
-</script>
+<?php if ($websiteJsonLd): ?>
+<script type="application/ld+json"><?= $websiteJsonLd ?></script>
+<?php endif; ?>
+<?php if ($breadcrumbJsonLd): ?>
+<script type="application/ld+json"><?= $breadcrumbJsonLd ?></script>
+<?php endif; ?>
 
 <!-- =====================================================
      SEO: タイトル・概要
