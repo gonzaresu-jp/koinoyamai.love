@@ -3,6 +3,8 @@
 #   bash scripts/ci/secret-scan.sh                 … Git 管理下の全ファイルを検査
 #   bash scripts/ci/secret-scan.sh --range A..B    … A..B の各コミットで「追加された行」を検査（pre-push 用。
 #                                                    途中で追加して後で消したものも見つける）
+#   bash scripts/ci/secret-scan.sh --new TIP       … TIP から辿れてリモートに無いコミットをすべて検査
+#                                                    （新規ブランチの push 用。ルートコミットも含む）
 #
 # 見つけた値そのものは表示しない（先頭 4 文字だけ）。誤検出は次のどちらかで除外する:
 #   - 行に `secret-scan: allow` と書く（ダミー値の行など）
@@ -57,19 +59,31 @@ check_line() { # path lineno text
 
 all_re="$(printf '%s\n' "${PATTERNS[@]}" | sed 's/^[^|]*|//' | paste -sd'|' -)"
 
-if [ "${1:-}" = "--range" ]; then
-  range="${2:?--range には A..B を指定してください}"
+if [ "${1:-}" = "--range" ] || [ "${1:-}" = "--new" ]; then
   # 範囲が解決できないと git log が何も出さず「OK」になってしまう（fail-open）ので先に確かめる
-  case "$range" in
-    *..*) from="${range%%..*}"; to="${range#*..}" ;;
-    *) echo "[secret-scan] --range は A..B の形で指定してください: $range" >&2; exit 2 ;;
-  esac
-  for rev in "$from" "${to:-HEAD}"; do
-    if ! git rev-parse --verify --quiet "${rev}^{commit}" >/dev/null; then
-      echo "[secret-scan] 範囲を解決できません（$rev）。検査できないため止めます" >&2
+  verify_rev() {
+    if ! git rev-parse --verify --quiet "${1}^{commit}" >/dev/null; then
+      echo "[secret-scan] 範囲を解決できません（$1）。検査できないため止めます" >&2
       exit 2
     fi
-  done
+  }
+  if [ "$1" = "--range" ]; then
+    range="${2:?--range には A..B を指定してください}"
+    case "$range" in
+      *..*) from="${range%%..*}"; to="${range#*..}" ;;
+      *) echo "[secret-scan] --range は A..B の形で指定してください: $range" >&2; exit 2 ;;
+    esac
+    verify_rev "$from"; verify_rev "${to:-HEAD}"
+    log_revs=("$range")
+  else
+    # --new TIP: TIP から辿れて、どのリモート追跡ブランチにも無いコミットをすべて見る（新規ブランチの push 用）。
+    # A..B は A 自身を含まないため、origin/main との共通祖先が無い（orphan・浅いクローン）ときに
+    # 最初のコミットが漏れる。こちらはルートコミット（浅いクローンでは境界のコミット）も含めて見る。
+    tip="${2:?--new にはコミットを指定してください}"
+    verify_rev "$tip"
+    range="$tip（リモートに無いコミット）"
+    log_revs=("$tip" --not --remotes)
+  fi
   echo "[secret-scan] 追加行を検査（コミットごと）: $range"
   # 範囲の両端の差分だと「途中で追加して後で消した」秘密値が打ち消し合って見えない。
   # git log -p でコミットごとの追加行を出し、awk で「パス<TAB>行番号<TAB>本文」に整形してから
@@ -81,7 +95,7 @@ if [ "${1:-}" = "--range" ]; then
   while IFS=$'\t' read -r path ln text; do
     ignored_path "$path" && continue
     check_line "$path" "$ln" "$text"
-  done < <(git -c core.quotePath=false log -p -U0 --no-color --no-ext-diff --diff-merges=first-parent --format= "$range" -- \
+  done < <(git -c core.quotePath=false log -p -U0 --no-color --no-ext-diff --diff-merges=first-parent --format= "${log_revs[@]}" -- \
     | awk '
         /^diff --git / { path = ""; rem = 0; next }
         rem > 0 {

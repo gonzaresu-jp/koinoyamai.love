@@ -33,25 +33,24 @@ ZERO_SHA="0000000000000000000000000000000000000000"
 PROTECTED_REFS="refs/heads/main refs/heads/staging"
 blocked_ref=""
 SECRET_RANGES=()
-while read -r _local_ref local_sha remote_ref remote_sha; do
+# 最終行に改行が無くても読む（|| [ -n ... ]）
+while read -r _local_ref local_sha remote_ref remote_sha || [ -n "${remote_ref:-}" ]; do
   [ -z "${remote_ref:-}" ] && continue
   for p in $PROTECTED_REFS; do
     [ "$remote_ref" = "$p" ] && blocked_ref="$remote_ref"
   done
-  # 秘密値の検査範囲（この push で新しく送るコミット）。削除 push は対象外
-  [ "$local_sha" = "$ZERO_SHA" ] && continue
-  if [ "$remote_sha" != "$ZERO_SHA" ] && git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
-    SECRET_RANGES+=("$remote_sha..$local_sha")
-  else
-    nb_base="$(git merge-base "$local_sha" origin/main 2>/dev/null || true)"
-    if [ -n "$nb_base" ]; then
-      SECRET_RANGES+=("$nb_base..$local_sha")
+  # 秘密値の検査対象（この push で新しく送るコミット）。削除 push は対象外。
+  # 要素は secret-scan.sh の引数（"--range A..B" / "--new TIP"。SHA なので空白で分けてよい）
+  if [ "$local_sha" != "$ZERO_SHA" ]; then
+    if [ "$remote_sha" != "$ZERO_SHA" ] && git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
+      SECRET_RANGES+=("--range $remote_sha..$local_sha")
     else
-      # 共通の祖先が無い（origin/main 未取得など）ときは、ルートからすべて見る
-      nb_root="$(git rev-list --max-parents=0 "$local_sha" | tail -n 1)"
-      SECRET_RANGES+=("$nb_root..$local_sha")
+      # 新規 ref・リモートの sha が手元に無い強制 push: リモートに無いコミットをすべて見る
+      # （merge-base..tip だと、共通祖先が無いときにルートコミットが漏れる）
+      SECRET_RANGES+=("--new $local_sha")
     fi
   fi
+  remote_ref=""
 done
 
 if [ -n "$blocked_ref" ] && [ "${SKIP_PREPUSH:-0}" != "1" ]; then
@@ -157,7 +156,8 @@ fi
 #   範囲は 0a で標準入力（実際に push する ref）から求めたもの。
 for sr in "${SECRET_RANGES[@]+"${SECRET_RANGES[@]}"}"; do
   echo "[pre-push] 秘密値の検出（$sr）"
-  if bash scripts/ci/secret-scan.sh --range "$sr"; then
+  # shellcheck disable=SC2086  # "--range A..B" / "--new SHA" を引数に分ける
+  if bash scripts/ci/secret-scan.sh $sr; then
     echo "${GRN}[pre-push] ✓ 秘密値なし${RST}"
   else
     echo "${RED}[pre-push] ✗ 送信するコミットに秘密値らしき文字列があります${RST}"

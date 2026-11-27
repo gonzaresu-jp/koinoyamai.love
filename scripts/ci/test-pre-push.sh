@@ -8,11 +8,24 @@ HOOK="scripts/hooks/pre-push"
 SHA="$(git rev-parse HEAD)"
 ZERO="0000000000000000000000000000000000000000"
 
+MSG='への直接 push は禁止されています'
+# 後段の重い検査（回帰テスト・バージョン整合）は飛ばす。判定は「禁止のメッセージが出たか」で見る
+# （終了コードだけだと、保護判定を消しても後段の失敗で「止まった」と数えてしまう）。
+run_hook() { printf '%s' "$1" | SKIP_PREPUSH_REGRESSION=1 SKIP_PREPUSH_VERSION=1 bash "$HOOK" origin x 2>&1; }
+
 fail=0; n=0
 expect_block() { # 説明 標準入力
   n=$((n + 1))
-  if printf '%s\n' "$2" | bash "$HOOK" origin x >/dev/null 2>&1; then
+  local out rc
+  out="$(run_hook "$2"$'\n')"; rc=$?
+  if [ "$rc" -eq 0 ] || ! printf '%s' "$out" | grep -q "$MSG"; then
     echo "  NG: 止まらなかった: $1"; fail=1
+  fi
+}
+expect_not_block() { # 説明 標準入力（保護ブランチ以外は保護判定で止めない）
+  n=$((n + 1))
+  if run_hook "$2"$'\n' | grep -q "$MSG"; then
+    echo "  NG: 止めてはいけないのに止めた: $1"; fail=1
   fi
 }
 expect_skip() { # 説明 標準入力（SKIP_PREPUSH=1 で検査せず通ること）
@@ -29,6 +42,13 @@ expect_block "staging へ"                      "refs/heads/agent/x $SHA refs/he
 expect_block "main の削除"                     "(delete) $ZERO refs/heads/main $SHA"
 expect_block "複数 ref のうち 1 つが main"      "refs/heads/agent/x $SHA refs/heads/agent/x $ZERO
 refs/heads/agent/x $SHA refs/heads/main $SHA"
+n=$((n + 1))  # 最終行に改行が無い入力も読む
+if out="$(run_hook "refs/heads/agent/x $SHA refs/heads/main $SHA")" || ! printf '%s' "$out" | grep -q "$MSG"; then
+  echo "  NG: 改行なしの最終行を読まなかった"; fail=1
+fi
+expect_not_block "main2"                       "refs/heads/agent/x $SHA refs/heads/main2 $ZERO"
+expect_not_block "feature/main"                "refs/heads/agent/x $SHA refs/heads/feature/main $ZERO"
+expect_not_block "タグ main"                    "refs/tags/main $SHA refs/tags/main $ZERO"
 # cron（SKIP_PREPUSH=1）は main への push を通す
 expect_skip  "cron の main への push"          "refs/heads/main $SHA refs/heads/main $SHA"
 
