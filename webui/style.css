@@ -1285,28 +1285,94 @@ footer p a {
 }
 
 .footer-site-nav {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px 16px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px 24px;
   max-width: 960px;
-  margin: 14px auto 10px;
-  padding: 12px 16px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  margin: 16px auto 14px;
+  padding: 18px 22px;
+  text-align: left;
+  background: rgba(24, 14, 30, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
-.footer-site-nav a {
-  color: rgba(255, 255, 255, 0.88);
+.footer-nav-heading {
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.76);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.footer-nav-heading i {
+  color: #f9a8d4;
+  font-size: 0.78rem;
+}
+
+.footer-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.footer-nav-list a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.92);
   text-decoration: none;
-  font-size: 0.82rem;
+  font-size: 0.84rem;
   font-weight: 600;
-  transition: color 0.18s ease, opacity 0.18s ease;
+  transition: background-color 0.18s ease, color 0.18s ease, padding-left 0.18s ease;
 }
 
-.footer-site-nav a:hover {
+.footer-nav-list a i {
+  width: 1.25em;
+  text-align: center;
+  color: #f9a8d4;
+  font-size: 0.82rem;
+  flex-shrink: 0;
+}
+
+.footer-nav-list a:hover {
   color: #fff;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  background-color: rgba(255, 255, 255, 0.11);
+  padding-left: 12px;
+}
+
+@media (max-width: 680px) {
+  .footer-site-nav {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    padding: 14px 16px;
+  }
+
+  .footer-nav-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2px 8px;
+  }
+}
+
+@media (max-width: 400px) {
+  .footer-nav-list {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ソーシャルアイコン */
