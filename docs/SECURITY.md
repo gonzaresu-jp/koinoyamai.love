@@ -42,7 +42,7 @@ readlink /proc/<pid>/cwd
 - `/api/notify` は `NOTIFY_API_TOKEN` と `NOTIFY_HMAC_SECRET` が未設定なら **503** で拒否。
 - 秘密値の分離: `NOTIFY_API_TOKEN` / `NOTIFY_HMAC_SECRET` / `INTERNAL_API_TOKEN`。`ADMIN_NOTIFY_TOKEN` は通知/内部APIでは不使用。
 - HMAC 比較は `crypto.timingSafeEqual`。署名対象は `{timestamp}.{生ボディ}`（v2、リプレイ対策に±300秒）。
-- Electron は `webSecurity=true`。OAuth callback はループバックのみ許可。
+- 旧 Electron 版（`webSecurity=true`）は退役済み（ソースはタグ `electron-final-v1.5.0`）。旧版の利用者が残るため、サーバー側の OAuth callback はループバックのみ許可のまま維持する。
 - CSRF Origin 判定は完全一致。DB/JSバックアップの誤コミット抑止済み。`package-lock.json` はGit管理。
 - **nginx（2026-09-22 外部実測 404 / 2026-10-19 パス改名）**: `location ^~ /koinoyamai.love/ { deny all; }`（旧 `/mai-push/`）、ドットファイル deny、
   `.env|.db|.bak|...` 拡張子 deny が有効 → `/backups/*.db`・`/.env`・`/data.db` はWeb非公開。

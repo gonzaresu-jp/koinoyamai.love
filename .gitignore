@@ -122,9 +122,8 @@ webui/fontawesome-free-7.2.0-web
 webui/styles
 
 # ---------- アプリ（Windows / Android）のビルド生成物 ----------
-Windows/mai-push-desktop/dist/
-Windows/mai-push-desktop/bin/
-Windows/mai-push-desktop/obj/
+# 旧 Electron 版は退役済み（ソースはタグ electron-final-v1.5.0）。ローカルに残るビルド残骸を無視する
+Windows/mai-push-desktop/
 Windows/mai-push-winui/bin/
 Windows/mai-push-winui/obj/
 Windows/mai-push-winui/publish/
